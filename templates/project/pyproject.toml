@@ -1,0 +1,35 @@
+[project]
+name = "@PROJECT_NAME@"
+version = "0.1.0"
+description = "Odoo (OCB) + OCA project managed by odoo-nix"
+requires-python = "@REQUIRES_PYTHON@"
+readme = "README.md"
+
+# Python runtime dependencies. The first block is Odoo core's requirements
+# (generated from src/odoo/requirements.txt by the scaffolder). The sentinel
+# block holds OCA modules' external_dependencies.python, kept in sync by
+# `odoo-add-app` / `odoo-update` — do not edit it by hand.
+dependencies = [
+@ODOO_REQS@
+    # >>> odoo-nix: oca python deps (managed) >>>
+    # <<< odoo-nix: oca python deps <<<
+]
+
+[dependency-groups]
+dev = [
+    "debugpy",
+    "ruff",
+]
+
+[tool.uv]
+# Single virtual project — Odoo addons load via addons_path, not pip, so no
+# wheel is built for this root and there are no workspace members.
+package = false
+
+# Legacy sdist-only packages that predate PEP 517 and don't declare setuptools
+# as a build dependency. uv2nix builds these from source in the Nix sandbox.
+# This block is auto-maintained from uv.lock by `odoo-add-app` / `odoo-update`
+# (see lib/uv_build_deps.py) — do not edit by hand.
+[tool.uv.extra-build-dependencies]
+# >>> odoo-nix: sdist build deps (managed) >>>
+# <<< odoo-nix: sdist build deps (managed) <<<

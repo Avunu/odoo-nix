@@ -1,0 +1,12 @@
+# odoo-nix project
+
+# Synthesized odoo.conf symlink into the Nix store (recreated on shell entry)
+/odoo.conf
+
+# devenv-managed state: postgres cluster + Odoo filestore (.devenv/state/odoo)
+/.devenv/
+/.direnv/
+/.venv/
+__pycache__/
+*.pyc
+.DS_Store

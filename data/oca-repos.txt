@@ -1,0 +1,261 @@
+OCA/account-invoice-reporting	Odoo Invoicing reports	public	2026-06-29T15:09:16Z
+OCA/OpenUpgrade	Open source upgrade path for Odoo/OpenERP	public	2026-06-29T15:07:42Z
+OCA/edi		public	2026-06-29T14:54:46Z
+OCA/sale-workflow	Odoo Sales, Workflow and Organization	public	2026-06-29T14:52:36Z
+OCA/ddmrp		public	2026-06-29T14:50:35Z
+OCA/manufacture	Odoo Manufacturing Addons	public	2026-06-29T14:46:44Z
+OCA/l10n-austria	Odoo Austria Localization	public	2026-06-29T14:46:18Z
+OCA/field-service	Field Service Management	public	2026-06-29T14:04:36Z
+OCA/mail	mail	public	2026-06-29T13:53:11Z
+OCA/pms	Property Management System on Odoo	public	2026-06-29T13:22:18Z
+OCA/e-commerce	Odoo E-Commerce server automation addons	public	2026-06-29T13:04:09Z
+OCA/purchase-workflow	Odoo Purchases, Workflow and Organization	public	2026-06-29T13:01:22Z
+OCA/oca-addons-repo-template	OCA Repository Template	public	2026-06-29T12:55:01Z
+OCA/purchase-reporting		public	2026-06-29T12:52:53Z
+OCA/tier-validation	tier-validation	public	2026-06-29T12:46:42Z
+OCA/product-attribute	Odoo Product Attribute	public	2026-06-29T12:19:25Z
+OCA/account-analytic	Odoo Account Analytic Related Addons	public	2026-06-29T10:07:58Z
+OCA/server-ux		public	2026-06-29T08:10:37Z
+OCA/oca-custom	Custom Module for OCA Instance	public	2026-06-29T08:10:29Z
+OCA/partner-contact	Odoo Partner and Contact related addons	public	2026-06-29T08:03:41Z
+OCA/web	Odoo web client UI related addons	public	2026-06-29T07:54:47Z
+OCA/contract		public	2026-06-29T07:54:04Z
+OCA/rest-framework		public	2026-06-29T07:47:58Z
+OCA/server-env	Tools to manage environment-dependent configuration	public	2026-06-29T07:29:25Z
+OCA/management-system	Odoo for Management Systems (ISO, IEC, BS)	public	2026-06-29T07:04:18Z
+OCA/stock-logistics-transport	Transport management in Odoo	public	2026-06-29T01:06:03Z
+OCA/pos		public	2026-06-28T22:56:35Z
+OCA/OCB	Odoo Community Backports	public, fork	2026-06-28T22:31:23Z
+OCA/ai	ai	public	2026-06-28T12:24:32Z
+OCA/queue	Asynchronous Job Queue	public	2026-06-28T09:44:26Z
+OCA/account-invoicing	Odoo Invoicing Extension Addons	public	2026-06-28T08:47:11Z
+OCA/stock-logistics-warehouse	Odoo Warehouse Management Addons	public	2026-06-28T08:46:56Z
+OCA/crm	Odoo CRM, Mail & Newsletter advanced features	public	2026-06-28T07:23:33Z
+OCA/account-reconcile	Odoo account reconciliation modules (statements, data completion...)	public	2026-06-28T02:19:05Z
+OCA/l10n-romania	Romanian Localization for Odoo	public	2026-06-28T01:01:58Z
+OCA/l10n-brazil	Localização brasileira oficial do Odoo.	public	2026-06-28T00:41:19Z
+OCA/payroll	Odoo modules for payroll management	public	2026-06-27T14:47:13Z
+OCA/account-financial-reporting	Financial reports for Odoo	public	2026-06-27T14:47:08Z
+OCA/account-financial-tools	Odoo Accountant Financial Tools and Utils	public	2026-06-27T14:47:03Z
+OCA/account-closing	Odoo Accountant closing tools	public	2026-06-27T14:46:57Z
+OCA/timesheet	Odoo Timesheet Management Addons	public	2026-06-27T13:50:02Z
+OCA/knowledge	Odoo Document & Knowledge Management	public	2026-06-27T12:46:43Z
+OCA/project	Odoo Project Management and Services Company Addons	public	2026-06-27T11:21:27Z
+OCA/product-pack	Odoo modules related to product packs	public	2026-06-27T09:46:52Z
+OCA/product-variant		public	2026-06-27T08:46:56Z
+OCA/product-configurator	Advanced Product Configurator (from the original Pledra project https://github.com/pledra/odoo-product-configurator)	public	2026-06-27T08:46:51Z
+OCA/agreement		public	2026-06-26T21:48:52Z
+OCA/delivery-carrier	Odoo Carriers And Deliveries Management	public	2026-06-26T18:55:59Z
+OCA/mass-mailing	mass-mailing	public	2026-06-26T18:46:51Z
+OCA/event	Event Management addons	public	2026-06-26T18:46:46Z
+OCA/data-protection	Data Protection	public	2026-06-26T17:46:49Z
+OCA/wms	Warehouse Management System for advance logistic with Odoo	public	2026-06-26T17:36:36Z
+OCA/maintenance	Odoo modules for businesses that implies maintenance tasks	public	2026-06-26T16:46:45Z
+OCA/credit-control	Odoo modules for the customer credit control	public	2026-06-26T11:46:43Z
+OCA/hr-expense	Human Resources Expenses OCA modules for Odoo	public	2026-06-26T11:38:50Z
+OCA/social	Addons concerning odoo's social ERP features and messaging in general	public	2026-06-26T11:06:26Z
+OCA/stock-logistics-workflow	Odoo Stock, Workflow and Organization	public	2026-06-26T10:47:20Z
+OCA/account-budgeting		public	2026-06-26T10:47:14Z
+OCA/bank-payment	Odoo Electronic Payment	public	2026-06-26T10:47:00Z
+OCA/spreadsheet		public	2026-06-26T10:46:49Z
+OCA/margin-analysis	Odoo Financial Controlling (margin, costs, ...)	public	2026-06-26T09:02:31Z
+OCA/account-payment	Project supervised by the Banking PSC	public	2026-06-26T08:52:41Z
+OCA/commission	Odoo Commission Management	public	2026-06-26T08:46:55Z
+OCA/brand	Manage brands for products and companies	public	2026-06-26T08:46:50Z
+OCA/l10n-germany		public	2026-06-26T07:33:45Z
+OCA/hr-attendance	HR Attendance OCA modules for Odoo	public	2026-06-26T06:30:14Z
+OCA/operating-unit	Manage Operating Units in Odoo	public	2026-06-26T06:26:02Z
+OCA/stock-logistics-tracking	This repository contains modules around stock packages management	public	2026-06-25T20:47:11Z
+OCA/l10n-spain	Odoo Spain Localization	public	2026-06-25T15:10:00Z
+OCA/sale-promotion		public	2026-06-25T15:00:05Z
+OCA/reporting-engine	Odoo Alternative Reporting Engine	public	2026-06-25T14:40:51Z
+OCA/server-tools	Tools for Odoo Administrators to improve some technical features on Odoo.	public	2026-06-25T13:22:24Z
+OCA/oca-apps-store	oca-apps-store	public	2026-06-25T13:11:54Z
+OCA/repo-maintainer-conf		public	2026-06-25T13:11:15Z
+OCA/automation	automation	public	2026-06-25T12:46:58Z
+OCA/stock-logistics-shopfloor	stock-logistics-shopfloor	public	2026-06-25T12:46:33Z
+OCA/vertical-rental		public	2026-06-25T12:00:09Z
+OCA/stock-weighing	stock-weighing	public	2026-06-25T11:46:43Z
+OCA/sale-reporting		public	2026-06-25T10:31:27Z
+OCA/l10n-italy	Odoo Italian localization	public	2026-06-25T10:08:31Z
+OCA/version-control-platform		public	2026-06-24T23:30:38Z
+OCA/odoo-pre-commit-hooks	Linters of Odoo addons that complement pylint-odoo	public	2026-06-24T20:57:22Z
+OCA/pylint-odoo	Odoo plugin for Pylint	public	2026-06-24T19:31:21Z
+OCA/mis-builder	Management Information System reports for Odoo: easily build super fast, beautiful, custom reports such as P&L, Balance Sheets and more.	public	2026-06-24T18:48:17Z
+OCA/.github		public	2026-06-24T15:59:31Z
+OCA/stock-logistics-reporting	Provides Odoo Logistics reporting modules	public	2026-06-24T12:29:49Z
+OCA/l10n-thailand	Thai localization	public	2026-06-24T10:12:32Z
+OCA/storage		public	2026-06-24T09:27:08Z
+OCA/l10n-france	France Localization for Odoo	public	2026-06-24T06:46:54Z
+OCA/hr-holidays	Human Resources Holidays OCA modules for Odoo	public	2026-06-23T15:29:21Z
+OCA/oca-github-bot	The GitHub Bot of the Odoo Community Association (OCA)	public	2026-06-23T13:57:53Z
+OCA/server-auth		public	2026-06-23T13:31:14Z
+OCA/rma	Odoo for Return Merchandise Authorization (RMA)	public	2026-06-23T13:29:26Z
+OCA/openupgradelib	A library with support functions to be called from Odoo migration scripts.	public	2026-06-23T13:18:04Z
+OCA/dms	Odoo modules for a Document Management System	public	2026-06-23T08:23:34Z
+OCA/edi-framework		public	2026-06-23T08:11:48Z
+OCA/calendar		public	2026-06-23T07:36:00Z
+OCA/donation		public	2026-06-22T19:47:23Z
+OCA/project-reporting		public	2026-06-22T19:14:58Z
+OCA/py3o.template		public	2026-06-22T17:52:26Z
+OCA/website	Odoo website builder addons	public	2026-06-22T16:41:47Z
+OCA/vertical-abbey		public	2026-06-22T16:40:48Z
+OCA/l10n-netherlands	Odoo Dutch Localization	public	2026-06-22T10:34:53Z
+OCA/connector-telephony	Odoo modules for telephony integration	public	2026-06-22T09:46:42Z
+OCA/sale-blanket	sale-blanket	public	2026-06-22T08:08:32Z
+OCA/currency	Odoo Currency related Addons (crypto currencies, rate conversion, integrations with third party applications,...)	public	2026-06-21T19:46:51Z
+OCA/connector	Odoo generic connector framework (jobs queue, asynchronous tasks, channels)	public	2026-06-21T19:46:41Z
+OCA/l10n-mexico	Mexican Localization.	public	2026-06-21T14:10:43Z
+OCA/account-fiscal-rule	Odoo Taxes & Fiscal Rules Management	public	2026-06-21T07:46:56Z
+OCA/server-backend		public	2026-06-20T05:07:28Z
+OCA/bank-payment-alternative	Bank Payment - Alternative approach based on Odoo native payment methods	public	2026-06-19T23:00:46Z
+OCA/bank-statement-import	Bank Import Addons	public	2026-06-19T14:19:13Z
+OCA/shopfloor-app	shopfloor-app	public	2026-06-19T12:53:09Z
+OCA/stock-logistics-request	This repository contains modules to provide another way of creating stock movements. Provided as a dedicated application, users will be able to create their stock needs by product and location.	public	2026-06-19T10:27:43Z
+OCA/l10n-ethiopia	Ethiopian Localization Project	public	2026-06-19T09:07:03Z
+OCA/hr	Odoo Human Resources Addons	public	2026-06-19T07:39:35Z
+OCA/odoo-pim		public	2026-06-18T10:24:17Z
+OCA/helpdesk	Odoo modules for managing a HelpDesk system	public	2026-06-18T09:46:56Z
+OCA/stock-logistics-putaway	stock-logistics-putaway	public	2026-06-17T21:47:06Z
+OCA/report-print-send	Odoo Printing Services and Printer related addons	public	2026-06-17T21:46:51Z
+OCA/sign		public	2026-06-17T09:46:47Z
+OCA/l10n-japan		public	2026-06-17T08:51:51Z
+OCA/edi-voxel	edi-voxel	public	2026-06-16T21:46:51Z
+OCA/l10n-finland		public	2026-06-16T18:25:58Z
+OCA/mis-builder-contrib	Modules that provide additional features on top of MIS Builder. A kind of incubator for MIS Builder features that may land in the core in the future.	public	2026-06-16T17:23:52Z
+OCA/route-planning	route-planning	public	2026-06-16T17:14:34Z
+OCA/module-composition-analysis	Collect and explore data from Odoo modules repositories	public	2026-06-13T13:05:13Z
+OCA/community-data-files		public	2026-06-13T10:40:08Z
+OCA/stock-logistics-availability	This repository contains modules to provide more information about product stock availability in terms of quantities (immediately usable, potential, unreserved ones, ...).	public	2026-06-12T15:47:33Z
+OCA/stock-logistics-orderpoint	This repository contains modules to extend reordering rules (available on warehouses locations) functionalities.	public	2026-06-12T15:47:28Z
+OCA/server-brand		public	2026-06-12T07:54:34Z
+OCA/l10n-portugal	Odoo Portuguese localization	public	2026-06-11T14:57:37Z
+OCA/oca-port	Tool for porting Odoo modules changes from one version to another	public	2026-06-11T10:10:13Z
+OCA/multi-company		public	2026-06-10T18:59:18Z
+OCA/stock-logistics-reservation	stock-logistics-reservation	public	2026-06-10T08:23:47Z
+OCA/vertical-association	Odoo addons for membership related tasks	public	2026-06-08T12:46:33Z
+OCA/intrastat-extrastat		public	2026-06-08T10:46:56Z
+OCA/repair		public	2026-06-08T09:47:15Z
+OCA/sale-channel		public	2026-06-05T16:46:42Z
+OCA/web-api		public	2026-06-05T09:47:11Z
+OCA/stock-logistics-barcode		public	2026-06-03T20:46:51Z
+OCA/l10n-switzerland	Odoo Swiss localization	public	2026-06-03T05:07:14Z
+OCA/fleet	Odoo fleet management modules	public	2026-06-02T11:09:16Z
+OCA/search-engine		public	2026-05-29T13:47:28Z
+OCA/stock-logistics-release-channel	stock-logistics-release-channel	public	2026-05-28T14:37:57Z
+OCA/odoo-test-helper	Odoo Test Helper	public	2026-05-26T12:40:49Z
+OCA/l10n-usa	US Localization of Odoo	public	2026-05-26T09:00:48Z
+OCA/survey	Survey addons	public	2026-05-23T18:49:23Z
+OCA/odoo-module-migrator	Python library to migrate odoo base code from a version to another	public	2026-05-21T20:41:59Z
+OCA/maintainer-tools	Odoo Maintainers Tools & conventions for OCA members which evaluate and maintain repositories.	public	2026-05-21T16:15:11Z
+OCA/l10n-bulgaria	l10n-bulgaria	public	2026-05-16T15:15:02Z
+OCA/odoorpc	Python module to pilot your Odoo servers through JSON-RPC.	public	2026-05-15T10:52:47Z
+OCA/website-cms	CMS features for Odoo website	public	2026-05-13T08:46:40Z
+OCA/crowdfunding	crowdfunding	public	2026-05-12T16:45:52Z
+OCA/l10n-iran	Odoo Localization for Iran	public	2026-05-09T09:30:39Z
+OCA/sale-prebook	sale-prebook	public	2026-05-03T18:09:46Z
+OCA/l10n-paraguay	l10n-paraguay	public	2026-05-02T03:27:28Z
+OCA/shift-planning		public	2026-04-23T16:05:08Z
+OCA/l10n-indonesia	Indonesian Localization Project	public	2026-04-16T10:33:57Z
+OCA/interface-git	Tools to interact with github from Odoo	public	2026-04-16T03:08:15Z
+OCA/l10n-belgium		public	2026-04-09T14:35:09Z
+OCA/geospatial	Odoo and GIS	public	2026-04-08T12:46:26Z
+OCA/l10n-colombia	Odoo modules for Colombia	public	2026-04-03T21:36:59Z
+OCA/manufacture-reporting		public	2026-03-31T12:38:14Z
+OCA/l10n-ecuador	Odoo Localization for Ecuador	public	2026-03-30T20:17:44Z
+OCA/oca-ci	Container image to run OCA CI tests	public	2026-03-30T07:38:50Z
+OCA/odoo-community.org	The Odoo Community Association Website	public	2026-03-11T15:50:31Z
+OCA/iot	Internet of Things (IoT)	public	2026-03-10T11:45:31Z
+OCA/connector-interfaces	Odoo Generic Connector for ODBC, .CSV,...	public	2026-03-05T15:31:21Z
+OCA/cooperative		public	2026-02-24T10:35:23Z
+OCA/l10n-russia		public	2026-02-24T07:09:07Z
+OCA/connector-jira		public	2026-02-18T07:23:28Z
+OCA/business-requirement	Business Requirements Management via Odoo	public	2026-02-11T10:10:15Z
+OCA/connector-lims		public	2026-02-09T18:33:23Z
+OCA/l10n-ukraine	Ukrainian localization	public	2026-02-06T23:39:14Z
+OCA/e-learning	e-learning	public	2026-02-04T10:10:46Z
+OCA/oca-weblate-deployment		public	2026-01-18T16:52:32Z
+OCA/stock-logistics-interfaces	stock-logistics-interfaces	public	2026-01-16T16:29:52Z
+OCA/vertical-hotel	Odoo for Hotel Management	public	2026-01-12T17:44:56Z
+OCA/infrastructure	Odoo modules related to the management of Domain Name Server services within network infrastructure	public	2025-12-18T22:21:23Z
+OCA/connector-magento	Connect Odoo with Magento	public	2025-12-16T12:44:20Z
+OCA/apps-store	OCA Apps store module repository	public	2025-11-25T11:44:15Z
+OCA/shoppingfeed	shoppingfeed	public	2025-11-07T08:17:49Z
+OCA/edi-ediversa	edi-ediversa	public	2025-10-19T16:40:25Z
+OCA/connector-woocommerce		public	2025-09-30T14:34:27Z
+OCA/connector-spscommerce	Connector SPS Commerce	public	2025-09-30T14:34:22Z
+OCA/connector-salesforce	Connect Salesforce with Odoo	public	2025-09-30T14:34:20Z
+OCA/connector-sage	Connector with Sage	public	2025-09-30T14:34:17Z
+OCA/connector-redmine	Connector Redmine (http://redmine.org)	public	2025-09-30T14:34:15Z
+OCA/connector-prestashop	Connect Odoo with Prestashop	public	2025-09-30T14:34:13Z
+OCA/connector-odoo2odoo	connector-odoo2odoo. Intercompany process, based on odoo-connector	public	2025-09-30T14:34:10Z
+OCA/connector-lengow		public	2025-09-30T14:34:02Z
+OCA/connector-infor	Odoo modules to integrate with Infor	public	2025-09-30T14:33:57Z
+OCA/connector-ecommerce	Generic module used on Odoo for E-Commerce industry	public	2025-09-30T14:33:55Z
+OCA/connector-cmis	CMIS Connector	public	2025-09-30T14:33:52Z
+OCA/connector-accountedge	Odoo modules to connect with Account Edge (aka MyOB)	public	2025-09-30T14:33:50Z
+OCA/pwa-builder		public	2025-09-30T14:33:20Z
+OCA/program		public	2025-09-30T14:32:58Z
+OCA/department	[DEPRECATED since 9.0] Odoo Department segregation and management	public	2025-09-30T14:32:44Z
+OCA/rest-api		public	2025-09-30T14:32:39Z
+OCA/webkit-tools		public	2025-09-30T14:32:14Z
+OCA/vertical-travel		public	2025-09-30T14:32:12Z
+OCA/vertical-realestate	Odoo modules for real estate business	public	2025-09-30T14:32:07Z
+OCA/vertical-ngo	Odoo for NGO's and humanitarian organization	public	2025-09-30T14:32:04Z
+OCA/vertical-medical	Open Source Healthcare System for Odoo	public	2025-09-30T14:32:02Z
+OCA/vertical-isp	Odoo Modules for Internet Service Providers	public	2025-09-30T14:31:59Z
+OCA/vertical-education	Odoo modules for schools, universities and other education organizations	public	2025-09-30T14:31:54Z
+OCA/vertical-edition		public	2025-09-30T14:31:51Z
+OCA/vertical-cooperative-supermarket		public	2025-09-30T14:31:49Z
+OCA/vertical-construction	Odoo for Construction Company	public	2025-09-30T14:31:47Z
+OCA/vertical-community	Odoo for Communities Verticalization	public	2025-09-30T14:31:44Z
+OCA/vertical-agriculture	Verticalization of Odoo for farms and agroindustries	public	2025-09-30T14:31:39Z
+OCA/resource	resource	public	2025-09-30T14:31:34Z
+OCA/role-policy		public	2025-09-30T14:31:27Z
+OCA/project-agile		public	2025-09-30T14:31:22Z
+OCA/product-kitting	Odoo Kitting Addons	public	2025-09-30T14:30:57Z
+OCA/webhook	Modules with community help modules: webhook_* (gitlab, bitbucket... other webhook consumer)	public	2025-09-30T14:30:03Z
+OCA/cim	cim	public	2025-09-30T14:30:00Z
+OCA/web-api-contrib	web-api-contrib	public	2025-09-30T14:29:57Z
+OCA/account-consolidation	Odoo Account Consolidation Addons	public	2025-09-30T14:29:22Z
+OCA/website-themes	Website themes for Odoo	public	2025-09-30T14:29:14Z
+OCA/l10n-vietnam		public	2025-09-30T14:28:22Z
+OCA/l10n-venezuela	Odoo modules for Venezuela	public	2025-09-30T14:28:20Z
+OCA/l10n-uruguay	Odoo Localization for Uruguay	public	2025-09-30T14:28:15Z
+OCA/l10n-united-kingdom	Odoo Localization for United Kingdom	public	2025-09-30T14:28:12Z
+OCA/l10n-turkey	Turkish Localization Project	public	2025-09-30T14:28:07Z
+OCA/l10n-taiwan	Taiwanese localization	public	2025-09-30T14:28:02Z
+OCA/l10n-slovenia	Slovenian Localization Project	public	2025-09-30T14:27:55Z
+OCA/l10n-poland	Odoo Polish Localization	public	2025-09-30T14:27:45Z
+OCA/l10n-peru	Peruvian Localization	public	2025-09-30T14:27:43Z
+OCA/l10n-norway	The Norwegian localization for Odoo	public	2025-09-30T14:27:41Z
+OCA/l10n-morocco	Moroccan Localization	public	2025-09-30T14:27:36Z
+OCA/l10n-macedonia	Odoo Macedonian localization	public	2025-09-30T14:27:31Z
+OCA/l10n-luxemburg		public	2025-09-30T14:27:28Z
+OCA/l10n-ireland	Odoo Localization for Ireland	public	2025-09-30T14:27:20Z
+OCA/l10n-india	Odoo Localization for India	public	2025-09-30T14:27:12Z
+OCA/l10n-greece	Odoo Greek Localization	public	2025-09-30T14:27:09Z
+OCA/l10n-estonia		public	2025-09-30T14:26:57Z
+OCA/l10n-croatia	Odoo Croatian Localization	public	2025-09-30T14:26:50Z
+OCA/l10n-costa-rica	Odoo modules for Costa-Rica	public	2025-09-30T14:26:47Z
+OCA/l10n-china	Chinese localization of Odoo	public	2025-09-30T14:26:42Z
+OCA/l10n-chile	Odoo Chilean Localization	public	2025-09-30T14:26:40Z
+OCA/l10n-canada	Odoo modules for Canada	public	2025-09-30T14:26:37Z
+OCA/l10n-cambodia	Odoo Cambodian Localization	public	2025-09-30T14:26:35Z
+OCA/l10n-belarus		public	2025-09-30T14:26:24Z
+OCA/l10n-argentina	Odoo modules for Argentina	public	2025-09-30T14:26:18Z
+OCA/sale-financial	Odoo Sale and Financial related Addons	public	2025-09-30T14:26:00Z
+OCA/wallet		public	2025-09-30T14:25:33Z
+OCA/dotnet	This repository holds all addons written in dotnet	public	2025-09-30T14:25:24Z
+OCA/docs	Central repo for OCA docs (prototype)	public, archived	2025-05-23T09:21:43Z
+OCA/repo-maintainer		public	2024-10-16T06:54:54Z
+OCA/runbot-addons	Odoo Runbot Custom Features to be used by community.	public, archived	2024-05-01T19:00:46Z
+OCA/oca.recipe.odoo		public	2024-01-02T17:10:45Z
+OCA/maintainer-quality-tools	QA tools for Odoo maintainers	public, archived	2023-09-06T09:13:08Z
+OCA/mirrors-flake8		public	2022-10-03T19:58:16Z
+OCA/odoo-sentinel	Custom Odoo client for the stock_scanner module	public	2020-05-11T09:29:02Z
+OCA/ansible-odoo	[NOT MAINTAINED] Ansible role for Odoo	public	2020-01-21T22:17:14Z
+OCA/odoo-sphinx-autodoc	sphinx extension that allows to use "openerp.addons.*" with sphinx autodoc feature	public	2019-02-15T19:25:27Z
+OCA/oca-decorators	This is a library of decorators for Odoo developers.	public, archived	2017-12-19T22:58:04Z
+OCA/connector-magento-php-extension		public	2015-05-01T14:49:41Z
+OCA/contribute-md-template	The template contribute.md for OSS projects	public, fork	2012-09-27T14:50:55Z
