@@ -1,0 +1,102 @@
+{
+  "base": {
+    "label": "Base — OCA must-have foundation modules",
+    "modules": [
+      "partner_contact_access_link",
+      "partner_firstname",
+      "queue_job",
+      "report_xlsx",
+      "password_security",
+      "disable_odoo_online",
+      "remove_odoo_enterprise",
+      "auditlog",
+      "base_name_search_improved",
+      "date_range",
+      "server_action_mass_edit",
+      "web_dialog_size",
+      "web_environment_ribbon",
+      "web_favicon",
+      "web_m2x_options",
+      "web_no_bubble",
+      "web_pivot_computed_measure",
+      "web_refresher",
+      "web_responsive",
+      "web_search_with_and",
+      "web_tree_many2one_clickable",
+      "mail_debrand",
+      "mail_tracking",
+      "document_url",
+      "base_search_mail_content",
+      "mail_activity_plan"
+    ]
+  },
+  "oca-accounting": {
+    "label": "Accounting — OCA accounting suite",
+    "modules": [
+      "account_analytic_required",
+      "partner_statement",
+      "account_asset_management",
+      "account_chart_update",
+      "account_journal_lock_date",
+      "account_lock_date_update",
+      "account_move_line_tax_editable",
+      "account_usability",
+      "account_reconcile_oca",
+      "account_reconcile_model_oca",
+      "account_statement_base",
+      "currency_rate_update",
+      "mis_builder",
+      "mis_builder_demo",
+      "mis_builder_budget",
+      "account_financial_report",
+      "date_range",
+      "date_range_account"
+    ]
+  },
+  "project": {
+    "label": "Project — OCA project management",
+    "modules": [
+      "project_parent",
+      "project_pivot",
+      "project_task_add_very_high",
+      "project_task_name_with_id",
+      "project_task_description_template",
+      "project_task_default_stage",
+      "project_timeline",
+      "project_timesheet_time_control"
+    ]
+  },
+  "purchase": {
+    "label": "Purchase — OCA purchase workflow",
+    "modules": [
+      "partner_supplierinfo_smartbutton",
+      "product_supplier_code_purchase",
+      "purchase_cancel_reason",
+      "purchase_default_terms_conditions",
+      "purchase_order_archive",
+      "purchase_order_line_menu",
+      "purchase_last_price_info",
+      "purchase_advance_payment",
+      "purchase_commercial_partner",
+      "purchase_order_line_stock_available",
+      "purchase_request",
+      "purchase_tag"
+    ]
+  },
+  "sales": {
+    "label": "Sales — OCA sales workflow",
+    "modules": [
+      "portal_sale_order_search",
+      "sale_cancel_reason",
+      "sale_commercial_partner",
+      "sale_delivery_state",
+      "sale_fixed_discount",
+      "sale_order_archive",
+      "sale_order_line_delivery_state",
+      "sale_order_line_input",
+      "sale_order_line_menu",
+      "sale_order_line_price_history",
+      "sale_report_salesperson_from_partner"
+    ]
+  }
+}

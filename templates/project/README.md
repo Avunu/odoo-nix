@@ -32,17 +32,21 @@ Open <http://localhost:8069>. Mailpit UI is at <http://localhost:8025>.
 ```sh
 odoo-add-module                       # interactive picker, resolves dep repos
 odoo-add-module account_financial_report   # or by module name
+odoo-add-bundle                       # add a curated bundle (base, accounting, …)
+odoo-add-bundle base sales            # or by bundle name
 ```
 
-`odoo-add-module` adds the required OCA repos as submodules, records the module
-in `modules.txt`, refreshes the Python deps, and re-locks. Run `direnv reload`
-afterwards so the Nix engine re-derives `addons_path` and rebuilds the env.
+`odoo-add-module` / `odoo-add-bundle` add the required OCA repos as submodules,
+record the modules in `modules.txt`, refresh the Python deps, and re-lock. Run
+`direnv reload` afterwards so the Nix engine re-derives `addons_path` and rebuilds
+the env.
 
 ## Common commands
 
 | Command               | Action                                       |
 | --------------------- | -------------------------------------------- |
 | `provision-db [db]`   | Create DB + install all `modules.txt`        |
+| `odoo-add-bundle [n]` | Add a curated OCA module bundle              |
 | `odoo-init-db [db]`   | Create + initialize a DB (base only)         |
 | `odoo-upgrade <m>`    | Upgrade module(s)                            |
 | `odoo-shell [db]`     | Odoo Python REPL                             |

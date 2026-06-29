@@ -12,6 +12,7 @@
 #     dbName = cfg.odooConf.dbName or "odoo_dev";
 #     ocaDataset = ../data/oca-modules.json;   # store path
 #     ocaLib = ./oca-lib.sh;                    # store path
+#     bundlesFile = ../data/oca-bundles.json;   # store path
 #     layout = cfg.layout;
 #   }
 
@@ -23,6 +24,7 @@
   dbName,
   ocaDataset,
   ocaLib,
+  bundlesFile,
   layout,
 }:
 
@@ -50,6 +52,73 @@ let
     grep -qxF "$mod" "$f" 2>/dev/null && exit 0
     if [ -s "$f" ] && [ -n "$(tail -c1 "$f" 2>/dev/null)" ]; then echo >> "$f"; fi
     echo "$mod" >> "$f"
+  '';
+
+  # Shared "add these module seeds" flow used by odoo-add-module and
+  # odoo-add-bundle: resolve the transitive repo closure, add the NEW repos as
+  # shallow submodules, record the seeds in modules.txt, re-aggregate the scoped
+  # OCA Python deps and re-lock. Takes module names as positional args.
+  addModules = pkgs.writeShellScript "oca-add-modules" ''
+    set -euo pipefail
+    cd "''${REPO_ROOT:-$PWD}"
+    export PATH="${pkgs.git}/bin:$PATH"
+    export OCA_DATASET="${ocaDataset}"
+    # shellcheck source=/dev/null
+    source "${ocaLib}"
+
+    SEL=("$@")
+    [ "''${#SEL[@]}" -eq 0 ] && { echo "Nothing to add."; exit 0; }
+
+    echo "==> Resolving dependency closure for ''${#SEL[@]} module(s)…"
+    mapfile -t ALL_REPOS < <(oca_resolve_repos "${odooSeries}" "''${SEL[@]}")
+
+    mkdir -p "${layout.externalDir}"
+    ls -1 "${layout.externalDir}" 2>/dev/null | sort > .oca-existing.tmp || true
+    NEW_REPOS=()
+    for r in "''${ALL_REPOS[@]}"; do
+      grep -qxF "$r" .oca-existing.tmp 2>/dev/null || NEW_REPOS+=("$r")
+    done
+    rm -f .oca-existing.tmp
+
+    if [ "''${#NEW_REPOS[@]}" -gt 0 ]; then
+      echo "==> Adding ''${#NEW_REPOS[@]} new repo submodule(s): ''${NEW_REPOS[*]}"
+      for repo in "''${NEW_REPOS[@]}"; do
+        url="$(oca_repo_url "$repo")"; path="${layout.externalDir}/$repo"
+        if git ls-remote --heads "$url" "${odooSeries}" 2>/dev/null | grep -q .; then
+          git clone -q --depth 1 --branch "${odooSeries}" -- "$url" "$path"
+          git submodule add -q --force -b "${odooSeries}" -- "$url" "$path"
+          git config -f .gitmodules "submodule.$path.shallow" true
+          echo "   + $path"
+        else
+          echo "   ⚠  $repo has no '${odooSeries}' branch — skipped" >&2
+        fi
+      done
+      git submodule update --init --recursive
+    else
+      echo "==> All required repos already present."
+    fi
+
+    # Record the seeds in modules.txt (only those present in the catalog/closure
+    # are installable; provision-db will report anything missing).
+    for m in "''${SEL[@]}"; do ${addToModulesTxt} "$m"; done
+
+    echo "==> Re-aggregating OCA Python dependencies + uv lock…"
+    ${pkgs.python3}/bin/python3 ${./oca_pydeps.py} update pyproject.toml \
+      modules.txt "${layout.externalDir}" "${layout.customDir}"
+    if ${pkgs.uv}/bin/uv lock; then
+      ${pkgs.python3}/bin/python3 ${./uv_build_deps.py} update pyproject.toml uv.lock || true
+      ${pkgs.uv}/bin/uv lock || true
+    else
+      echo "⚠  uv lock failed — resolve in pyproject.toml and re-run." >&2
+    fi
+
+    cat <<EOF
+
+✅ Added ''${#SEL[@]} module(s) to modules.txt.
+   1. Reload so the Nix engine re-derives addons_path + rebuilds the env:
+        direnv reload
+   2. Install:  provision-db    (installs everything in modules.txt)
+EOF
   '';
 in
 {
@@ -129,71 +198,69 @@ in
     '';
   };
 
-  # Pick more OCA modules, resolve NEW repo deps, add them as submodules, relock.
+  # Pick more OCA modules (interactive picker or args), then add them.
   odoo-add-module = {
     description = "Add OCA module(s): odoo-add-module [module …] (interactive if none)";
     exec = ''
       ${preamble}
       ${ocaPreamble}
-
       if [ "$#" -gt 0 ]; then
         SEL=("$@")
       else
         mapfile -t SEL < <(oca_pick_modules "${odooSeries}")
       fi
       [ "''${#SEL[@]}" -eq 0 ] && { echo "Nothing selected."; exit 0; }
+      exec ${addModules} "''${SEL[@]}"
+    '';
+  };
 
-      echo "==> Resolving dependency closure for: ''${SEL[*]}"
-      mapfile -t ALL_REPOS < <(oca_resolve_repos "${odooSeries}" "''${SEL[@]}")
+  # Add a curated OCA module bundle (a named set of "must-have" modules,
+  # defined in data/oca-bundles.json).
+  odoo-add-bundle = {
+    description = "Add an OCA module bundle: odoo-add-bundle [name …] (interactive if none)";
+    exec = ''
+      ${preamble}
+      BUNDLES="${bundlesFile}"
+      jq() { ${pkgs.jq}/bin/jq "$@"; }
 
-      # Diff against already-present module-repo dirs.
-      mkdir -p "${layout.externalDir}"
-      ls -1 "${layout.externalDir}" 2>/dev/null | sort > .oca-existing.tmp || true
-      NEW_REPOS=()
-      for r in "''${ALL_REPOS[@]}"; do
-        grep -qxF "$r" .oca-existing.tmp 2>/dev/null || NEW_REPOS+=("$r")
+      avail() { jq -r 'keys[]' "$BUNDLES"; }
+
+      if [ "$#" -gt 0 ]; then
+        NAMES=("$@")
+      elif ${pkgs.gum}/bin/gum --version >/dev/null 2>&1 && [ -t 0 ] && [ -t 1 ]; then
+        # Interactive picker: name<TAB>"name — label (N modules)".
+        _rows="$(jq -r 'to_entries[]
+          | "\(.key)\t\(.key)  —  \(.value.label)  (\(.value.modules | length) modules)"' "$BUNDLES")"
+        mapfile -t NAMES < <(
+          cut -f2 <<<"$_rows" \
+            | ${pkgs.gum}/bin/gum choose --no-limit \
+                --header "Select OCA bundle(s) (space=toggle, enter=confirm):" \
+            | while IFS= read -r lbl; do
+                [ -z "$lbl" ] && continue
+                awk -F'\t' -v l="$lbl" '$2 == l { print $1 }' <<<"$_rows"
+              done
+        )
+      else
+        echo "usage: odoo-add-bundle <name …>   (available: $(avail | tr '\n' ' '))" >&2
+        exit 1
+      fi
+      [ "''${#NAMES[@]}" -eq 0 ] && { echo "No bundle selected."; exit 0; }
+
+      # Collect the union of modules across the selected bundles.
+      MODULES=()
+      for n in "''${NAMES[@]}"; do
+        if ! jq -e --arg n "$n" 'has($n)' "$BUNDLES" >/dev/null; then
+          echo "⚠  unknown bundle: $n   (available: $(avail | tr '\n' ' '))" >&2
+          continue
+        fi
+        while IFS= read -r m; do
+          [ -n "$m" ] && MODULES+=("$m")
+        done < <(jq -r --arg n "$n" '.[$n].modules[]' "$BUNDLES")
       done
-      rm -f .oca-existing.tmp
+      [ "''${#MODULES[@]}" -eq 0 ] && { echo "No modules in the selected bundle(s)."; exit 0; }
 
-      if [ "''${#NEW_REPOS[@]}" -gt 0 ]; then
-        echo "==> Adding ''${#NEW_REPOS[@]} new repo submodule(s): ''${NEW_REPOS[*]}"
-        for repo in "''${NEW_REPOS[@]}"; do
-          url="$(oca_repo_url "$repo")"; path="${layout.externalDir}/$repo"
-          if ${pkgs.git}/bin/git ls-remote --heads "$url" "${odooSeries}" 2>/dev/null | grep -q .; then
-            git clone -q --depth 1 --branch "${odooSeries}" -- "$url" "$path"
-            git submodule add -q --force -b "${odooSeries}" -- "$url" "$path"
-            git config -f .gitmodules "submodule.$path.shallow" true
-            echo "   + $path"
-          else
-            echo "   ⚠  $repo has no '${odooSeries}' branch — skipped" >&2
-          fi
-        done
-        git submodule update --init --recursive
-      else
-        echo "==> All required repos already present."
-      fi
-
-      # Record selected seeds in modules.txt.
-      for m in "''${SEL[@]}"; do ${addToModulesTxt} "$m"; done
-
-      echo "==> Re-aggregating OCA Python dependencies + uv lock…"
-      ${pkgs.python3}/bin/python3 ${./oca_pydeps.py} update pyproject.toml \
-        modules.txt "${layout.externalDir}" "${layout.customDir}"
-      if ${pkgs.uv}/bin/uv lock; then
-        ${pkgs.python3}/bin/python3 ${./uv_build_deps.py} update pyproject.toml uv.lock || true
-        ${pkgs.uv}/bin/uv lock || true
-      else
-        echo "⚠  uv lock failed — resolve in pyproject.toml and re-run." >&2
-      fi
-
-      cat <<EOF
-
-✅ Added: ''${SEL[*]}
-   1. Reload so the Nix engine re-derives addons_path + rebuilds the env:
-        direnv reload
-   2. Install the new module(s):
-        odoo-upgrade ''$(IFS=,; echo "''${SEL[*]}")   # or: provision-db
-EOF
+      echo "==> Bundle(s): ''${NAMES[*]}  →  ''${#MODULES[@]} module(s)"
+      exec ${addModules} "''${MODULES[@]}"
     '';
   };
 }

@@ -220,6 +220,7 @@ in
           dbName = if cfg.odooConf.dbName != null then cfg.odooConf.dbName else "odoo_dev";
           ocaDataset = ../data/oca-modules.json;
           ocaLib = ../lib/oca-lib.sh;
+          bundlesFile = ../data/oca-bundles.json;
         };
 
         builtOdoo = import ../lib/odoo.nix {
@@ -367,6 +368,7 @@ in
               echo "║  devenv up           start postgres + odoo + mailpit       ║"
               echo "║  provision-db        create DB + install modules.txt       ║"
               echo "║  odoo-add-module     pick + wire in more OCA modules       ║"
+              echo "║  odoo-add-bundle     add a curated OCA module bundle       ║"
               echo "║  odoo-update         pull submodules + refresh deps        ║"
               echo "║  odoo-shell          Odoo REPL                             ║"
               echo "╚════════════════════════════════════════════════════════════╝"
