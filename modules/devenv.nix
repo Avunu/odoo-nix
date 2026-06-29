@@ -125,8 +125,8 @@ in
           };
           externalDir = mkOption {
             type = types.str;
-            default = "apps";
-            description = "Directory holding OCA repo submodules.";
+            default = "modules";
+            description = "Directory holding OCA module-repo submodules.";
           };
           customDir = mkOption {
             type = types.str;
@@ -365,8 +365,8 @@ in
               echo "║  ${cfg.projectName} — Odoo ${cfg.odooSeries} (OCB + OCA) dev environment"
               echo "╠════════════════════════════════════════════════════════════╣"
               echo "║  devenv up           start postgres + odoo + mailpit       ║"
-              echo "║  provision-db        create DB + install oca-apps.txt      ║"
-              echo "║  odoo-add-app        pick + wire in more OCA apps          ║"
+              echo "║  provision-db        create DB + install modules.txt       ║"
+              echo "║  odoo-add-module     pick + wire in more OCA modules       ║"
               echo "║  odoo-update         pull submodules + refresh deps        ║"
               echo "║  odoo-shell          Odoo REPL                             ║"
               echo "╚════════════════════════════════════════════════════════════╝"

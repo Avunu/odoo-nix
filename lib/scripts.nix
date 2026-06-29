@@ -44,9 +44,9 @@ let
     source "${ocaLib}"
   '';
 
-  addToAppsTxt = pkgs.writeShellScript "oca-apps-append" ''
-    # Append a module name to oca-apps.txt iff absent, newline-safe.
-    mod="$1"; f="oca-apps.txt"
+  addToModulesTxt = pkgs.writeShellScript "modules-txt-append" ''
+    # Append a module name to modules.txt iff absent, newline-safe.
+    mod="$1"; f="modules.txt"
     grep -qxF "$mod" "$f" 2>/dev/null && exit 0
     if [ -s "$f" ] && [ -n "$(tail -c1 "$f" 2>/dev/null)" ]; then echo >> "$f"; fi
     echo "$mod" >> "$f"
@@ -86,18 +86,18 @@ in
     '';
   };
 
-  # Provision: create the DB and install every module listed in oca-apps.txt.
+  # Provision: create the DB and install every module listed in modules.txt.
   provision-db = {
-    description = "Create the dev DB + install all modules from oca-apps.txt";
+    description = "Create the dev DB + install all modules from modules.txt";
     exec = ''
       ${preamble}
       [ "$#" -ge 1 ] && DB="$1"
       MODS="base"
-      if [ -f oca-apps.txt ]; then
+      if [ -f modules.txt ]; then
         while IFS= read -r m; do
           [ -z "$m" ] && continue
           MODS="$MODS,$m"
-        done < oca-apps.txt
+        done < modules.txt
       fi
       echo "==> Provisioning '$DB' with: $MODS"
       exec ${python} "$ODOO_BIN" -c "$CONF" -d "$DB" -i "$MODS" --stop-after-init
@@ -116,7 +116,7 @@ in
 
       echo "==> Re-aggregating OCA Python dependencies…"
       ${pkgs.python3}/bin/python3 ${./oca_pydeps.py} update pyproject.toml \
-        "${layout.externalDir}" "${layout.customDir}"
+        modules.txt "${layout.externalDir}" "${layout.customDir}"
 
       echo "==> Re-locking Python environment (uv lock)…"
       if ${pkgs.uv}/bin/uv lock; then
@@ -129,9 +129,9 @@ in
     '';
   };
 
-  # Pick more OCA apps, resolve NEW repo deps, add them as submodules, relock.
-  odoo-add-app = {
-    description = "Add OCA app(s): odoo-add-app [module …] (interactive if none)";
+  # Pick more OCA modules, resolve NEW repo deps, add them as submodules, relock.
+  odoo-add-module = {
+    description = "Add OCA module(s): odoo-add-module [module …] (interactive if none)";
     exec = ''
       ${preamble}
       ${ocaPreamble}
@@ -139,14 +139,14 @@ in
       if [ "$#" -gt 0 ]; then
         SEL=("$@")
       else
-        mapfile -t SEL < <(oca_pick_apps "${odooSeries}")
+        mapfile -t SEL < <(oca_pick_modules "${odooSeries}")
       fi
       [ "''${#SEL[@]}" -eq 0 ] && { echo "Nothing selected."; exit 0; }
 
       echo "==> Resolving dependency closure for: ''${SEL[*]}"
       mapfile -t ALL_REPOS < <(oca_resolve_repos "${odooSeries}" "''${SEL[@]}")
 
-      # Diff against already-present src/external/* dirs.
+      # Diff against already-present module-repo dirs.
       mkdir -p "${layout.externalDir}"
       ls -1 "${layout.externalDir}" 2>/dev/null | sort > .oca-existing.tmp || true
       NEW_REPOS=()
@@ -173,12 +173,12 @@ in
         echo "==> All required repos already present."
       fi
 
-      # Record selected seeds in oca-apps.txt.
-      for m in "''${SEL[@]}"; do ${addToAppsTxt} "$m"; done
+      # Record selected seeds in modules.txt.
+      for m in "''${SEL[@]}"; do ${addToModulesTxt} "$m"; done
 
       echo "==> Re-aggregating OCA Python dependencies + uv lock…"
       ${pkgs.python3}/bin/python3 ${./oca_pydeps.py} update pyproject.toml \
-        "${layout.externalDir}" "${layout.customDir}"
+        modules.txt "${layout.externalDir}" "${layout.customDir}"
       if ${pkgs.uv}/bin/uv lock; then
         ${pkgs.python3}/bin/python3 ${./uv_build_deps.py} update pyproject.toml uv.lock || true
         ${pkgs.uv}/bin/uv lock || true
@@ -191,7 +191,7 @@ in
 ✅ Added: ''${SEL[*]}
    1. Reload so the Nix engine re-derives addons_path + rebuilds the env:
         direnv reload
-   2. Install the new app(s):
+   2. Install the new module(s):
         odoo-upgrade ''$(IFS=,; echo "''${SEL[*]}")   # or: provision-db
 EOF
     '';

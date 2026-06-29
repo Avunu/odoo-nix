@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Aggregate OCA modules' external_dependencies.python and sync them into a
-project's pyproject.toml.
+"""Sync the OCA Python dependencies into a project's pyproject.toml.
 
-Canonical source of the manifest-scanning logic for odoo-nix (the scaffolder and
-the in-project odoo-add-app/odoo-update scripts both call this). Manifests are
-Python dict literals, so they are parsed with ast (never JSON).
+Aggregates `external_dependencies.python` from the Odoo modules that will
+actually be INSTALLED — the modules listed in modules.txt plus their transitive
+module dependency closure — NOT every module sitting in the cloned repos. A
+single OCA repo (e.g. server-tools) holds ~100 modules whose unrelated Python
+deps (sentry-sdk, paramiko, …) would otherwise bloat the env and collide with
+Odoo's pinned requirements. Custom modules (under custom/) are always included.
+
+Manifests are Python dict literals, so they are parsed with ast (never JSON).
 
 The aggregated deps live in pyproject.toml inside the [project].dependencies
 array, between sentinel comments, so updates are plain-text and need no tomlkit:
@@ -14,8 +18,8 @@ array, between sentinel comments, so updates are plain-text and need no tomlkit:
     # <<< odoo-nix: oca python deps <<<
 
 Usage:
-    oca_pydeps.py scan   <dir>...                 # print deps, one per line
-    oca_pydeps.py update <pyproject.toml> <dir>...# rewrite the sentinel block
+    oca_pydeps.py update <pyproject.toml> <modules.txt> <modules-dir> <custom-dir>
+    oca_pydeps.py scan   <modules.txt> <modules-dir> <custom-dir>   # print, no write
 """
 
 import ast
@@ -58,52 +62,100 @@ def _base_name(spec):
     return m.group(1) if m else ""
 
 
-def _manifest_python_deps(path):
+def _parse_manifest(path):
+    src = open(path, encoding="utf-8", errors="replace").read()
     try:
-        tree = ast.parse(open(path, encoding="utf-8").read())
+        d = ast.literal_eval(src)
+        if isinstance(d, dict):
+            return d
     except Exception:
-        return []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Dict):
-            try:
-                d = ast.literal_eval(node)
-            except Exception:
-                continue
-            ext = d.get("external_dependencies") if isinstance(d, dict) else None
-            if isinstance(ext, dict) and isinstance(ext.get("python"), (list, tuple)):
-                return [str(x) for x in ext["python"]]
-    return []
-
-
-def scan(dirs):
-    seen = {}
-    for root in dirs:
-        if not os.path.isdir(root):
-            continue
-        manifests = (
-            glob.glob(os.path.join(root, "*", "__manifest__.py"))
-            + glob.glob(os.path.join(root, "*", "*", "__manifest__.py"))
-        )
-        for mani in manifests:
-            for dep in _manifest_python_deps(mani):
-                spec = dep.strip()
-                base = _base_name(spec).lower()
-                if not base or base in SKIP:
+        pass
+    try:
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                try:
+                    d = ast.literal_eval(node)
+                    if isinstance(d, dict):
+                        return d
+                except Exception:
                     continue
-                mapped = MAP.get(base)
-                seen[mapped if mapped else spec] = True
-    return sorted(seen)
+    except Exception:
+        pass
+    return {}
 
 
-def update(pyproject, dirs):
-    deps = scan(dirs)
+def _module_index(modules_dir, custom_dir):
+    """{module_name: {'depends': [...], 'python': [...], 'custom': bool}}."""
+    index = {}
+    for base, is_custom in ((modules_dir, False), (custom_dir, True)):
+        if not base or not os.path.isdir(base):
+            continue
+        # modules/<repo>/<module>/__manifest__.py and custom/<module>/__manifest__.py
+        for mani in glob.glob(os.path.join(base, "*", "__manifest__.py")) + \
+                    glob.glob(os.path.join(base, "*", "*", "__manifest__.py")):
+            name = os.path.basename(os.path.dirname(mani))
+            d = _parse_manifest(mani)
+            depends = [x for x in (d.get("depends") or []) if isinstance(x, str)]
+            ext = d.get("external_dependencies")
+            python = []
+            if isinstance(ext, dict) and isinstance(ext.get("python"), (list, tuple)):
+                python = [str(x) for x in ext["python"]]
+            index[name] = {"depends": depends, "python": python, "custom": is_custom}
+    return index
+
+
+def _closure(seeds, index):
+    """All modules reachable from seeds via `depends`, restricted to known
+    (OCA/custom) modules. Odoo core modules aren't in the index, so traversal
+    naturally stops at them (their Python deps live in Odoo's requirements)."""
+    seen = set()
+    stack = [s for s in seeds if s]
+    while stack:
+        m = stack.pop()
+        if m in seen or m not in index:
+            continue
+        seen.add(m)
+        stack.extend(index[m]["depends"])
+    return seen
+
+
+def _aggregate(modules_txt, modules_dir, custom_dir):
+    index = _module_index(modules_dir, custom_dir)
+    seeds = []
+    if modules_txt and os.path.isfile(modules_txt):
+        seeds = [ln.strip() for ln in open(modules_txt, encoding="utf-8") if ln.strip()]
+    install = _closure(seeds, index)
+    # Always install every custom module the project ships.
+    install |= {n for n, info in index.items() if info["custom"]}
+
+    missing = [s for s in seeds if s not in index]
+    if missing:
+        sys.stderr.write(
+            "odoo-nix: note — modules not found on disk (skipped): "
+            + ", ".join(sorted(missing)) + "\n"
+        )
+
+    seen = {}
+    for name in install:
+        for dep in index.get(name, {}).get("python", []):
+            spec = dep.strip()
+            base = _base_name(spec).lower()
+            if not base or base in SKIP:
+                continue
+            mapped = MAP.get(base)
+            seen[mapped if mapped else spec] = True
+    return sorted(seen), len(install)
+
+
+def update(pyproject, modules_txt, modules_dir, custom_dir):
+    deps, n_install = _aggregate(modules_txt, modules_dir, custom_dir)
     text = open(pyproject, encoding="utf-8").read()
     if BEGIN not in text or END not in text:
         sys.stderr.write(
             f"warning: sentinel block not found in {pyproject}; skipping OCA dep sync\n"
         )
         return 1
-    # Preserve the indentation of the BEGIN sentinel line.
     indent = re.search(r"^([ \t]*)" + re.escape(BEGIN), text, re.MULTILINE)
     pad = indent.group(1) if indent else "    "
     block = pad + BEGIN + "\n"
@@ -118,25 +170,25 @@ def update(pyproject, dirs):
         flags=re.DOTALL,
     )
     open(pyproject, "w", encoding="utf-8").write(new)
-    sys.stderr.write(f"odoo-nix: synced {len(deps)} OCA python dep(s) into {pyproject}\n")
+    sys.stderr.write(
+        f"odoo-nix: synced {len(deps)} OCA python dep(s) "
+        f"for {n_install} installed module(s) into {pyproject}\n"
+    )
     return 0
 
 
 def main(argv):
-    if len(argv) < 2:
-        sys.stderr.write(__doc__)
-        return 2
-    mode = argv[1]
-    if mode == "scan":
-        for d in scan(argv[2:]):
+    if len(argv) >= 5 and argv[1] == "update":
+        return update(argv[2], argv[3], argv[4], argv[5] if len(argv) > 5 else "")
+    if len(argv) >= 4 and argv[1] == "scan":
+        deps, n = _aggregate(argv[2], argv[3], argv[4] if len(argv) > 4 else "")
+        for d in deps:
             print(d)
+        sys.stderr.write(f"({len(deps)} deps for {n} installed modules)\n")
         return 0
-    if mode == "update":
-        if len(argv) < 3:
-            sys.stderr.write("usage: oca_pydeps.py update <pyproject.toml> <dir>...\n")
-            return 2
-        return update(argv[2], argv[3:])
-    sys.stderr.write(f"unknown mode: {mode}\n")
+    sys.stderr.write(
+        "usage: oca_pydeps.py update <pyproject.toml> <modules.txt> <modules-dir> <custom-dir>\n"
+    )
     return 2
 
 

@@ -48,21 +48,23 @@ let
     };
     meta.description = "Assembled Odoo (OCB + OCA + custom) for ${projectName}";
   } ''
-    mkdir -p $out/src $out/bin
+    mkdir -p $out/bin
 
-    ${copyDir "${workspaceRoot}/${layout.coreSrc}" "$out/src/odoo"}
+    # Assemble the tree into the SAME relative layout the project uses, so the
+    # package's addonsPath (addons.addonsPathFor "$out") resolves against it.
+    ${copyDir "${workspaceRoot}/${layout.coreSrc}" "$out/${layout.coreSrc}"}
     ${lib.concatMapStringsSep "\n" (
-      repo: copyDir "${workspaceRoot}/${layout.externalDir}/${repo}" "$out/src/external/${repo}"
+      repo: copyDir "${workspaceRoot}/${layout.externalDir}/${repo}" "$out/${layout.externalDir}/${repo}"
     ) addons.externalRepos}
-    ${copyDir "${workspaceRoot}/${layout.customDir}" "$out/src/custom"}
+    ${copyDir "${workspaceRoot}/${layout.customDir}" "$out/${layout.customDir}"}
 
     # Drop any vendored VCS metadata to keep the closure lean.
-    find $out/src -name .git -prune -exec rm -rf {} + 2>/dev/null || true
+    find $out -name .git -prune -exec rm -rf {} + 2>/dev/null || true
 
     # Wrapper: run odoo-bin from the assembled OCB source with the Nix env python.
     cat > $out/bin/odoo <<EOF
     #!${pkgs.runtimeShell}
-    exec ${odooPythonEnv}/bin/python $out/src/odoo/odoo-bin "\$@"
+    exec ${odooPythonEnv}/bin/python $out/${layout.coreSrc}/odoo-bin "\$@"
     EOF
     chmod +x $out/bin/odoo
   '';

@@ -15,9 +15,9 @@ Usage: odoo-init [options] [target-dir]
 Scaffold a new odoo-nix-managed Odoo (OCB) + OCA project.
 
 Options:
-  --series <v>     Odoo series: 18.0 | 17.0 | 16.0   (default catalog: 18.0)
-  --apps <a,b,c>   Comma-separated OCA application module names
-  --name <name>    Project name (default: target dir basename)
+  --series <v>      Odoo series: 18.0 | 17.0 | 16.0  (default catalog: 18.0)
+  --modules <a,b,c> Comma-separated OCA module names to install
+  --name <name>     Project name (default: target dir basename)
   --db <name>      Default database name (default: odoo)
   -h, --help       Show this help
 
@@ -26,7 +26,7 @@ EOF
 }
 
 series=""
-apps_csv=""
+modules_csv=""
 name=""
 db=""
 target=""
@@ -35,8 +35,10 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --series) series="$2"; shift 2 ;;
     --series=*) series="${1#*=}"; shift ;;
-    --apps) apps_csv="$2"; shift 2 ;;
-    --apps=*) apps_csv="${1#*=}"; shift ;;
+    --modules) modules_csv="$2"; shift 2 ;;
+    --modules=*) modules_csv="${1#*=}"; shift ;;
+    --apps) modules_csv="$2"; shift 2 ;;
+    --apps=*) modules_csv="${1#*=}"; shift ;;
     --name) name="$2"; shift 2 ;;
     --name=*) name="${1#*=}"; shift ;;
     --db) db="$2"; shift 2 ;;
@@ -69,12 +71,12 @@ python="$(preset_field python)"
 requires_python="$(preset_field requiresPython)"
 branch="$series"  # series is the literal git branch for OCB and every OCA repo
 
-# ── apps ───────────────────────────────────────────────────────────────────
+# ── modules ────────────────────────────────────────────────────────────────
 selected_modules=()
-if [ -n "$apps_csv" ]; then
-  IFS=',' read -ra selected_modules <<< "$apps_csv"
+if [ -n "$modules_csv" ]; then
+  IFS=',' read -ra selected_modules <<< "$modules_csv"
 elif has_tty; then
-  mapfile -t selected_modules < <(oca_pick_apps "$series")
+  mapfile -t selected_modules < <(oca_pick_modules "$series")
 fi
 # Drop empties.
 _tmp=(); for m in "${selected_modules[@]}"; do [ -n "$m" ] && _tmp+=("$m"); done
@@ -107,8 +109,8 @@ fi
 
 echo "Creating project '$name' (Odoo $series → python ${python#python}) in $target"
 if [ "${#selected_modules[@]}" -gt 0 ]; then
-  echo "  apps : ${selected_modules[*]}"
-  echo "  repos: ${resolved_repos[*]}"
+  echo "  modules : ${selected_modules[*]}"
+  echo "  repos   : ${resolved_repos[*]}"
 fi
 
 # ── lay down the template ──────────────────────────────────────────────────
@@ -126,8 +128,8 @@ sed -i \
   -e "s|@REQUIRES_PYTHON@|$requires_python|g" \
   flake.nix pyproject.toml README.md
 
-# Record the selected application modules (the install list).
-printf '%s\n' "${selected_modules[@]}" > oca-apps.txt
+# Record the selected modules (the install list).
+printf '%s\n' "${selected_modules[@]}" > modules.txt
 
 # ── git init + submodules ──────────────────────────────────────────────────
 git init -q
@@ -149,9 +151,9 @@ echo "Adding OCB (Odoo $series) at odoo/…"
 add_submodule "https://github.com/OCA/OCB.git" "odoo"
 
 if [ "${#resolved_repos[@]}" -gt 0 ]; then
-  echo "Adding OCA repo submodules under apps/…"
+  echo "Adding OCA module-repo submodules under modules/…"
   for repo in "${resolved_repos[@]}"; do
-    [ -n "$repo" ] && add_submodule "$(oca_repo_url "$repo")" "apps/$repo" || true
+    [ -n "$repo" ] && add_submodule "$(oca_repo_url "$repo")" "modules/$repo" || true
   done
 fi
 git submodule update --init --recursive
@@ -174,8 +176,9 @@ else
   sed -i '/@ODOO_REQS@/d' pyproject.toml
 fi
 
-# OCA modules' external_dependencies.python -> managed sentinel block.
-python3 "$OCA_PYDEPS" update pyproject.toml apps custom || true
+# OCA modules' external_dependencies.python -> managed sentinel block (scoped to
+# the install closure: modules.txt + transitive module deps).
+python3 "$OCA_PYDEPS" update pyproject.toml modules.txt modules custom || true
 
 # ── resolve the python environment ─────────────────────────────────────────
 echo "Resolving Python environment (uv lock)…"
@@ -194,12 +197,12 @@ git add -A
 cat <<EOF
 
 ✅ Project '$name' created in $target_abs
-   series : $series (python ${python#python})
-   apps   : ${selected_modules[*]:-<none — Odoo core only>}
+   series  : $series (python ${python#python})
+   modules : ${selected_modules[*]:-<none — Odoo core only>}
 
 Next steps:
   cd $target
   direnv allow            # or: nix develop --no-pure-eval
   devenv up               # start postgres + odoo + mailpit
-  provision-db            # (another shell) create DB + install apps
+  provision-db            # (another shell) create DB + install modules
 EOF

@@ -16,8 +16,8 @@
 #   import ./lib/addons.nix {
 #     inherit lib;
 #     workspaceRoot = ./.;
-#     layout = { coreSrc = "src/odoo"; externalDir = "src/external";
-#                customDir = "src/custom"; extraAddons = [ ]; };
+#     layout = { coreSrc = "odoo"; externalDir = "modules";
+#                customDir = "custom"; extraAddons = [ ]; };
 #   }
 
 {

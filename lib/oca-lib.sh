@@ -1,13 +1,13 @@
 # oca-lib.sh — shared OCA catalog helpers for odoo-nix.
 #
-# Sourced by the scaffolder (odoo-init) and the in-project `odoo-add-app` script.
+# Sourced by the scaffolder (odoo-init) and the in-project `odoo-add-module` script.
 # Requires the environment variable OCA_DATASET to point at oca-modules.json
 # (both callers bake the vendored data/oca-modules.json store path into it).
 #
 # Provides:
 #   oca_repo_url <repo>                 -> https git URL for an OCA repo
 #   oca_resolve_repos <series> <mod>... -> deduped, sorted repo names (closure)
-#   oca_pick_apps <series>              -> interactively chosen module names
+#   oca_pick_modules <series>           -> interactively chosen module names
 #
 # Aggregating OCA external_dependencies.python into pyproject.toml is handled by
 # the canonical lib/oca_pydeps.py (scan/update modes), not here.
@@ -42,24 +42,31 @@ oca_resolve_repos() {
   ' "$OCA_DATASET"
 }
 
-# Present the application modules for a series in a gum picker; print the chosen
-# bare module names. Uses a TAB-separated module<TAB>label rows table so the
-# decorated label never has to be parsed back into a module name.
-oca_pick_apps() {
+# Present ALL installable modules for a series in a fuzzy gum picker; print the
+# chosen bare module names. The `application` flag is only a hint (★) — most
+# useful OCA modules (localizations, feature modules like repair_*) are not
+# flagged as applications but are installed directly. Applications sort first.
+# A TAB-separated module<TAB>label table lets us map the decorated label back to
+# the bare module name. gum filter handles the ~2,500-row list with fuzzy search.
+oca_pick_modules() {
   local series="$1"
   local rows
   rows="$(jq -r --arg s "$series" '
-      [ .[] | select(.application == true and (.version | startswith($s + "."))) ]
-      | sort_by(.module)[]
-      | "\(.module)\t\(.module)  [\(.repo)]  —  \((.summary // "") | gsub("\\s+"; " ") | .[0:70])"
+      [ .[] | select(.installable == true and (.version | startswith($s + "."))) ]
+      | sort_by([(.application | not), .repo, .module])[]
+      | "\(.module)\t\(if .application then "★" else " " end) \(.module)  ·  \(.repo)  ·  \((.summary // "") | gsub("\\s+"; " ") | .[0:60])"
     ' "$OCA_DATASET")"
-  [ -z "$rows" ] && { echo "No application modules found for series $series." >&2; return 0; }
-  local chosen_labels
-  chosen_labels="$(cut -f2 <<<"$rows" \
-    | gum choose --no-limit --height 20 \
-        --header "OCA applications for $series (space=toggle, enter=confirm; none=Odoo core only):" || true)"
+  [ -z "$rows" ] && { echo "No installable modules for series $series." >&2; return 0; }
+  local chosen
+  # --no-fuzzy: match from the start of a word (predictable prefix matching)
+  # instead of the loose default subsequence fuzzing. Typing a repo name (e.g.
+  # "repair") surfaces all that repo's modules via the repo column.
+  chosen="$(cut -f2 <<<"$rows" \
+    | gum filter --no-limit --height 20 --no-fuzzy \
+        --placeholder "type a module or repo name (★ = application)" \
+        --header "Select OCA modules for $series  (Tab to select, Enter to confirm):" || true)"
   while IFS= read -r lbl; do
     [ -z "$lbl" ] && continue
     awk -F'\t' -v l="$lbl" '$2 == l { print $1 }' <<<"$rows"
-  done <<<"$chosen_labels"
+  done <<<"$chosen"
 }
