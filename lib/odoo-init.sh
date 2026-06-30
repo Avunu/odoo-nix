@@ -2,7 +2,7 @@
 # Baked at build time:
 PRESETS="@PRESETS@"
 TEMPLATE="@TEMPLATE@"
-OCA_PYDEPS="@OCA_PYDEPS@"
+OCA_SOURCES="@OCA_SOURCES@"
 UV_BUILD_DEPS="@UV_BUILD_DEPS@"
 export OCA_DATASET="@OCA_DATASET@"
 # shellcheck source=/dev/null
@@ -159,26 +159,12 @@ fi
 git submodule update --init --recursive
 
 # ── generate the Python manifest ───────────────────────────────────────────
-# Odoo core deps from odoo/requirements.txt (already valid PEP 508 specs).
-if [ -f odoo/requirements.txt ]; then
-  echo "Generating pyproject.toml dependencies from odoo/requirements.txt…"
-  reqs="$(
-    while IFS= read -r line; do
-      line="${line%%#*}"                         # strip inline comments
-      line="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
-      [ -z "$line" ] && continue
-      printf '    "%s",\n' "$line"
-    done < odoo/requirements.txt
-  )"
-  awk -v reqs="$reqs" '$0 == "@ODOO_REQS@" { print reqs; next } { print }' \
-    pyproject.toml > pyproject.toml.tmp && mv pyproject.toml.tmp pyproject.toml
-else
-  sed -i '/@ODOO_REQS@/d' pyproject.toml
-fi
-
-# OCA modules' external_dependencies.python -> managed sentinel block (scoped to
-# the install closure: modules.txt + transitive module deps).
-python3 "$OCA_PYDEPS" update pyproject.toml modules.txt modules custom || true
+# Declare OCB `odoo` + every local module as editable uv path sources, and the
+# install roots from modules.txt. uv (via whool + OCB metadata) then resolves
+# the entire dependency graph — no manifest aggregation, no requirements.txt
+# translation.
+echo "Generating uv path-sources in pyproject.toml…"
+python3 "$OCA_SOURCES" update pyproject.toml modules.txt modules custom odoo || true
 
 # ── resolve the python environment ─────────────────────────────────────────
 echo "Resolving Python environment (uv lock)…"

@@ -102,9 +102,9 @@ let
     # are installable; provision-db will report anything missing).
     for m in "''${SEL[@]}"; do ${addToModulesTxt} "$m"; done
 
-    echo "==> Re-aggregating OCA Python dependencies + uv lock…"
-    ${pkgs.python3}/bin/python3 ${./oca_pydeps.py} update pyproject.toml \
-      modules.txt "${layout.externalDir}" "${layout.customDir}"
+    echo "==> Generating uv path-sources + lock (uv resolves all deps)…"
+    ${pkgs.python3}/bin/python3 ${./oca_sources.py} update pyproject.toml \
+      modules.txt "${layout.externalDir}" "${layout.customDir}" "${layout.coreSrc}"
     if ${pkgs.uv}/bin/uv lock; then
       ${pkgs.python3}/bin/python3 ${./uv_build_deps.py} update pyproject.toml uv.lock || true
       ${pkgs.uv}/bin/uv lock || true
@@ -183,9 +183,9 @@ in
       git submodule update --init --recursive
       git submodule foreach --quiet 'git pull --ff-only origin "$(git rev-parse --abbrev-ref HEAD)" || true'
 
-      echo "==> Re-aggregating OCA Python dependencies…"
-      ${pkgs.python3}/bin/python3 ${./oca_pydeps.py} update pyproject.toml \
-        modules.txt "${layout.externalDir}" "${layout.customDir}"
+      echo "==> Regenerating uv path-sources…"
+      ${pkgs.python3}/bin/python3 ${./oca_sources.py} update pyproject.toml \
+        modules.txt "${layout.externalDir}" "${layout.customDir}" "${layout.coreSrc}"
 
       echo "==> Re-locking Python environment (uv lock)…"
       if ${pkgs.uv}/bin/uv lock; then

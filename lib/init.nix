@@ -22,13 +22,13 @@ pkgs.writeShellApplication {
   # Bake the presets, template dir, OCA dataset, shared helper lib, and the
   # python-dep tool store paths into the placeholders.
   text = builtins.replaceStrings
-    [ "@PRESETS@" "@TEMPLATE@" "@OCA_DATASET@" "@OCA_LIB@" "@OCA_PYDEPS@" "@UV_BUILD_DEPS@" ]
+    [ "@PRESETS@" "@TEMPLATE@" "@OCA_DATASET@" "@OCA_LIB@" "@OCA_SOURCES@" "@UV_BUILD_DEPS@" ]
     [
       "${./odoo-presets.json}"
       "${../templates/project}"
       "${../data/oca-modules.json}"
       "${./oca-lib.sh}"
-      "${./oca_pydeps.py}"
+      "${./oca_sources.py}"
       "${./uv_build_deps.py}"
     ]
     (builtins.readFile ./odoo-init.sh);

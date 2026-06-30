@@ -5,14 +5,12 @@ description = "Odoo (OCB) + OCA project managed by odoo-nix"
 requires-python = "@REQUIRES_PYTHON@"
 readme = "README.md"
 
-# Python runtime dependencies. The first block is Odoo core's requirements
-# (generated from odoo/requirements.txt by the scaffolder). The sentinel
-# block holds OCA modules' external_dependencies.python, kept in sync by
-# `odoo-add-module` / `odoo-update` — do not edit it by hand.
+# Install roots: OCB `odoo` + the modules from modules.txt as odoo-addon-<name>.
+# This block is auto-generated from modules.txt by `odoo-add-module` /
+# `odoo-add-bundle` / `odoo-update` (lib/oca_sources.py) — do not edit by hand.
 dependencies = [
-@ODOO_REQS@
-    # >>> odoo-nix: oca python deps (managed) >>>
-    # <<< odoo-nix: oca python deps <<<
+    # >>> odoo-nix: install set (managed from modules.txt) >>>
+    # <<< odoo-nix: install set <<<
 ]
 
 [dependency-groups]
@@ -22,19 +20,19 @@ dev = [
 ]
 
 [tool.uv]
-# Single virtual project — Odoo addons load via addons_path, not pip, so no
-# wheel is built for this root and there are no workspace members.
+# Single virtual project; the modules load via addons_path, but each is declared
+# as an editable path source below so uv resolves the full dependency graph
+# (every module's external_dependencies.python + Odoo's own requirements).
 package = false
 
-# Escape hatch: if `uv lock` ever fails because an OCA module's Python dep
-# conflicts with one of Odoo's pinned requirements, force a compatible version
-# here and re-run `uv lock`. Example:
-#   override-dependencies = ["urllib3>=1.26.11,<2"]
+# Editable path sources for OCB `odoo` + every local OCA/custom module. Modules
+# are modern whool packages whose metadata declares their deps; uv reads them.
+# Auto-generated (lib/oca_sources.py) — do not edit by hand.
+[tool.uv.sources]
+# >>> odoo-nix: module sources (managed) >>>
+# <<< odoo-nix: module sources <<<
 
-# The root is a virtual package with no Python code of its own. Declare an
-# explicit build backend that ships zero packages, so setuptools' flat-layout
-# auto-discovery doesn't try to package the top-level odoo/, modules/, custom/
-# submodule directories (which fails with "multiple top-level packages").
+# The root is a virtual package with no Python code of its own.
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
@@ -42,10 +40,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = []
 
-# Legacy sdist-only packages that predate PEP 517 and don't declare setuptools
-# as a build dependency. uv2nix builds these from source in the Nix sandbox.
-# This block is auto-maintained from uv.lock by `odoo-add-module` / `odoo-update`
-# (see lib/uv_build_deps.py) — do not edit by hand.
+# Legacy sdist-only deps (from Odoo's requirements) that don't declare setuptools
+# as a build dependency. Auto-maintained from uv.lock (lib/uv_build_deps.py).
 [tool.uv.extra-build-dependencies]
 # >>> odoo-nix: sdist build deps (managed) >>>
 # <<< odoo-nix: sdist build deps (managed) <<<
