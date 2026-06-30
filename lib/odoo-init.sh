@@ -128,8 +128,8 @@ sed -i \
   -e "s|@REQUIRES_PYTHON@|$requires_python|g" \
   flake.nix pyproject.toml README.md
 
-# Record the selected modules (the install list).
-printf '%s\n' "${selected_modules[@]}" > modules.txt
+# Record the selected modules (the install list), sorted + de-duplicated.
+printf '%s\n' "${selected_modules[@]}" | grep -vE '^[[:space:]]*$' | LC_ALL=C sort -u > modules.txt
 
 # ── git init + submodules ──────────────────────────────────────────────────
 git init -q

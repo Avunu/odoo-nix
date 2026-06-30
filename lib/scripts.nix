@@ -54,6 +54,14 @@ let
     echo "$mod" >> "$f"
   '';
 
+  # Keep modules.txt sorted + de-duplicated (deterministic, clean diffs).
+  sortModulesTxt = pkgs.writeShellScript "modules-txt-sort" ''
+    f="modules.txt"
+    [ -f "$f" ] || exit 0
+    ${pkgs.gnugrep}/bin/grep -vE '^[[:space:]]*$' "$f" \
+      | LC_ALL=C ${pkgs.coreutils}/bin/sort -u > "$f.tmp" && mv "$f.tmp" "$f"
+  '';
+
   # Shared "add these module seeds" flow used by odoo-add-module and
   # odoo-add-bundle: resolve the transitive repo closure, add the NEW repos as
   # shallow submodules, record the seeds in modules.txt, re-aggregate the scoped
@@ -99,8 +107,9 @@ let
     fi
 
     # Record the seeds in modules.txt (only those present in the catalog/closure
-    # are installable; provision-db will report anything missing).
+    # are installable; provision-db will report anything missing), then sort it.
     for m in "''${SEL[@]}"; do ${addToModulesTxt} "$m"; done
+    ${sortModulesTxt}
 
     echo "==> Generating uv path-sources + lock (uv resolves all deps)…"
     ${pkgs.python3}/bin/python3 ${./oca_sources.py} update pyproject.toml \
