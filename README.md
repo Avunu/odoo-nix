@@ -149,6 +149,7 @@ builtOdoo, default}` from the flake-parts module.
 | `python` | `pkgs.python311` | interpreter (match the series) |
 | `nodejs` | `pkgs.nodejs_22` | Node.js (for `rtlcss` / asset tooling) |
 | `pythonOverrides` | `_: _: {}` | uv2nix package-set overlay for native-build overrides |
+| `pythonLibraries` | `{ }` | per-package native libs to expose to a Python build, e.g. `{ python-snappy = [ pkgs.snappy ]; }` (merged with built-ins; pycups is built in) |
 | `layout.coreSrc` | `"odoo"` | path of the OCB source submodule |
 | `layout.externalDir` | `"modules"` | directory holding OCA module-repo submodules |
 | `layout.customDir` | `"custom"` | directory holding your own modules |
@@ -241,6 +242,17 @@ loading and OCB edits work exactly as before — the editable installs just feed
 `lib/overrides.nix` supplies native-build overrides (psycopg2, python-ldap) and a
 `[tool.uv.extra-build-dependencies]` block grants `setuptools` to sdist-only legacy deps. For a
 genuine version conflict, use `[tool.uv] override-dependencies`.
+
+When a module pulls a C-extension dep that needs system headers (e.g. `pycups` → `cups/http.h`),
+expose the library declaratively rather than writing an override — the `pythonLibraries` option
+maps a Python package to nixpkgs libraries whose `.dev` headers + pkg-config are added to its
+build:
+
+```nix
+odoo-nix.pythonLibraries = {
+  python-snappy = [ pkgs.snappy ];   # pycups is built in
+};
+```
 
 ## `addons_path` synthesis
 

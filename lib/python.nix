@@ -26,6 +26,7 @@
   pyproject-nix,
   pyproject-build-systems,
   uv2nix,
+  pythonLibraries ? { },
   extraOverrides ? (_final: _prev: { }),
 }:
 
@@ -50,6 +51,22 @@ let
     });
   };
 
+  # Declarative native-library exposure: for each `<python package> = [ libs ]`,
+  # add the libs' headers (their `.dev` output) + pkg-config to that package's
+  # build, and the libs to its buildInputs. Lets a C-extension dep (e.g. pycups
+  # -> cups, python-snappy -> snappy) build without a bespoke override.
+  pythonLibsOverlay = final: prev:
+    builtins.mapAttrs (
+      name: libs:
+      prev.${name}.overrideAttrs (old: {
+        nativeBuildInputs =
+          (old.nativeBuildInputs or [ ])
+          ++ [ final.setuptools pkgs.pkg-config ]
+          ++ lib.concatMap (l: lib.optional (l ? dev) l.dev) libs;
+        buildInputs = (old.buildInputs or [ ]) ++ libs;
+      })
+    ) (lib.filterAttrs (name: _: prev ? ${name}) pythonLibraries);
+
   pythonSet =
     (pkgs.callPackage pyproject-nix.build.packages {
       inherit python;
@@ -59,6 +76,7 @@ let
           pyproject-build-systems.overlays.default
           overlay
           odooBackendOverlay
+          pythonLibsOverlay
           extraOverrides
         ]
       );

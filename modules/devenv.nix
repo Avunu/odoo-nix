@@ -54,6 +54,19 @@ in
           description = "uv2nix Python package-set overlay for native-build overrides.";
         };
 
+        pythonLibraries = mkOption {
+          type = types.attrsOf (types.listOf types.package);
+          default = { };
+          description = ''
+            Native libraries to expose to a Python package's build, keyed by
+            package name. Each library's headers (its `.dev` output) and
+            pkg-config are added to the build — the declarative way to satisfy a
+            C-extension dependency (e.g. pycups) without writing a Nix override.
+            Merged with odoo-nix's built-in set (which already covers pycups).
+          '';
+          example = lib.literalExpression ''{ python-snappy = [ pkgs.snappy ]; }'';
+        };
+
         odooConf = {
           dbHost = mkOption {
             type = types.str;
@@ -190,12 +203,19 @@ in
           (overrides.python-ldap { inherit pkgs; })
         ];
 
+        # Built-in native-library exposures (merged with the user's). Add common
+        # C-extension deps here so they work out of the box.
+        builtinPythonLibraries = {
+          pycups = [ pkgs.cups ];
+        };
+
         pythonEnvs = import ../lib/python.nix {
           inherit pkgs lib;
           inherit (cfg) python workspaceRoot projectName;
           pyproject-nix = inputs.pyproject-nix;
           pyproject-build-systems = inputs.pyproject-build-systems;
           uv2nix = inputs.uv2nix;
+          pythonLibraries = builtinPythonLibraries // cfg.pythonLibraries;
           extraOverrides = lib.composeManyExtensions [
             builtinOverrides
             cfg.pythonOverrides
