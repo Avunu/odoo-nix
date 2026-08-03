@@ -154,6 +154,9 @@ builtOdoo, default}` from the flake-parts module.
 | `layout.externalDir` | `"modules"` | directory holding OCA module-repo submodules |
 | `layout.customDir` | `"custom"` | directory holding your own modules |
 | `layout.extraAddons` | `[ ]` | extra `addons_path` entries appended verbatim |
+| `mailcatch.enable` | `true` | redirect **all** outgoing email to the local Mailpit catcher |
+| `mailcatch.host` / `mailcatch.port` | `"127.0.0.1"` / `1025` | catcher SMTP endpoint (drives Mailpit *and* Odoo) |
+| `mailcatch.httpPort` | `8025` | Mailpit web UI port |
 | `odooConf.dbHost/dbPort/dbUser/dbPassword/dbName` | `127.0.0.1` / `5432` / `odoo` / `False` / `odoo_dev` | DB connection |
 | `odooConf.dataDir` | `"./.devenv/state/odoo"` | Odoo filestore (gitignored under `.devenv`) |
 | `odooConf.adminPasswd` | `"admin"` | DB-manager master password (dev) |
@@ -174,6 +177,43 @@ builtOdoo, default}` from the flake-parts module.
 
 On shell entry it initializes git submodules, symlinks the synthesized `odoo.conf` into
 place, and ensures the filestore + `custom/` directories exist.
+
+### Outgoing mail catch-all
+
+With `mailcatch.enable` (the default), **every** outgoing email is redirected to Mailpit —
+nothing can reach a real recipient from a dev environment. Open the catcher at
+<http://localhost:8025>.
+
+Setting `smtp_server` in `odoo.conf` is *not* enough on its own: Odoo only falls back to it
+when no `ir.mail_server` record matches, so a single row in that table — or a `mail.mail`
+carrying an explicit `mail_server_id` — sends for real. So odoo-nix ships an addon,
+`addons/dev_mailcatch`, that patches `ir.mail_server.connect` and
+`ir.mail_server._find_mail_server` to always dial the catcher.
+
+It is loaded as a **server-wide module**, not installed into any database:
+
+```ini
+[options]
+server_wide_modules = base,web,dev_mailcatch
+
+[dev_mailcatch]
+enabled = True
+host = 127.0.0.1
+port = 1025
+```
+
+Odoo runs the manifest's `post_load` hook at server start, so the redirection covers every
+database on the server — including ones created later — with no `-i` step, and applies to the
+HTTP server, `odoo-shell`, and `--stop-after-init` runs (`-i`/`-u`) alike. The addon is served
+directly from the Nix store; it is never copied or symlinked into your workspace, so it stays
+out of `custom/`, `modules.txt`, and your git tree. A startup log line names the target:
+
+```
+WARNING dev_mailcatch ACTIVE — ALL outgoing email is redirected to 127.0.0.1:1025.
+```
+
+`ODOO_MAILCATCH_ENABLED` / `_HOST` / `_PORT` override `odoo.conf` for one-off runs. The
+catch-all is **dev-shell only** — `services.odoo-nix` and the container builder never load it.
 
 ### Dev scripts
 
@@ -262,12 +302,21 @@ appends `custom/` — emitting an ordered, relative `addons_path` that is regene
 evaluation. Adding or removing a submodule changes the path automatically; there is no
 hand-maintained list to drift.
 
+Entries stay workspace-relative so the file is identical across machines and containers.
+Absolute roots (`extraAddonsAbs`) are appended last, verbatim — that is how odoo-nix's own
+store-resident addons, such as `dev_mailcatch`, join the path without being vendored into the
+consumer's tree.
+
 ## `odoo.conf` synthesis
 
 `lib/odoo-conf.nix` renders the `[options]` block from your declarative `odooConf.*` settings
 plus the derived `addons_path` (via `pkgs.formats.ini`) to a read-only `/nix/store` file. The
 dev shell symlinks it to `./odoo.conf`; `--dev` stays a CLI flag so the same file is
 prod-usable.
+
+Beside `[options]` it can emit arbitrary extra sections (`extraSections`) for modules that read
+their own INI section out of `odoo.tools.config.misc` — Odoo's parser keeps unknown sections
+verbatim. `dev_mailcatch` uses this; OCA modules like `queue_job` follow the same convention.
 
 ## Production — `services.odoo-nix`
 
@@ -345,6 +394,8 @@ modules/
   devenv.nix                 # perSystem.odoo-nix options + dev shell
   containers.nix             # dockerTools OCI image
   nixos.nix                  # services.odoo-nix
+addons/
+  dev_mailcatch/             # server-wide outgoing-mail catch-all (dev shell only)
 lib/
   addons.nix                 # addons_path synthesis (the keystone)
   odoo-conf.nix              # odoo.conf INI synthesis

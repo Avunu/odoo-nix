@@ -130,6 +130,39 @@ in
           };
         };
 
+        mailcatch = {
+          enable =
+            mkOption {
+              type = types.bool;
+              default = true;
+              description = ''
+                Redirect ALL outgoing email to the local Mailpit catcher.
+
+                Ships odoo-nix's `dev_mailcatch` addon from the Nix store and
+                loads it as a server-wide module, so the redirection covers
+                every database on the dev server without installing anything
+                into any of them — and cannot be defeated by an
+                `ir.mail_server` record. Dev-shell only: the NixOS module and
+                container builder never load it.
+              '';
+            };
+          host = mkOption {
+            type = types.str;
+            default = "127.0.0.1";
+            description = "Host the catcher's SMTP listener is bound to.";
+          };
+          port = mkOption {
+            type = types.port;
+            default = 1025;
+            description = "Catcher SMTP port — drives both Mailpit and Odoo.";
+          };
+          httpPort = mkOption {
+            type = types.port;
+            default = 8025;
+            description = "Mailpit web UI port.";
+          };
+        };
+
         layout = {
           coreSrc = mkOption {
             type = types.str;
@@ -222,15 +255,39 @@ in
           ];
         };
 
+        # odoo-nix's own addons, served straight from the store — never copied
+        # or symlinked into the consumer's workspace. The addons_path entry is
+        # the parent directory, so future odoo-nix addons come along for free.
+        #
+        # builtins.path (rather than a bare `../addons`) gives this its own
+        # store path, hashed over the addons alone. A bare path would be a
+        # subpath of the whole flake source, so every unrelated odoo-nix edit
+        # would change addons_path, rewrite odoo.conf and force a restart.
+        odooNixAddons = builtins.path {
+          path = ../addons;
+          name = "odoo-nix-addons";
+        };
+
         addons = import ../lib/addons.nix {
           inherit lib;
           inherit (cfg) workspaceRoot layout;
+          extraAddonsAbs = lib.optional cfg.mailcatch.enable odooNixAddons;
         };
 
         confSynth = import ../lib/odoo-conf.nix {
           inherit pkgs lib;
           inherit (cfg) odooConf;
           addonsPath = addons.addonsPath;
+          serverWideModules = [
+            "base"
+            "web"
+          ] ++ lib.optional cfg.mailcatch.enable "dev_mailcatch";
+          extraSections = lib.optionalAttrs cfg.mailcatch.enable {
+            dev_mailcatch = {
+              enabled = true;
+              inherit (cfg.mailcatch) host port;
+            };
+          };
         };
 
         scripts = import ../lib/scripts.nix {
@@ -320,8 +377,12 @@ in
 
                 ODOO_HTTP_PORT = toString cfg.odooConf.httpPort;
                 ODOO_GEVENT_PORT = toString cfg.odooConf.geventPort;
-                MAILPIT_SMTP_PORT = "1025";
-                MAILPIT_HTTP_PORT = "8025";
+                # Single source of truth: the same values are baked into
+                # odoo.conf's [dev_mailcatch] section, so Odoo and Mailpit can
+                # never drift apart.
+                MAILPIT_SMTP_HOST = cfg.mailcatch.host;
+                MAILPIT_SMTP_PORT = toString cfg.mailcatch.port;
+                MAILPIT_HTTP_PORT = toString cfg.mailcatch.httpPort;
 
                 UV_PROJECT_ENVIRONMENT = config.env.DEVENV_STATE + "/uv-env";
                 LD_LIBRARY_PATH = libraryPath;
@@ -355,14 +416,19 @@ in
 
               mailpit.exec = ''
                 exec ${pkgs.mailpit}/bin/mailpit \
-                  --smtp 127.0.0.1:''${MAILPIT_SMTP_PORT:-1025} \
+                  --smtp ''${MAILPIT_SMTP_HOST:-127.0.0.1}:''${MAILPIT_SMTP_PORT:-1025} \
                   --listen 127.0.0.1:''${MAILPIT_HTTP_PORT:-8025} \
                   --database "$DEVENV_STATE/mailpit.db"
               '';
             };
 
             process.managers.process-compose.settings.processes = {
-              odoo.depends_on.postgres.condition = "process_started";
+              odoo.depends_on = {
+                postgres.condition = "process_started";
+              }
+              // lib.optionalAttrs cfg.mailcatch.enable {
+                mailpit.condition = "process_started";
+              };
             };
 
             enterShell = ''
@@ -393,6 +459,9 @@ in
               echo "║  odoo-shell          Odoo REPL                             ║"
               echo "╚════════════════════════════════════════════════════════════╝"
               echo "  addons_path entries: ${toString (builtins.length addons.addonsPathList)}  (http: ${toString cfg.odooConf.httpPort})"
+              ${lib.optionalString cfg.mailcatch.enable ''
+                echo "  mail: ALL outgoing email → Mailpit (http://127.0.0.1:${toString cfg.mailcatch.httpPort})"
+              ''}
               echo ""
             '';
 

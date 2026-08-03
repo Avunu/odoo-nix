@@ -18,12 +18,17 @@
 #     workspaceRoot = ./.;
 #     layout = { coreSrc = "odoo"; externalDir = "modules";
 #                customDir = "custom"; extraAddons = [ ]; };
+#     extraAddonsAbs = [ ];
 #   }
 
 {
   lib,
   workspaceRoot,
   layout,
+  # Absolute addons roots (typically /nix/store paths) appended last, verbatim.
+  # Kept separate from layout.extraAddons because those are workspace-relative
+  # and get a "./" prefix — which would mangle an absolute path.
+  extraAddonsAbs ? [ ],
 }:
 
 let
@@ -71,7 +76,12 @@ let
   # paths keep the file identical across machines and containers, and let it be
   # store-symlinked without baking a /nix/store or $HOME prefix.
   rel = p: "./" + p;
-  addonsPathList = map rel componentsRel;
+
+  # Absolute roots are already resolvable from any CWD, so they bypass `rel`
+  # and are shared verbatim by both the relative and the absolute renderings.
+  componentsAbs = map toString extraAddonsAbs;
+
+  addonsPathList = map rel componentsRel ++ componentsAbs;
 in
 {
   # Discovered OCA repo dir names (e.g. [ "account-financial-tools" … ]).
@@ -86,5 +96,6 @@ in
   # Absolute addons_path against an arbitrary root — for builds, the NixOS
   # module, and containers, where CWD is not the workspace root. Mirrors
   # frappe-nix/lib/bench.nix's `appsPath root`.
-  addonsPathFor = root: lib.concatStringsSep "," (map (c: "${root}/${c}") componentsRel);
+  addonsPathFor =
+    root: lib.concatStringsSep "," (map (c: "${root}/${c}") componentsRel ++ componentsAbs);
 }

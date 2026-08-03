@@ -17,10 +17,26 @@
   lib,
   odooConf,
   addonsPath,
+  # Modules imported at server start, before any registry is built. "base" and
+  # "web" are always loaded by Odoo; they are listed explicitly because setting
+  # the key at all replaces Odoo's own default.
+  serverWideModules ? [
+    "base"
+    "web"
+  ],
+  # Extra INI sections beside [options], for modules that read their own
+  # section out of `odoo.tools.config.misc` (Odoo's parser keeps unknown
+  # sections verbatim). Values are stringified like the [options] block.
+  extraSections ? { },
 }:
 
 let
   ini = pkgs.formats.ini { };
+
+  # Odoo's INI parser coerces "True"/"False" back to booleans but never casts
+  # numbers, so everything is emitted as a string and read as one.
+  toIniValue = v: if builtins.isBool v then (if v then "True" else "False") else toString v;
+  toIniSection = builtins.mapAttrs (_n: toIniValue);
 
   optionsBlock =
     {
@@ -44,14 +60,18 @@ let
       gevent_port = toString odooConf.geventPort;
       workers = toString odooConf.workers;
       log_level = odooConf.logLevel;
+      server_wide_modules = lib.concatStringsSep "," serverWideModules;
     }
     # Escape hatch: arbitrary extra [options] keys win last. Values stringified
     # so callers may pass ints/bools.
-    // builtins.mapAttrs (_n: v: if builtins.isBool v then (if v then "True" else "False") else toString v) odooConf.extra;
+    // toIniSection odooConf.extra;
 
-  odooConfFile = ini.generate "odoo.conf" {
-    options = optionsBlock;
-  };
+  odooConfFile = ini.generate "odoo.conf" (
+    {
+      options = optionsBlock;
+    }
+    // builtins.mapAttrs (_n: toIniSection) extraSections
+  );
 in
 {
   inherit odooConfFile optionsBlock;
