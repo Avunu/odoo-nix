@@ -186,6 +186,24 @@ in
           };
         };
 
+        testBrowser = mkOption {
+          type = types.nullOr types.package;
+          default = pkgs.chromium;
+          description = ''
+            Browser used by Odoo's HttpCase browser tours.
+
+            Odoo drives a headless Chrome over the devtools protocol and looks
+            for `google-chrome`, `chromium`, `chromium-browser` or
+            `google-chrome-stable` on PATH. Without one it *skips* every tour
+            rather than failing, so an undeclared system browser turns tours
+            into tests that quietly do not run.
+
+            Declared here for the same reason wkhtmltopdf is: a binary Odoo
+            shells out to at runtime. Set to `null` to rely on a system browser
+            (or to drop the closure on projects that run no tours).
+          '';
+        };
+
         extraDevPackages = mkOption {
           type = types.listOf types.package;
           default = [ ];
@@ -363,6 +381,7 @@ in
                 jq
                 just
               ]
+              ++ lib.optional (cfg.testBrowser != null) cfg.testBrowser
               ++ cfg.extraDevPackages;
 
             env =

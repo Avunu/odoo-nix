@@ -14,9 +14,27 @@ dependencies = [
 ]
 
 [dependency-groups]
+# Development and test tooling. Resolved into the dev env only (python.nix
+# passes `workspace.deps.groups` to devPythonEnv and not to odooPythonEnv), so
+# none of this ships in a production image.
+#
+# Hand-edited on purpose: unlike [project].dependencies and [tool.uv.sources]
+# above, this block is not managed by oca_sources.py, so odoo-update leaves it
+# alone.
 dev = [
     "debugpy",
     "ruff",
+    # The two test dependencies Odoo needs but does not declare. Both live in
+    # OCB's tests_require, which uv does not install, so nothing pulls them in.
+    #
+    # freezegun: odoo.tests.common imports it unconditionally -- without it no
+    # Odoo test runs at all, which at least fails loudly.
+    "freezegun",
+    # websocket-client: Odoo drives headless Chrome over the devtools protocol
+    # for HttpCase browser tours and imports `websocket` to do it. This one
+    # fails quietly -- a missing import makes Odoo *skip* every tour, and the
+    # summary line reports a skip exactly like a pass. See the odoo-test script.
+    "websocket-client",
 ]
 
 [tool.uv]

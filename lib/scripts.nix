@@ -142,6 +142,58 @@ in
     '';
   };
 
+  # Run tests, and refuse to call a skipped browser tour a pass.
+  #
+  # Odoo degrades quietly when the tour prerequisites are missing: no
+  # `websocket` module, or no Chrome on PATH, and every HttpCase is *skipped*.
+  # The summary line reports skips and passes identically --
+  # "0 failed, 0 error(s) of N tests" -- so a broken environment reads as a
+  # green run. That is the failure this script exists to prevent: it checks the
+  # prerequisites up front and exits non-zero saying what is missing, rather
+  # than letting the suite claim success for tests that never executed.
+  odoo-test = {
+    description = "Run tests: odoo-test <module[,module2]> [db] (fails if tours cannot run)";
+    exec = ''
+      ${preamble}
+      [ "$#" -ge 1 ] || {
+        echo "usage: odoo-test <module[,module2]> [db]" >&2; exit 1; }
+      MODS="$1"; shift || true
+      [ "$#" -ge 1 ] && DB="$1"
+
+      MISSING=""
+      ${python} -c 'import websocket' 2>/dev/null \
+        || MISSING="$MISSING\n  - the 'websocket-client' package (add it to [dependency-groups].dev, then re-lock)"
+      # `if`, not `cmd && {...}`: under `set -e` a failing AND-list as the last
+      # statement of the loop body would abort the script on the first name
+      # that is not installed -- which is every run where chromium is second.
+      BROWSER=""
+      for b in google-chrome chromium chromium-browser google-chrome-stable; do
+        if command -v "$b" >/dev/null 2>&1; then BROWSER="$b"; break; fi
+      done
+      [ -n "$BROWSER" ] \
+        || MISSING="$MISSING\n  - a headless browser (set odoo.testBrowser, or put one on PATH)"
+
+      if [ -n "$MISSING" ]; then
+        echo "✗ Browser tours cannot run here, and Odoo would skip them silently:" >&2
+        printf "%b\n" "$MISSING" >&2
+        echo "" >&2
+        echo "  Refusing to run, because a skipped tour is reported exactly like" >&2
+        echo "  a passing one. Set ODOO_TEST_ALLOW_SKIP=1 to run anyway." >&2
+        [ "''${ODOO_TEST_ALLOW_SKIP:-}" = "1" ] || exit 1
+      else
+        echo "==> tours enabled (browser: $BROWSER)"
+      fi
+
+      # "a,b" -> "/a,/b": --test-tags wants a leading slash per module, and
+      # "/a,b" would silently select nothing for b.
+      TAGS="/$(printf '%s' "$MODS" | ${pkgs.gnused}/bin/sed 's/,/,\//g')"
+
+      echo "==> Testing $MODS on '$DB' (tags: $TAGS)…"
+      exec ${python} "$ODOO_BIN" -c "$CONF" -d "$DB" -u "$MODS" \
+        --test-enable --test-tags "$TAGS" --stop-after-init
+    '';
+  };
+
   # Open the Odoo shell REPL against a database.
   odoo-shell = {
     description = "Open the Odoo shell REPL: odoo-shell [db]";
