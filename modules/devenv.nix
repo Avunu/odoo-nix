@@ -204,6 +204,39 @@ in
           '';
         };
 
+        ide = {
+          enable = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Expose the environment to editors / language servers.
+
+              Creates two derived artifacts on shell entry, neither of which
+              Odoo itself reads:
+
+              - `./.venv` — a symlink to the Nix-built dev env, the venv
+                layout every editor probes for at the workspace root.
+              - `$DEVENV_STATE/pythonpath` — a merged `odoo` package tree
+                whose `addons/` aggregates every addons_path root. Odoo builds
+                `odoo.addons` at runtime as a pkgutil namespace, and uv2nix's
+                editable installs hook it through `.pth` files that call
+                `os.path.expandvars`. A static analyser does neither, so
+                without this even `from odoo.addons.sale import …` is
+                unresolved.
+            '';
+          };
+
+          vscodeSettings = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Seed `.vscode/settings.json` with the interpreter path and the
+              analysis roots above, when the file does not already exist.
+              Never overwrites an existing file.
+            '';
+          };
+        };
+
         extraDevPackages = mkOption {
           type = types.listOf types.package;
           default = [ ];
@@ -323,6 +356,111 @@ in
           inherit (cfg) workspaceRoot layout projectName odooSeries;
           odooPythonEnv = pythonEnvs.odooPythonEnv;
         };
+
+        # ── Editor / language-server integration ──────────────────────────
+        # Everything below is derived, gitignored and invisible to Odoo: the
+        # server and the scripts import from the /nix/store env directly. It
+        # exists so a static analyser resolves the same names the interpreter
+        # does.
+        #
+        # Two things defeat analysers here, and both need a real directory to
+        # look at:
+        #
+        #   1. uv2nix installs every OCA/custom module *editable*, via .pth
+        #      files whose body is `sys.path.append(os.path.expandvars(...))`.
+        #      Only a running interpreter executes those.
+        #   2. `odoo.addons` is a pkgutil namespace that Odoo extends from
+        #      addons_path at startup — and the bulk of the standard addons
+        #      (sale, portal, mail, …) live in <coreSrc>/addons, *outside* the
+        #      `odoo` package. Nothing static can see them either.
+        #
+        # So `pythonpathRoot` mirrors the `odoo` package with an `addons/`
+        # directory that aggregates every addons_path root, first root wins —
+        # the same precedence Odoo applies. One entry on
+        # `python.analysis.extraPaths` then resolves core, OCA and custom
+        # modules alike.
+        pythonpathRoot = "$DEVENV_STATE/pythonpath";
+
+        vscodeSettingsFile = pkgs.writeText "odoo-nix-vscode-settings.json" (
+          builtins.toJSON {
+            "python.defaultInterpreterPath" = "\${workspaceFolder}/.venv/bin/python";
+            "python.analysis.extraPaths" = [ ".devenv/state/pythonpath" ];
+            # The mirror re-exports ~2k module directories; keep the watcher
+            # and the search index off it (VS Code excludes neither by
+            # default, though Pylance already skips dot-directories).
+            "files.watcherExclude" = {
+              "**/.devenv/**" = true;
+              "**/.direnv/**" = true;
+            };
+            "search.exclude" = {
+              "**/.devenv/**" = true;
+              "**/.direnv/**" = true;
+            };
+          }
+        );
+
+        # Anchored on $DEVENV_ROOT, not $PWD: these paths have to be the
+        # workspace's regardless of where `nix develop` was invoked from.
+        ideSetup = ''
+          # $DEVENV_ROOT/.venv → the Nix-built dev env. Editors locate an
+          # interpreter by probing the workspace root for a venv layout; ours
+          # lives in the store, so link it into view. Named `.venv` because
+          # that is the one name every editor checks without configuration.
+          if [ -e "$DEVENV_ROOT/.venv" ] && [ ! -L "$DEVENV_ROOT/.venv" ]; then
+            echo "⚠  ./.venv exists and is not a symlink — leaving it alone." >&2
+            echo "   Remove it to let odoo-nix link the Nix-built dev env there." >&2
+          elif [ "$(readlink "$DEVENV_ROOT/.venv" 2>/dev/null)" != "${pythonEnvs.devPythonEnv}" ]; then
+            ln -sfn "${pythonEnvs.devPythonEnv}" "$DEVENV_ROOT/.venv"
+          fi
+
+          # The merged `odoo` tree. Rebuilding means ~2k symlinks, so collect
+          # the wanted module set first (pure bash, no forks) and rebuild only
+          # when it differs from the last run's stamp.
+          _pp="${pythonpathRoot}"
+          _targets=()
+          declare -A _seen=()
+          for _root in ${lib.concatStringsSep " " (map (p: "\"${p}\"") addons.addonsPathList)}; do
+            case "$_root" in
+              /*) _abs="$_root" ;;
+              *) _abs="$DEVENV_ROOT/''${_root#./}" ;;
+            esac
+            for _mod in "$_abs"/*/; do
+              [ -f "$_mod/__manifest__.py" ] || continue
+              _mod="''${_mod%/}"
+              _name="''${_mod##*/}"
+              # First root wins, as in Odoo's own module resolution.
+              [ -n "''${_seen[$_name]:-}" ] && continue
+              _seen["$_name"]=1
+              _targets+=("$_mod")
+            done
+          done
+
+          # No trailing newline on either side: `$(...)` strips them, so the
+          # stamp has to be written the same way or it never compares equal.
+          _want=$(printf '%s\n' ''${_targets[@]+"''${_targets[@]}"})
+          if [ ''${#_targets[@]} -gt 0 ] && [ "$_want" != "$(cat "$_pp/.stamp" 2>/dev/null)" ]; then
+            rm -rf "$_pp"
+            mkdir -p "$_pp/odoo/addons"
+            # Everything the `odoo` package itself provides (fields.py, api.py,
+            # tools/, …). `addons` is rebuilt below; `__pycache__` is noise.
+            for _e in "$DEVENV_ROOT/${cfg.layout.coreSrc}"/odoo/*; do
+              case "''${_e##*/}" in
+                addons | __pycache__) continue ;;
+              esac
+              ln -s "$_e" "$_pp/odoo/''${_e##*/}"
+            done
+            # One `ln` per batch rather than per module: each link is named
+            # after its target's basename, which *is* the module name.
+            #
+            # No __init__.py under addons/ — leaving it an implicit namespace
+            # package is what lets a static analyser merge the roots, which is
+            # the same thing pkgutil.extend_path does at runtime.
+            printf '%s\0' "''${_targets[@]}" | xargs -0 ln -s -t "$_pp/odoo/addons" --
+            printf '%s' "$_want" > "$_pp/.stamp"
+            echo "  language-server paths refreshed (''${#_targets[@]} modules)"
+          fi
+          unset _pp _want _targets _seen _root _abs _mod _name _e
+        '';
 
         libraryPath = lib.makeLibraryPath (
           [
@@ -465,6 +603,16 @@ in
 
               # Ensure the filestore + custom-addons dirs exist.
               mkdir -p "${cfg.odooConf.dataDir}" "${cfg.layout.customDir}"
+
+              ${lib.optionalString cfg.ide.enable ideSetup}
+
+              ${lib.optionalString (cfg.ide.enable && cfg.ide.vscodeSettings) ''
+                # Seeded once; a project's own settings are never overwritten.
+                if [ ! -e "$DEVENV_ROOT/.vscode/settings.json" ]; then
+                  mkdir -p "$DEVENV_ROOT/.vscode"
+                  install -m 644 "${vscodeSettingsFile}" "$DEVENV_ROOT/.vscode/settings.json"
+                fi
+              ''}
 
               echo ""
               echo "╔════════════════════════════════════════════════════════════╗"

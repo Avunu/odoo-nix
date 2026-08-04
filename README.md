@@ -164,6 +164,8 @@ builtOdoo, default}` from the flake-parts module.
 | `odooConf.workers` | `0` | worker processes (0 = threaded dev mode) |
 | `odooConf.devMode` | `"all"` | `--dev` flag for the dev process |
 | `odooConf.extra` | `{ }` | arbitrary extra `[options]` keys merged last |
+| `ide.enable` | `true` | expose the env to editors: `./.venv` symlink + merged `odoo` analysis root |
+| `ide.vscodeSettings` | `true` | seed `.vscode/settings.json` when absent (never overwrites) |
 | `extraDevPackages` / `extraLibraryPaths` / `extraScripts` / `extraEnv` | `[]` / `[]` / `{}` / `{}` | dev-shell extras |
 | `containers.enable` / `containers.registry` | `false` / `""` | build the OCI image |
 
@@ -176,7 +178,45 @@ builtOdoo, default}` from the flake-parts module.
 - **mailpit** — SMTP sink + web UI.
 
 On shell entry it initializes git submodules, symlinks the synthesized `odoo.conf` into
-place, and ensures the filestore + `custom/` directories exist.
+place, ensures the filestore + `custom/` directories exist, and refreshes the editor
+integration below.
+
+### Editor / language-server integration
+
+`ide.enable` (the default) produces two derived artifacts. Neither is read at runtime —
+the server and the scripts import from the store env directly — they exist so a static
+analyser resolves the same names the interpreter does.
+
+| Artifact | Purpose |
+| --- | --- |
+| `./.venv` → the Nix-built dev env | the venv layout every editor probes for at the workspace root |
+| `.devenv/state/pythonpath` | a merged `odoo` package whose `addons/` aggregates every `addons_path` root |
+
+The second one is not optional dressing. Two things hide Odoo's imports from an analyser,
+and both need a real directory to look at:
+
+1. uv2nix installs every OCA/custom module **editable**, through `.pth` files whose body is
+   `sys.path.append(os.path.expandvars(…))`. Only a running interpreter executes those.
+2. `odoo.addons` is a `pkgutil` namespace that Odoo extends from `addons_path` at startup —
+   and the bulk of the standard addons (`sale`, `portal`, `mail`, …) live in
+   `<coreSrc>/addons`, *outside* the `odoo` package. Nothing static can see them either.
+
+So without it, `from odoo.addons.sale.models.sale_order import SaleOrder` is unresolved even
+for stock Odoo. The mirror links each module in first-root-wins order — the same precedence
+Odoo applies — and is rebuilt only when that set changes.
+
+With `ide.vscodeSettings`, a `.vscode/settings.json` is seeded (once, never overwritten)
+pointing Pylance at both:
+
+```json
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.analysis.extraPaths": [".devenv/state/pythonpath"]
+}
+```
+
+For a non-VS Code editor, point your language server at the same two paths — e.g. a
+`pyrightconfig.json` with `"venv": ".venv"` and the same `extraPaths`.
 
 ### Outgoing mail catch-all
 

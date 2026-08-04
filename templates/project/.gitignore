@@ -1,12 +1,13 @@
 # odoo-nix project
 
-# Synthesized odoo.conf symlink into the Nix store (recreated on shell entry)
+# Store symlinks recreated on shell entry. No trailing slash: git records a
+# symlink as a file, so a "dir/" pattern would not match them.
 /odoo.conf
+/.venv
 
 # devenv-managed state: postgres cluster + Odoo filestore (.devenv/state/odoo)
 /.devenv/
 /.direnv/
-/.venv/
 __pycache__/
 *.pyc
 .DS_Store
