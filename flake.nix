@@ -73,6 +73,20 @@
         addons = import ./lib/addons.nix;
       };
 
+      # VM tests. Linux only — runNixOSTest cannot evaluate on darwin.
+      checks = nixpkgs.lib.genAttrs (nixpkgs.lib.filter (s: nixpkgs.lib.hasSuffix "-linux" s) systems) (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        {
+          module = import ./tests/module.nix {
+            inherit pkgs;
+            odooModule = ./modules/nixos.nix;
+          };
+        }
+      );
+
       # `nix run github:<owner>/odoo-nix` scaffolds a new Odoo + OCA project.
       packages = forAllSystems (pkgs: rec {
         odoo-init = odooInit pkgs;

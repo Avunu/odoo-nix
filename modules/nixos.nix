@@ -23,6 +23,35 @@ let
   dbName = cfg.dbName;
   socketAuth = cfg.database.createLocally && cfg.database.passwordFile == null;
 
+  # nginx serves the public side over a unix socket; Odoo itself stays on
+  # loopback TCP. Verified against the Odoo 18.0 source this module builds:
+  # ThreadedWSGIServerReloadable.__init__ hands (host, port) straight to
+  # werkzeug.serving.ThreadedWSGIServer, bypassing run_simple/make_server where
+  # werkzeug's own `unix://` support lives; PreforkServer builds AF_INET and
+  # binds a 2-tuple; and server_bind's socket-activation branch hardcodes
+  # AF_INET in socket.fromfd. (19.x adds http_socket_activation but still passes
+  # AF_INET explicitly, which CPython does not verify against the real fd.)
+  nginxSocket = cfg.nginx.socketPath != "";
+  nginxSocketDir = builtins.dirOf cfg.nginx.socketPath;
+
+  # The vhost only needs a name to key it; with a single server block on the
+  # socket it is the default server, so server_name never has to match.
+  vhostName = if cfg.nginx.domain != "" then cfg.nginx.domain else "odoo";
+
+  # recommendedProxySettings hardcodes `X-Forwarded-Proto $scheme`, and NixOS
+  # emits its include AFTER a location's extraConfig, so the wrong scheme cannot
+  # be overridden from there — Odoo's proxy_mode would then build http URLs and
+  # drop the Secure flag on session cookies. Opt each location out and set the
+  # whole header block explicitly.
+  socketProxyHeaders = optionalString nginxSocket ''
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Server $hostname;
+  '';
+
   # Base [options] (no secrets). addons_path is the assembled package's absolute
   # path; data_dir + the conf live under the stateful directory.
   baseOptions =
@@ -213,7 +242,26 @@ in
       domain = mkOption {
         type = types.str;
         default = "";
-        description = "Server name (FQDN) for the nginx virtualHost.";
+        description = "Server name (FQDN) for the nginx virtualHost. Not required when socketPath is set.";
+      };
+      socketPath = mkOption {
+        type = types.str;
+        default = "";
+        example = "/run/odoo/nginx.sock";
+        description = ''
+          Serve the nginx vhost over this unix socket instead of a TCP port, for
+          a co-located reverse proxy or tunnel connector that terminates TLS.
+          Odoo itself stays on loopback TCP — its server layer cannot bind a
+          unix socket (see the comment in this module).
+
+          Implies the public scheme is https: `X-Forwarded-Proto` is set
+          accordingly and the client IP is taken from `CF-Connecting-IP`, since a
+          unix socket has no peer address.
+
+          nginx chmods its unix listen sockets to 0666, so the socket file does
+          not restrict access. Give it its own directory; this module creates
+          that 0750 and owned by the service user, which is the real gate.
+        '';
       };
     };
 
@@ -230,24 +278,46 @@ in
         message = "services.odoo-nix.update requires a pinned dbName.";
       }
       {
-        assertion = !cfg.nginx.enable || cfg.nginx.domain != "";
-        message = "services.odoo-nix.nginx.enable requires nginx.domain.";
+        assertion = !cfg.nginx.enable || cfg.nginx.domain != "" || nginxSocket;
+        message = "services.odoo-nix.nginx.enable requires nginx.domain (or nginx.socketPath, which needs no server name).";
+      }
+      {
+        # nginx chmods its listen socket to 0666, so the 0750 directory around it
+        # is what keeps it private.
+        assertion =
+          !nginxSocket
+          || (lib.hasPrefix "/" cfg.nginx.socketPath && nginxSocketDir != "/run" && nginxSocketDir != "/");
+        message =
+          "services.odoo-nix.nginx.socketPath must be an absolute path inside its own directory"
+          + " (e.g. /run/odoo/nginx.sock), not directly in /run — the directory's 0750 mode is"
+          + " what keeps the socket private.";
       }
     ];
 
-    users.users = mkIf (cfg.user == "odoo") {
-      odoo = {
-        isSystemUser = true;
-        group = cfg.group;
-        home = cfg.stateDir;
-      };
-    };
+    users.users = lib.mkMerge [
+      (mkIf (cfg.user == "odoo") {
+        odoo = {
+          isSystemUser = true;
+          group = cfg.group;
+          home = cfg.stateDir;
+        };
+      })
+      # nginx needs group membership to traverse the 0750 socket directory.
+      (mkIf (cfg.nginx.enable && nginxSocket) {
+        nginx.extraGroups = [ cfg.group ];
+      })
+    ];
     users.groups = mkIf (cfg.group == "odoo") { odoo = { }; };
 
     systemd.tmpfiles.rules = [
       "d ${cfg.stateDir} 0750 ${cfg.user} ${cfg.group} -"
       "d ${cfg.stateDir}/data 0750 ${cfg.user} ${cfg.group} -"
-    ];
+    ]
+    # 0770, not 0750: nginx *creates* its listen socket in here and is only a
+    # group member (added to cfg.group below), so it needs group write on the
+    # directory, not just traversal. The directory is the access gate because
+    # nginx chmods the socket itself to 0666.
+    ++ lib.optional nginxSocket "d ${nginxSocketDir} 0770 ${cfg.user} ${cfg.group} -";
 
     systemd.services.odoo-init = {
       description = "Initialize Odoo runtime config for ${cfg.package.name}";
@@ -321,34 +391,64 @@ in
       recommendedGzipSettings = true;
       upstreams.odoo.servers."127.0.0.1:${toString cfg.http.port}" = { };
       upstreams.odoochat.servers."127.0.0.1:${toString cfg.http.longpollingPort}" = { };
-      virtualHosts.${cfg.nginx.domain} = {
+      virtualHosts.${vhostName} = {
+        listen = lib.optionals nginxSocket [ { addr = "unix:${cfg.nginx.socketPath}"; } ];
+
+        # A unix socket has no peer address, so $remote_addr is meaningless.
+        # Trust the socket peer and take the real client IP from Cloudflare's
+        # header — the socket is only reachable from the connector beside it.
+        extraConfig = optionalString nginxSocket ''
+          set_real_ip_from unix:;
+          real_ip_header CF-Connecting-IP;
+        '';
+
+        # In socket mode this module owns the complete header set (the
+        # recommended include is off per location, and its $scheme is wrong here).
+        # In TCP mode the previous configuration is reproduced exactly.
         locations = {
           "/" = {
             proxyPass = "http://odoo";
-            extraConfig = ''
-              proxy_redirect off;
-              proxy_set_header X-Forwarded-Host $host;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto $scheme;
-              proxy_set_header X-Real-IP $remote_addr;
-            '';
+            recommendedProxySettings = !nginxSocket;
+            extraConfig =
+              if nginxSocket then
+                ''
+                  ${socketProxyHeaders}
+                  proxy_redirect off;
+                ''
+              else
+                ''
+                  proxy_redirect off;
+                  proxy_set_header X-Forwarded-Host $host;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_set_header X-Real-IP $remote_addr;
+                '';
           };
           "/websocket" = {
             proxyPass = "http://odoochat";
             proxyWebsockets = true;
-            extraConfig = ''
-              proxy_set_header X-Forwarded-Host $host;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto $scheme;
-            '';
+            recommendedProxySettings = !nginxSocket;
+            extraConfig =
+              if nginxSocket then
+                socketProxyHeaders
+              else
+                ''
+                  proxy_set_header X-Forwarded-Host $host;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                '';
           };
           "/longpolling" = {
             proxyPass = "http://odoochat";
             proxyWebsockets = true;
+            recommendedProxySettings = !nginxSocket;
+            extraConfig = socketProxyHeaders;
           };
           "~* /web/static/" = {
             proxyPass = "http://odoo";
+            recommendedProxySettings = !nginxSocket;
             extraConfig = ''
+              ${socketProxyHeaders}
               proxy_cache_valid 200 60m;
               proxy_buffering on;
               expires 864000;
