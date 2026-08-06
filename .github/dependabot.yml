@@ -1,0 +1,25 @@
+version: 2
+
+# This repo is Nix infrastructure, so the Dependabot-supported surface is thin: the
+# workflows below, and nothing else.
+#
+# Deliberately NOT configured:
+#   • flake.lock — Dependabot has no Nix ecosystem, and flake.lock (nixpkgs, flake-parts,
+#     devenv, nix2container, pyproject-nix, uv2nix, pyproject-build-systems) is the real
+#     dependency set here. It is updated by .github/workflows/update-flake-lock.yml.
+#   • templates/project/pyproject.toml — a scaffolding template, not a resolvable project.
+#     Its @PLACEHOLDER@ tokens (requires-python, project name) are substituted by
+#     `odoo-init`, and both the install set and [tool.uv.sources] are generated from
+#     modules.txt by lib/oca_sources.py, so a uv/pip updater has nothing valid to resolve
+#     and would fight the generator. Generated projects carry their own uv.lock, updated
+#     via `odoo-update`.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+    commit-message:
+      prefix: chore
+    groups:
+      github-actions:
+        patterns: ["*"]
