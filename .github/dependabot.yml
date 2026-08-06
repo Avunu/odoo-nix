@@ -1,19 +1,36 @@
 version: 2
 
-# This repo is Nix infrastructure, so the Dependabot-supported surface is thin: the
-# workflows below, and nothing else.
+# Keeps this repo's dependencies up to date. PRs auto-merge once the required checks go
+# green — see .github/workflows/dependabot-auto-merge.yml.
 #
-# Deliberately NOT configured:
-#   • flake.lock — Dependabot has no Nix ecosystem, and flake.lock (nixpkgs, flake-parts,
-#     devenv, nix2container, pyproject-nix, uv2nix, pyproject-build-systems) is the real
-#     dependency set here. It is updated by .github/workflows/update-flake-lock.yml.
-#   • templates/project/pyproject.toml — a scaffolding template, not a resolvable project.
-#     Its @PLACEHOLDER@ tokens (requires-python, project name) are substituted by
-#     `odoo-init`, and both the install set and [tool.uv.sources] are generated from
-#     modules.txt by lib/oca_sources.py, so a uv/pip updater has nothing valid to resolve
-#     and would fight the generator. Generated projects carry their own uv.lock, updated
-#     via `odoo-update`.
+# Deliberately NOT configured: templates/project/pyproject.toml. It is a scaffolding
+# template, not a resolvable project — its @PLACEHOLDER@ tokens (requires-python,
+# project name) are substituted by `odoo-init`, and both the install set and
+# [tool.uv.sources] are generated from modules.txt by lib/oca_sources.py, so a uv/pip
+# updater has nothing valid to resolve and would fight the generator. Generated projects
+# carry their own uv.lock, updated via `odoo-update`.
 updates:
+  # Nix flake inputs — nixpkgs, flake-parts, devenv, nix2container, pyproject-nix,
+  # uv2nix, pyproject-build-systems. This is the real dependency set for this repo.
+  # Dependabot reads flake.lock directly (schema v7).
+  #
+  # Weekly, not daily: nixpkgs tracks nixos-unstable and moves constantly, so a daily
+  # bump would be pure churn.
+  #
+  # Grouped into one PR on purpose. uv2nix and pyproject-build-systems both `follows`
+  # pyproject-nix and nixpkgs; bumping them through separate PRs can land a lock where
+  # the followed and following inputs disagree. One PR keeps the graph consistent.
+  - package-ecosystem: nix
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    groups:
+      nix:
+        patterns: ["*"]
+
+  # GitHub Actions used by the workflows in .github/workflows.
   - package-ecosystem: github-actions
     directory: /
     schedule:
