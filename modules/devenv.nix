@@ -128,6 +128,15 @@ in
             default = { };
             description = "Arbitrary extra [options] keys merged last into odoo.conf.";
           };
+          withoutDemo = mkOption {
+            type = types.bool;
+            default = false;
+            description = ''
+              Skip loading demo data for every installed module
+              (`without_demo = all`). Default `false` loads demo data,
+              matching Odoo's own default.
+            '';
+          };
         };
 
         mailcatch = {

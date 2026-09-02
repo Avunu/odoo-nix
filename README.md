@@ -164,6 +164,7 @@ builtOdoo, default}` from the flake-parts module.
 | `odooConf.workers` | `0` | worker processes (0 = threaded dev mode) |
 | `odooConf.devMode` | `"all"` | `--dev` flag for the dev process |
 | `odooConf.extra` | `{ }` | arbitrary extra `[options]` keys merged last |
+| `odooConf.withoutDemo` | `false` | skip demo data for every module (`without_demo = all`) |
 | `ide.enable` | `true` | expose the env to editors: `./.venv` symlink + merged `odoo` analysis root |
 | `ide.vscodeSettings` | `true` | seed `.vscode/settings.json` when absent (never overwrites) |
 | `extraDevPackages` / `extraLibraryPaths` / `extraScripts` / `extraEnv` | `[]` / `[]` / `{}` / `{}` | dev-shell extras |
@@ -382,9 +383,9 @@ store; an `odoo-init` oneshot copies it to a `0600` runtime file and **appends**
 ```
 
 Key options: `package`, `stateDir`, `http.{port,longpollingPort,interface}`, `workers`,
-`maxCronThreads`, `dbName`/`dbFilter`/`listDb`, `database.{createLocally,host,port,user,
-passwordFile}`, `adminPasswordFile`, `settings` (extra `[options]`), `update` (modules to `-u`
-on deploy), `autoInit`, `nginx.{enable,domain}`.
+`maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port,
+user,passwordFile}`, `adminPasswordFile`, `settings` (extra `[options]`), `update` (modules to
+`-u` on deploy), `autoInit`, `nginx.{enable,domain}`.
 
 ## Production — OCI containers
 

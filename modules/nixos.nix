@@ -77,6 +77,9 @@ let
     // lib.optionalAttrs (cfg.dbFilter != "") {
       dbfilter = cfg.dbFilter;
     }
+    // lib.optionalAttrs cfg.withoutDemo {
+      without_demo = "all";
+    }
     // builtins.mapAttrs (
       _n: v: if builtins.isBool v then (if v then "True" else "False") else toString v
     ) cfg.settings;
@@ -190,6 +193,12 @@ in
       type = types.bool;
       default = false;
       description = "Allow the database manager / db listing.";
+    };
+
+    withoutDemo = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Skip loading demo data for every installed module (`without_demo = all`).";
     };
 
     database = {

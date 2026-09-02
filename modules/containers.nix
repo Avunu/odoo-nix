@@ -76,6 +76,7 @@ in
           echo "max_cron_threads = ''${ODOO_MAX_CRON_THREADS:-2}"
           echo "proxy_mode = ''${ODOO_PROXY_MODE:-True}"
           echo "list_db = ''${ODOO_LIST_DB:-False}"
+          echo "without_demo = ''${ODOO_WITHOUT_DEMO:-False}"
           [ -n "''${ODOO_DB_NAME:-}" ] && echo "db_name = ''${ODOO_DB_NAME}"
           [ -n "''${ODOO_DB_NAME:-}" ] && echo "dbfilter = ^''${ODOO_DB_NAME}$"
         } > "$CONF"

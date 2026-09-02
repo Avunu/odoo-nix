@@ -62,6 +62,9 @@ let
       log_level = odooConf.logLevel;
       server_wide_modules = lib.concatStringsSep "," serverWideModules;
     }
+    // lib.optionalAttrs odooConf.withoutDemo {
+      without_demo = "all";
+    }
     # Escape hatch: arbitrary extra [options] keys win last. Values stringified
     # so callers may pass ints/bools.
     // toIniSection odooConf.extra;
