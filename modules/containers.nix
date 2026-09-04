@@ -27,6 +27,8 @@ in
       cfg = config.odoo-nix;
       builtOdoo = config.packages.builtOdoo or null;
 
+      inherit (import ../lib/env.nix) blasThreadCaps;
+
       runtimeDeps = with pkgs; [
         bashInteractive
         coreutils
@@ -107,7 +109,7 @@ in
             "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
             "LANG=C.UTF-8"
             "LD_LIBRARY_PATH=${libraryPath}"
-          ];
+          ] ++ (lib.mapAttrsToList (name: value: "${name}=${value}") blasThreadCaps);
           Volumes = {
             "/var/lib/odoo/data" = { };
           };

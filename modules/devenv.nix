@@ -312,6 +312,8 @@ in
       let
         cfg = config.odoo-nix;
 
+        inherit (import ../lib/env.nix) blasThreadCaps;
+
         overrides = import ../lib/overrides.nix;
 
         # Odoo always needs these native builds; wire them as defaults.
@@ -593,6 +595,7 @@ in
                 UV_PROJECT_ENVIRONMENT = config.env.DEVENV_STATE + "/uv-env";
                 LD_LIBRARY_PATH = libraryPath;
               }
+              // blasThreadCaps
               // cfg.extraEnv;
 
             # Both of these fail silently in Odoo -- a disabled watcher is one

@@ -98,10 +98,13 @@ let
     pkgs.coreutils
   ];
 
+  inherit (import ../lib/env.nix) blasThreadCaps;
+
   serviceEnv = {
     ODOO_RC = runtimeConf;
     LANG = "C.UTF-8";
   }
+  // blasThreadCaps
   // cfg.extraEnv;
 
   mkInitScript = pkgs.writeShellScript "odoo-nix-init" ''
