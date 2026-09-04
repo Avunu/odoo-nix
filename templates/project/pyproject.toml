@@ -24,6 +24,11 @@ dependencies = [
 dev = [
     "debugpy",
     "ruff",
+    # Odoo's --dev=reload watcher is a no-op unless it can import a filesystem
+    # watcher, and Odoo declares neither. watchdog rather than the `inotify`
+    # package (which Odoo would prefer if both were present): inotify is
+    # unmaintained and its watcher loop polls with timeout_s=0.
+    "watchdog",
     # The two test dependencies Odoo needs but does not declare. Both live in
     # OCB's tests_require, which uv does not install, so nothing pulls them in.
     #

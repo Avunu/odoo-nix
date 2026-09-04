@@ -5,6 +5,7 @@ TEMPLATE="@TEMPLATE@"
 OCA_SOURCES="@OCA_SOURCES@"
 UV_BUILD_DEPS="@UV_BUILD_DEPS@"
 export OCA_DATASET="@OCA_DATASET@"
+export OCA_BUNDLES="@OCA_BUNDLES@"
 # shellcheck source=/dev/null
 source "@OCA_LIB@"
 
@@ -15,17 +16,21 @@ Usage: odoo-init [options] [target-dir]
 Scaffold a new odoo-nix-managed Odoo (OCB) + OCA project.
 
 Options:
-  --series <v>      Odoo series: 18.0 | 17.0 | 16.0  (default catalog: 18.0)
-  --modules <a,b,c> Comma-separated OCA module names to install
+  --series <v>      Odoo series: 18.0 | 19.0  (default catalog: 18.0)
+  --bundles <a,b>   Comma-separated curated OCA bundles to install
+  --modules <a,b,c> Comma-separated OCA module names to install (alias: --apps)
   --name <name>     Project name (default: target dir basename)
-  --db <name>      Default database name (default: odoo)
-  -h, --help       Show this help
+  --db <name>       Default database name (default: odoo)
+  -h, --help        Show this help
 
-With a TTY and no flags, you'll be prompted interactively (via gum).
+With a TTY and no flags, you'll be prompted interactively (via gum). Bundles and
+modules are both optional and independent: skip both for a plain Odoo core
+project, or combine them -- the two selections are unioned.
 EOF
 }
 
 series=""
+bundles_csv=""
 modules_csv=""
 name=""
 db=""
@@ -35,6 +40,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --series) series="$2"; shift 2 ;;
     --series=*) series="${1#*=}"; shift ;;
+    --bundles) bundles_csv="$2"; shift 2 ;;
+    --bundles=*) bundles_csv="${1#*=}"; shift ;;
     --modules) modules_csv="$2"; shift 2 ;;
     --modules=*) modules_csv="${1#*=}"; shift ;;
     --apps) modules_csv="$2"; shift 2 ;;
@@ -71,16 +78,39 @@ python="$(preset_field python)"
 requires_python="$(preset_field requiresPython)"
 branch="$series"  # series is the literal git branch for OCB and every OCA repo
 
-# ── modules ────────────────────────────────────────────────────────────────
+# ── bundles + modules (both entirely optional) ─────────────────────────────
+# Nothing is added unless asked for: each prompt defaults to "no", and a
+# non-interactive run with neither flag yields a plain Odoo core project.
 selected_modules=()
-if [ -n "$modules_csv" ]; then
-  IFS=',' read -ra selected_modules <<< "$modules_csv"
-elif has_tty; then
-  mapfile -t selected_modules < <(oca_pick_modules "$series")
+
+# Curated bundles first — they expand to module names, scoped to the series.
+bundle_names=()
+if [ -n "$bundles_csv" ]; then
+  IFS=',' read -ra bundle_names <<< "$bundles_csv"
+elif has_tty && gum confirm --default=false \
+    "Add curated OCA bundles? (base, sales, accounting, …)"; then
+  mapfile -t bundle_names < <(oca_pick_bundles)
 fi
-# Drop empties.
+if [ "${#bundle_names[@]}" -gt 0 ]; then
+  mapfile -t selected_modules < <(oca_expand_bundles "$series" "${bundle_names[@]}")
+fi
+
+# Then individual modules, unioned with whatever the bundles contributed.
+picked_modules=()
+if [ -n "$modules_csv" ]; then
+  IFS=',' read -ra picked_modules <<< "$modules_csv"
+elif has_tty && gum confirm --default=false \
+    "Add individual OCA modules? (search the full catalog)"; then
+  mapfile -t picked_modules < <(oca_pick_modules "$series")
+fi
+[ "${#picked_modules[@]}" -gt 0 ] && selected_modules+=("${picked_modules[@]}")
+
+# Drop empties, then de-duplicate (bundles and hand-picked modules overlap).
 _tmp=(); for m in "${selected_modules[@]}"; do [ -n "$m" ] && _tmp+=("$m"); done
-selected_modules=("${_tmp[@]}")
+selected_modules=()
+if [ "${#_tmp[@]}" -gt 0 ]; then
+  mapfile -t selected_modules < <(printf '%s\n' "${_tmp[@]}" | LC_ALL=C sort -u)
+fi
 
 # Resolve the transitive closure of OCA repos to clone.
 resolved_repos=()
@@ -108,6 +138,9 @@ if [ -e "$target" ] && [ -n "$(ls -A "$target" 2>/dev/null)" ]; then
 fi
 
 echo "Creating project '$name' (Odoo $series → python ${python#python}) in $target"
+if [ "${#bundle_names[@]}" -gt 0 ]; then
+  echo "  bundles : ${bundle_names[*]}"
+fi
 if [ "${#selected_modules[@]}" -gt 0 ]; then
   echo "  modules : ${selected_modules[*]}"
   echo "  repos   : ${resolved_repos[*]}"
@@ -129,7 +162,14 @@ sed -i \
   flake.nix pyproject.toml README.md
 
 # Record the selected modules (the install list), sorted + de-duplicated.
-printf '%s\n' "${selected_modules[@]}" | grep -vE '^[[:space:]]*$' | LC_ALL=C sort -u > modules.txt
+# An empty selection is the default, not an error -- and it must not trip
+# pipefail: `grep -v` exits 1 when it filters every line out.
+: > modules.txt
+if [ "${#selected_modules[@]}" -gt 0 ]; then
+  printf '%s\n' "${selected_modules[@]}" \
+    | { grep -vE '^[[:space:]]*$' || true; } \
+    | LC_ALL=C sort -u > modules.txt
+fi
 
 # ── git init + submodules ──────────────────────────────────────────────────
 git init -q

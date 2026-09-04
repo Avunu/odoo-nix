@@ -1,0 +1,3 @@
+# Bare OCA mirrors maintained by data/sync-oca-repos.sh; the catalog they
+# produce (data/oca-modules.json) is what gets committed.
+/data/.cache/

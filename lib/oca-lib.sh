@@ -70,3 +70,60 @@ oca_pick_modules() {
     awk -F'\t' -v l="$lbl" '$2 == l { print $1 }' <<<"$rows"
   done <<<"$chosen"
 }
+
+# ── bundles ────────────────────────────────────────────────────────────────
+# Curated, hand-maintained named sets of "must-have" module names, defined in
+# data/oca-bundles.json. Requires OCA_BUNDLES to point at that file (both the
+# scaffolder and the in-project odoo-add-bundle bake the store path into it).
+
+oca_bundle_names() { jq -r 'keys[]' "$OCA_BUNDLES"; }
+
+# Interactively choose bundles; print the chosen bare bundle names.
+# A TAB-separated name<TAB>label table maps the decorated label back to the key.
+oca_pick_bundles() {
+  local rows chosen
+  rows="$(jq -r 'to_entries[]
+    | "\(.key)\t\(.key)  —  \(.value.label)  (\(.value.modules | length) modules)"' "$OCA_BUNDLES")"
+  [ -z "$rows" ] && { echo "No bundles defined." >&2; return 0; }
+  chosen="$(cut -f2 <<<"$rows" \
+    | gum choose --no-limit \
+        --header "Select OCA bundle(s) (space=toggle, enter=confirm):" || true)"
+  while IFS= read -r lbl; do
+    [ -z "$lbl" ] && continue
+    awk -F'\t' -v l="$lbl" '$2 == l { print $1 }' <<<"$rows"
+  done <<<"$chosen"
+}
+
+# Expand bundle names to their union of module names, scoped to one series.
+# Bundles are series-blind, so members with no in-series catalog record are
+# dropped with a warning rather than recorded and left to fail at install time.
+# Prints the deduped, sorted module names (one per line).
+oca_expand_bundles() {
+  local series="$1"; shift
+  local names=("$@") wanted=() n m
+  for n in "${names[@]}"; do
+    [ -z "$n" ] && continue
+    if ! jq -e --arg n "$n" 'has($n)' "$OCA_BUNDLES" >/dev/null; then
+      echo "  ⚠  unknown bundle: $n   (available: $(oca_bundle_names | tr '\n' ' '))" >&2
+      continue
+    fi
+    while IFS= read -r m; do
+      [ -n "$m" ] && wanted+=("$m")
+    done < <(jq -r --arg n "$n" '.[$n].modules[]' "$OCA_BUNDLES")
+  done
+  [ "${#wanted[@]}" -eq 0 ] && return 0
+
+  # Partition against the in-series catalog.
+  local wanted_json
+  wanted_json="$(printf '%s\n' "${wanted[@]}" | jq -R . | jq -s 'unique')"
+  local missing
+  missing="$(jq -r --arg s "$series" --argjson want "$wanted_json" '
+      ([ .[] | select(.version | startswith($s + ".")) | .module ] | unique) as $have
+      | $want - $have | .[]' "$OCA_DATASET")"
+  if [ -n "$missing" ]; then
+    echo "  ⚠  not available for $series, skipped: $(tr '\n' ' ' <<<"$missing")" >&2
+  fi
+  jq -r --arg s "$series" --argjson want "$wanted_json" '
+      ([ .[] | select(.version | startswith($s + ".")) | .module ] | unique) as $have
+      | [ $want[] | select(. as $m | $have | index($m)) ] | .[]' "$OCA_DATASET"
+}

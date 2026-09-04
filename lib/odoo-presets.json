@@ -5,16 +5,10 @@
     "python": "python311",
     "requiresPython": ">=3.11"
   },
-  "17.0": {
-    "label": "17.0 — previous stable (python 3.11)",
-    "series": "17.0",
-    "python": "python311",
-    "requiresPython": ">=3.11"
-  },
-  "16.0": {
-    "label": "16.0 — LTS (python 3.10)",
-    "series": "16.0",
-    "python": "python310",
-    "requiresPython": ">=3.10"
+  "19.0": {
+    "label": "19.0 — latest (python 3.12)",
+    "series": "19.0",
+    "python": "python312",
+    "requiresPython": ">=3.12"
   }
 }

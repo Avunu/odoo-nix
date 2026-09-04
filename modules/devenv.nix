@@ -39,7 +39,7 @@ in
         python = mkOption {
           type = types.package;
           default = pkgs.python311;
-          description = "Python interpreter (should match the series; 3.11 for 18.0).";
+          description = "Python interpreter (should match the series; 3.11 for 18.0, 3.12 for 19.0).";
         };
 
         nodejs = mkOption {
@@ -135,6 +135,30 @@ in
               Skip loading demo data for every installed module
               (`without_demo = all`). Default `false` loads demo data,
               matching Odoo's own default.
+            '';
+          };
+        };
+
+        dev = {
+          autoReload = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Make Odoo's `--dev=reload` watcher functional.
+
+              Odoo only starts its filesystem watcher if it can import
+              `inotify` or `watchdog`, and neither is a declared Odoo
+              dependency -- so `--dev=all` alone logs "Code autoreload feature
+              is disabled" and silently never reloads. This ensures `watchdog`
+              is importable by the dev server; Odoo then restarts itself in
+              place (`os.execve`, preserving PID, CWD and the open HTTP
+              socket) on any `.py` change under an addons_path root.
+
+              XML views, QWeb templates and asset bundles do not need this --
+              `--dev=xml` already re-reads them from disk per request.
+
+              Requires `odooConf.workers = 0` (the default): the watcher only
+              runs on the threaded server.
             '';
           };
         };
@@ -328,6 +352,10 @@ in
           name = "odoo-nix-addons";
         };
 
+        # Pure-Python, no propagated dependencies -- safe to drop on PYTHONPATH
+        # of the uv2nix-built venv without dragging in a conflicting transitive.
+        watchdogFallback = "${cfg.python.pkgs.watchdog}/${cfg.python.sitePackages}";
+
         addons = import ../lib/addons.nix {
           inherit lib;
           inherit (cfg) workspaceRoot layout;
@@ -338,10 +366,15 @@ in
           inherit pkgs lib;
           inherit (cfg) odooConf;
           addonsPath = addons.addonsPath;
-          serverWideModules = [
-            "base"
-            "web"
-          ] ++ lib.optional cfg.mailcatch.enable "dev_mailcatch";
+          # Setting the key at all replaces Odoo's own default, so the
+          # series' full default set has to be reproduced: 19.0 added `rpc`
+          # (DEFAULT_SERVER_WIDE_MODULES = base,rpc,web) and would otherwise
+          # lose XML-RPC/JSON-RPC entirely.
+          serverWideModules =
+            [ "base" ]
+            ++ lib.optional (lib.versionAtLeast cfg.odooSeries "19.0") "rpc"
+            ++ [ "web" ]
+            ++ lib.optional cfg.mailcatch.enable "dev_mailcatch";
           extraSections = lib.optionalAttrs cfg.mailcatch.enable {
             dev_mailcatch = {
               enabled = true;
@@ -562,6 +595,24 @@ in
               }
               // cfg.extraEnv;
 
+            # Both of these fail silently in Odoo -- a disabled watcher is one
+            # INFO line in a very noisy log -- which is exactly how the dev
+            # server shipped with reload requested but never running.
+            warnings =
+              let
+                devFeatures = lib.splitString "," cfg.odooConf.devMode;
+              in
+              lib.optional (cfg.dev.autoReload && cfg.odooConf.workers != 0) ''
+                odoo-nix: dev.autoReload is on but odooConf.workers = ${toString cfg.odooConf.workers}.
+                Odoo's reload watcher only runs on the threaded server; set workers = 0 for it to take effect.
+              ''
+              ++ lib.optional
+                (cfg.dev.autoReload && !lib.elem "all" devFeatures && !lib.elem "reload" devFeatures)
+                ''
+                  odoo-nix: dev.autoReload is on but odooConf.devMode = "${cfg.odooConf.devMode}" requests
+                  neither "all" nor "reload", so Odoo will not start a file watcher.
+                '';
+
             services.postgres = {
               enable = true;
               package = pkgs.postgresql_16;
@@ -581,6 +632,16 @@ in
               # Single threaded dev server: serves HTTP + websocket (gevent_port)
               # in-process when workers = 0.
               odoo.exec = ''
+                ${lib.optionalString cfg.dev.autoReload ''
+                  # A project that pins watchdog in [dependency-groups].dev wins;
+                  # otherwise fill it in from nixpkgs so Odoo's --dev=reload
+                  # watcher has something to import. PYTHONPATH precedes
+                  # site-packages, hence the probe rather than an unconditional
+                  # prepend. os.execve carries this across every reload.
+                  if ! ${pythonEnvs.devPythonEnv}/bin/python -c 'import watchdog' 2>/dev/null; then
+                    export PYTHONPATH="${watchdogFallback}''${PYTHONPATH:+:$PYTHONPATH}"
+                  fi
+                ''}
                 exec ${pythonEnvs.devPythonEnv}/bin/python \
                   "$REPO_ROOT/${cfg.layout.coreSrc}/odoo-bin" \
                   -c "$REPO_ROOT/odoo.conf" \
@@ -595,14 +656,15 @@ in
               '';
             };
 
-            process.managers.process-compose.settings.processes = {
-              odoo.depends_on = {
-                postgres.condition = "process_started";
-              }
-              // lib.optionalAttrs cfg.mailcatch.enable {
-                mailpit.condition = "process_started";
-              };
-            };
+            # Cross-manager ordering. `process.managers.process-compose.settings`
+            # would be ignored outright: devenv 2.0+ defaults
+            # process.manager.implementation to "native", and that block only
+            # applies under process-compose. `processes.<n>.after` is honoured by
+            # the native manager and translated back into process-compose's
+            # depends_on (@started -> process_started) for older CLIs.
+            processes.odoo.after =
+              [ "devenv:processes:postgres@started" ]
+              ++ lib.optional cfg.mailcatch.enable "devenv:processes:mailpit@started";
 
             enterShell = ''
               # Initialize git submodules (src/odoo + src/external/*) if needed.

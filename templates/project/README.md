@@ -27,6 +27,22 @@ provision-db          # (another shell) create the DB + install modules.txt
 
 Open <http://localhost:8069>. Mailpit UI is at <http://localhost:8025>.
 
+## Live code reload
+
+The dev server runs with `--dev=all`, so edits are picked up without restarting it:
+
+- **`.py`** anywhere on the `addons_path` (`custom/`, `modules/<repo>`, `odoo/addons`) —
+  the server restarts itself in place. Watch the log for
+  `autoreload: python code updated`. A syntax error is logged and the restart skipped
+  until you fix it.
+- **XML views, QWeb templates, JS/SCSS assets** — no restart at all; just reload the
+  browser.
+
+Odoo's watcher needs the `watchdog` package, which is pinned in
+`[dependency-groups].dev`. `AutoReload watcher running with watchdog` at start-up means
+it is live. Odoo's own framework code (`odoo/odoo/*.py`) is *not* watched — restart
+`devenv up` for those.
+
 ## Managing OCA modules
 
 ```sh

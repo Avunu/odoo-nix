@@ -16,7 +16,7 @@ import functools
 import logging
 import os
 
-from odoo.addons.base.models.ir_mail_server import IrMailServer
+from odoo.addons.base.models import ir_mail_server as _ir_mail_server
 from odoo.tools import config
 
 _logger = logging.getLogger(__name__)
@@ -27,9 +27,18 @@ DEFAULT_PORT = 1025
 
 _PATCHED_FLAG = "_dev_mailcatch_patched"
 
+# Odoo 19 renamed both the model class (IrMailServer -> IrMail_Server, the new
+# model-class naming convention) and the connect method (connect ->
+# _connect__). The parameter lists are identical, so resolving the two names at
+# import time is all that is needed to span 16.0 through 19.0 -- and it must be
+# resolved, not assumed: this module is loaded from `post_load` at server
+# start, so an ImportError here takes the whole server down.
+IrMailServer = getattr(_ir_mail_server, "IrMail_Server", None) or _ir_mail_server.IrMailServer
+_CONNECT = "_connect__" if hasattr(IrMailServer, "_connect__") else "connect"
+
 # Captured before patching so the wrappers can delegate (and so a disabled
 # catcher behaves exactly like stock Odoo).
-_orig_connect = IrMailServer.connect
+_orig_connect = getattr(IrMailServer, _CONNECT)
 _orig_find_mail_server = IrMailServer._find_mail_server
 
 
@@ -141,7 +150,7 @@ def install():
     if getattr(IrMailServer, _PATCHED_FLAG, False):
         return
 
-    IrMailServer.connect = _connect
+    setattr(IrMailServer, _CONNECT, _connect)
     IrMailServer._find_mail_server = _find_mail_server
     setattr(IrMailServer, _PATCHED_FLAG, True)
 

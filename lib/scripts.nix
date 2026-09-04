@@ -39,9 +39,11 @@ let
     DB="''${ODOO_DB:-${dbName}}"
   '';
 
-  # Preamble for OCA-catalog scripts: expose the dataset + source the helpers.
+  # Preamble for OCA-catalog scripts: expose the dataset + bundles and source
+  # the helpers.
   ocaPreamble = ''
     export OCA_DATASET="${ocaDataset}"
+    export OCA_BUNDLES="${bundlesFile}"
     # shellcheck source=/dev/null
     source "${ocaLib}"
   '';
@@ -276,48 +278,24 @@ in
   };
 
   # Add a curated OCA module bundle (a named set of "must-have" modules,
-  # defined in data/oca-bundles.json).
+  # defined in data/oca-bundles.json). The picker and the series-scoped
+  # expansion are shared with the scaffolder via lib/oca-lib.sh.
   odoo-add-bundle = {
     description = "Add an OCA module bundle: odoo-add-bundle [name …] (interactive if none)";
     exec = ''
       ${preamble}
-      BUNDLES="${bundlesFile}"
-      jq() { ${pkgs.jq}/bin/jq "$@"; }
-
-      avail() { jq -r 'keys[]' "$BUNDLES"; }
-
+      ${ocaPreamble}
       if [ "$#" -gt 0 ]; then
         NAMES=("$@")
-      elif ${pkgs.gum}/bin/gum --version >/dev/null 2>&1 && [ -t 0 ] && [ -t 1 ]; then
-        # Interactive picker: name<TAB>"name — label (N modules)".
-        _rows="$(jq -r 'to_entries[]
-          | "\(.key)\t\(.key)  —  \(.value.label)  (\(.value.modules | length) modules)"' "$BUNDLES")"
-        mapfile -t NAMES < <(
-          cut -f2 <<<"$_rows" \
-            | ${pkgs.gum}/bin/gum choose --no-limit \
-                --header "Select OCA bundle(s) (space=toggle, enter=confirm):" \
-            | while IFS= read -r lbl; do
-                [ -z "$lbl" ] && continue
-                awk -F'\t' -v l="$lbl" '$2 == l { print $1 }' <<<"$_rows"
-              done
-        )
+      elif [ -t 0 ] && [ -t 1 ]; then
+        mapfile -t NAMES < <(oca_pick_bundles)
       else
-        echo "usage: odoo-add-bundle <name …>   (available: $(avail | tr '\n' ' '))" >&2
+        echo "usage: odoo-add-bundle <name …>   (available: $(oca_bundle_names | tr '\n' ' '))" >&2
         exit 1
       fi
       [ "''${#NAMES[@]}" -eq 0 ] && { echo "No bundle selected."; exit 0; }
 
-      # Collect the union of modules across the selected bundles.
-      MODULES=()
-      for n in "''${NAMES[@]}"; do
-        if ! jq -e --arg n "$n" 'has($n)' "$BUNDLES" >/dev/null; then
-          echo "⚠  unknown bundle: $n   (available: $(avail | tr '\n' ' '))" >&2
-          continue
-        fi
-        while IFS= read -r m; do
-          [ -n "$m" ] && MODULES+=("$m")
-        done < <(jq -r --arg n "$n" '.[$n].modules[]' "$BUNDLES")
-      done
+      mapfile -t MODULES < <(oca_expand_bundles "${odooSeries}" "''${NAMES[@]}")
       [ "''${#MODULES[@]}" -eq 0 ] && { echo "No modules in the selected bundle(s)."; exit 0; }
 
       echo "==> Bundle(s): ''${NAMES[*]}  →  ''${#MODULES[@]} module(s)"

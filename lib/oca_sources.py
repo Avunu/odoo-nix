@@ -101,7 +101,7 @@ def update(pyproject, modules_txt, modules_dir, custom_dir, core_src):
 
     # OCB `odoo` is a NON-editable path source: its vendored pep517_odoo build
     # backend works for a plain wheel build but not uv2nix's editable build. The
-    # wheel just satisfies the modules' `odoo==18.0.*` requirement + provides
+    # wheel just satisfies the modules' `odoo==<series>.*` requirement + provides
     # Odoo's own deps; odoo is still RUN from source via odoo-bin (source path
     # wins), so OCB edits reflect at runtime.
     src_body = pad + f'odoo = {{ path = "{core_src}" }}\n'
