@@ -51,6 +51,41 @@ let
     });
   };
 
+  # lxml.html.clean was split out of lxml (>=5.2) into a standalone
+  # lxml_html_clean package. odoo/_monkeypatches/lxml.py imports it
+  # unconditionally at every Odoo startup, but OCB's setup.py -- through at
+  # least the 18.0 series -- never lists it in install_requires (only its
+  # requirements.txt does, which uv2nix does not read), so uv resolves
+  # whatever lxml is newest on PyPI and the import fails. Backfill it from
+  # nixpkgs. A series whose setup.py already declares it (19.0+) is left
+  # alone: `prev` already carries the uv-resolved attribute there.
+  lxmlHtmlCleanOverlay =
+    final: prev:
+    lib.optionalAttrs (!(prev ? lxml_html_clean)) (
+      let
+        base = python.pkgs.lxml-html-clean;
+        # nixpkgs' own `passthru.dependencies` is a flat derivation list that
+        # FEEDS its build (mk-python-derivation.nix folds it into
+        # propagatedBuildInputs) -- overriding it via overrideAttrs would
+        # re-derive that build from the wrong shape. pyproject-nix's venv
+        # resolver (build/lib/resolvers.nix) instead reads
+        # `pkg.passthru.dependencies` post-build, as an attrset
+        # (`{ name = [ extras ]; }`), to walk the closure. So just relabel
+        # the metadata on the already-built derivation value (a plain
+        # attrset merge, no rebuild) rather than overrideAttrs. Its only
+        # runtime dependency is lxml itself, already resolved in the set.
+        pyprojectMeta = {
+          dependencies = { lxml = [ ]; };
+          optional-dependencies = { };
+        };
+      in
+      {
+        lxml_html_clean = base // pyprojectMeta // {
+          passthru = (base.passthru or { }) // pyprojectMeta;
+        };
+      }
+    );
+
   # Declarative native-library exposure: for each `<python package> = [ libs ]`,
   # add the libs' headers (their `.dev` output) + pkg-config to that package's
   # build, and the libs to its buildInputs. Lets a C-extension dep (e.g. pycups
@@ -77,6 +112,7 @@ let
           overlay
           odooBackendOverlay
           pythonLibsOverlay
+          lxmlHtmlCleanOverlay
           extraOverrides
         ]
       );
@@ -90,13 +126,20 @@ let
   # For the virtual single-root project, `workspace.deps.default` is the root
   # node; mkVirtualEnv resolves its deps (odoo + the install roots) with markers.
 
+  # Force lxml_html_clean into the venv regardless of what the workspace lock
+  # resolved (see lxmlHtmlCleanOverlay above) -- a no-op where it's already
+  # there, since the package declares no extras.
+  withLxmlHtmlClean = deps: deps // { lxml_html_clean = deps.lxml_html_clean or [ ]; };
+
   # Production: real wheels for odoo + all modules — self-contained (no
   # $REPO_ROOT), for builtOdoo / containers / NixOS.
-  odooPythonEnv = pythonSet.mkVirtualEnv "${projectName}-odoo-env" workspace.deps.default;
+  odooPythonEnv = pythonSet.mkVirtualEnv "${projectName}-odoo-env" (
+    withLxmlHtmlClean workspace.deps.default
+  );
 
   # Development: modules installed editable (+ dev-group tools), live source.
   devPythonEnv = editableSet.mkVirtualEnv "${projectName}-odoo-dev-env" (
-    workspace.deps.default // workspace.deps.groups
+    withLxmlHtmlClean (workspace.deps.default // workspace.deps.groups)
   );
 in
 {
