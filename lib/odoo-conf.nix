@@ -59,8 +59,16 @@ let
       http_port = toString odooConf.httpPort;
       gevent_port = toString odooConf.geventPort;
       workers = toString odooConf.workers;
-      log_level = odooConf.logLevel;
+      log_level = odooConf.logging.level;
+      log_db = toIniValue odooConf.logging.db;
+      log_db_level = odooConf.logging.dbLevel;
       server_wide_modules = lib.concatStringsSep "," serverWideModules;
+    }
+    // lib.optionalAttrs (odooConf.logging.handlers != [ ]) {
+      log_handler = lib.concatStringsSep "," odooConf.logging.handlers;
+    }
+    // lib.optionalAttrs (odooConf.logging.file != null) {
+      logfile = odooConf.logging.file;
     }
     // lib.optionalAttrs odooConf.withoutDemo {
       without_demo = "all";

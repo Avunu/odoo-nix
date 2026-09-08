@@ -68,7 +68,13 @@ let
       max_cron_threads = toString cfg.maxCronThreads;
       proxy_mode = if cfg.nginx.enable then "True" else "False";
       list_db = if cfg.listDb then "True" else "False";
-      log_level = cfg.logLevel;
+      log_level = cfg.logging.level;
+      log_db =
+        if builtins.isBool cfg.logging.db then
+          (if cfg.logging.db then "True" else "False")
+        else
+          toString cfg.logging.db;
+      log_db_level = cfg.logging.dbLevel;
     }
     // lib.optionalAttrs (dbName != null) {
       db_name = dbName;
@@ -79,6 +85,12 @@ let
     }
     // lib.optionalAttrs cfg.withoutDemo {
       without_demo = "all";
+    }
+    // lib.optionalAttrs (cfg.logging.handlers != [ ]) {
+      log_handler = lib.concatStringsSep "," cfg.logging.handlers;
+    }
+    // lib.optionalAttrs (cfg.logging.file != null) {
+      logfile = cfg.logging.file;
     }
     // builtins.mapAttrs (
       _n: v: if builtins.isBool v then (if v then "True" else "False") else toString v
@@ -175,9 +187,81 @@ in
       default = 2;
     };
 
-    logLevel = mkOption {
-      type = types.str;
-      default = "info";
+    logging = {
+      level = mkOption {
+        type = types.enum [
+          "info"
+          "debug_rpc"
+          "warn"
+          "test"
+          "critical"
+          "runbot"
+          "debug_sql"
+          "error"
+          "debug"
+          "debug_rpc_answer"
+          "notset"
+        ];
+        default = "info";
+        description = "Root/default logging verbosity (log_level).";
+      };
+      handlers = mkOption {
+        type = types.listOf (types.strMatching "^[A-Za-z0-9_.]*:[A-Z]+$");
+        default = [ ];
+        example = [
+          "odoo.addons.my_module:DEBUG"
+          "werkzeug:WARNING"
+        ];
+        description = ''
+          Per-logger level overrides (log_handler), as "logger:LEVEL" pairs.
+          An empty prefix targets the root logger. The root logger already
+          defaults to INFO regardless of this list, so entries here only
+          need to cover the loggers you want to override.
+        '';
+      };
+      db = mkOption {
+        type = types.either types.bool types.str;
+        default = false;
+        description = ''
+          Mirror log records into the database (log_db). `true` (or "%d")
+          logs to whichever database is active for each request; a string
+          pins logging to that database name.
+        '';
+      };
+      dbLevel = mkOption {
+        type = types.enum [
+          "debug"
+          "info"
+          "warning"
+          "error"
+          "critical"
+        ];
+        default = "warning";
+        description = "Minimum level mirrored to the database (log_db_level).";
+      };
+      file = mkOption {
+        type = types.nullOr types.path;
+        default = null;
+        description = ''
+          Write logs to this file (logfile) instead of stderr/journald.
+          Odoo's file and stderr log handlers are mutually exclusive, so
+          setting this stops Odoo's own log records from reaching
+          `journalctl -u odoo` (uncaught tracebacks printed before logging
+          initializes still do). The containing directory is created
+          automatically, owned by `user`:`group`.
+        '';
+      };
+      rotate = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Rotate `logging.file` via `services.logrotate`. Odoo has no
+          internal log rotation (removed upstream); its `WatchedFileHandler`
+          instead detects when logrotate has renamed/recreated the file and
+          reopens it automatically, so no reload/signal is needed. Requires
+          `logging.file` to be set.
+        '';
+      };
     };
 
     dbName = mkOption {
@@ -304,6 +388,10 @@ in
           + " (e.g. /run/odoo/nginx.sock), not directly in /run — the directory's 0750 mode is"
           + " what keeps the socket private.";
       }
+      {
+        assertion = !cfg.logging.rotate || cfg.logging.file != null;
+        message = "services.odoo-nix.logging.rotate requires logging.file to be set.";
+      }
     ];
 
     users.users = lib.mkMerge [
@@ -329,7 +417,13 @@ in
     # group member (added to cfg.group below), so it needs group write on the
     # directory, not just traversal. The directory is the access gate because
     # nginx chmods the socket itself to 0666.
-    ++ lib.optional nginxSocket "d ${nginxSocketDir} 0770 ${cfg.user} ${cfg.group} -";
+    ++ lib.optional nginxSocket "d ${nginxSocketDir} 0770 ${cfg.user} ${cfg.group} -"
+    # Odoo's own os.makedirs() fallback for logfile's parent dir silently
+    # reverts to stderr logging on PermissionError under a non-root user, so
+    # pre-create it with the right owner.
+    ++ lib.optional (
+      cfg.logging.file != null
+    ) "d ${builtins.dirOf cfg.logging.file} 0750 ${cfg.user} ${cfg.group} -";
 
     systemd.services.odoo-init = {
       description = "Initialize Odoo runtime config for ${cfg.package.name}";
@@ -382,6 +476,22 @@ in
         ExecStart = "${cfg.package}/bin/odoo -c ${runtimeConf}";
         Restart = "always";
         RestartSec = "5";
+      };
+    };
+
+    # Odoo has no internal log rotation; its WatchedFileHandler detects when
+    # an external tool renames/recreates the log file (by inode) and reopens
+    # it, so no reload/signal is needed here — logrotate's default "rename +
+    # recreate" behavior is exactly the cooperation contract it expects.
+    services.logrotate = mkIf cfg.logging.rotate {
+      enable = true;
+      settings.${cfg.logging.file} = {
+        frequency = "daily";
+        rotate = 14;
+        compress = true;
+        missingok = true;
+        notifempty = true;
+        create = "0640 ${cfg.user} ${cfg.group}";
       };
     };
 

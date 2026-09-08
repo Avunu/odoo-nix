@@ -87,7 +87,7 @@ pkgs.testers.runNixOSTest {
         };
       };
 
-    # ---- tcp: the pre-existing named-vhost behaviour, unchanged ----
+    # ---- tcp: the pre-existing named-vhost behaviour, plus logging ----
     tcp =
       { ... }:
       {
@@ -95,6 +95,12 @@ pkgs.testers.runNixOSTest {
         services.odoo-nix.nginx = {
           enable = true;
           domain = "odoo.example.com";
+        };
+        services.odoo-nix.logging = {
+          level = "debug";
+          handlers = [ "werkzeug:WARNING" ];
+          file = "/var/log/odoo/odoo.log";
+          rotate = true;
         };
       };
   };
@@ -150,5 +156,15 @@ pkgs.testers.runNixOSTest {
     )
     assert hdrs["x-forwarded-proto"] == "http", hdrs
     tcp.succeed("test ! -e /run/odoo/nginx.sock")
+
+    # ---- tcp mode: logging options threaded into the runtime conf ----
+    tcp.succeed("grep -qE '^log_level\\s*=\\s*debug' /var/lib/odoo/odoo.conf")
+    tcp.succeed("grep -qE '^log_handler\\s*=\\s*werkzeug:WARNING' /var/lib/odoo/odoo.conf")
+    tcp.succeed("grep -qE '^logfile\\s*=\\s*/var/log/odoo/odoo\\.log' /var/lib/odoo/odoo.conf")
+    # the logfile's parent dir is pre-created and owned by the service user
+    tcp.succeed("stat -c '%a %U:%G' /var/log/odoo | grep -x '750 odoo:odoo'")
+    # the generated logrotate config (including our stanza) passes its own
+    # --debug validation
+    tcp.wait_for_unit("logrotate-checkconf.service")
   '';
 }

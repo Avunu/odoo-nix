@@ -144,6 +144,10 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | odooConf.httpPort/geventPort | 8069 / 8072 | HTTP + websocket/longpolling ports |
 | odooConf.workers | 0 | worker processes (0 = threaded dev mode) |
 | odooConf.devMode | "all" | --dev flag for the dev process |
+| odooConf.logging.level | "info" | root logging verbosity (log_level) |
+| odooConf.logging.handlers | [ ] | per-logger level overrides, e.g. [ "werkzeug:WARNING" ] (log_handler) |
+| odooConf.logging.db/dbLevel | false / "warning" | mirror logs into a database (log_db/log_db_level) |
+| odooConf.logging.file | null | write logs to this file instead of stderr (logfile) |
 | dev.autoReload | true | make Odoo's --dev=reload watcher functional (see Live code reload) |
 | odooConf.extra | { } | arbitrary extra [options] keys merged last |
 | odooConf.withoutDemo | false | skip demo data for every module (without_demo = all) |
@@ -324,7 +328,7 @@ A standalone NixOS module (imported separately from the flake-parts module). One
 }
 ```
 
-Key options: `package`, `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port, user,passwordFile}`, `adminPasswordFile`, `settings` (extra `[options]`), `update` (modules to `-u` on deploy), `autoInit`, `nginx.{enable,domain}`.
+Key options: `package`, `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port, user,passwordFile}`, `adminPasswordFile`, `settings` (extra `[options]`), `update` (modules to `-u` on deploy), `autoInit`, `nginx.{enable,domain}`, `logging.{level,handlers,db,dbLevel,file,rotate}` (`rotate` wires up `services.logrotate` against `logging.file`; Odoo's own `WatchedFileHandler` picks up the rotated file automatically, no reload needed).
 
 ## Production — OCI containers
 

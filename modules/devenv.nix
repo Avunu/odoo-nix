@@ -101,9 +101,69 @@ in
             default = "admin";
             description = "Database manager master password (dev only).";
           };
-          logLevel = mkOption {
-            type = types.str;
-            default = "info";
+          logging = {
+            level = mkOption {
+              type = types.enum [
+                "info"
+                "debug_rpc"
+                "warn"
+                "test"
+                "critical"
+                "runbot"
+                "debug_sql"
+                "error"
+                "debug"
+                "debug_rpc_answer"
+                "notset"
+              ];
+              default = "info";
+              description = "Root/default logging verbosity (log_level).";
+            };
+            handlers = mkOption {
+              type = types.listOf (types.strMatching "^[A-Za-z0-9_.]*:[A-Z]+$");
+              default = [ ];
+              example = [
+                "odoo.addons.my_module:DEBUG"
+                "werkzeug:WARNING"
+              ];
+              description = ''
+                Per-logger level overrides (log_handler), as "logger:LEVEL"
+                pairs. An empty prefix targets the root logger. The root
+                logger already defaults to INFO regardless of this list, so
+                entries here only need to cover the loggers you want to
+                override.
+              '';
+            };
+            db = mkOption {
+              type = types.either types.bool types.str;
+              default = false;
+              description = ''
+                Mirror log records into the database (log_db). `true`
+                (or "%d") logs to whichever database is active for each
+                request; a string pins logging to that database name.
+              '';
+            };
+            dbLevel = mkOption {
+              type = types.enum [
+                "debug"
+                "info"
+                "warning"
+                "error"
+                "critical"
+              ];
+              default = "warning";
+              description = "Minimum level mirrored to the database (log_db_level).";
+            };
+            file = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = ''
+                Write logs to this file (logfile) instead of stderr. Odoo's
+                file and stderr log handlers are mutually exclusive, so
+                setting this stops log records from reaching the dev
+                shell's console.
+              '';
+            };
           };
           httpPort = mkOption {
             type = types.port;
