@@ -307,6 +307,33 @@ in
         default = null;
         description = "File with the DB password (merged into odoo.conf at activation). Null = socket peer auth.";
       };
+      extensions = mkOption {
+        type = types.functionTo (types.listOf types.package);
+        default = _: [ ];
+        example = lib.literalExpression "ps: [ ps.postgis ]";
+        description = ''
+          PostgreSQL extensions to build into the local server
+          (`services.postgresql.extensions`). Only meaningful with
+          `createLocally`; a remote server ships whatever it was built with.
+        '';
+      };
+      ensureExtensions = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [
+          "postgis"
+          "postgis_topology"
+        ];
+        description = ''
+          Extensions to `CREATE EXTENSION IF NOT EXISTS` in `dbName` after the
+          local server comes up. Unlike the dev shell, the Odoo role here is
+          not a superuser, so a module that expects to create an untrusted
+          extension itself (OCA's `base_geoengine`, whose `pre_init_hook`
+          creates `postgis` and `postgis_topology`) needs them created here,
+          as the `postgres` superuser, first. Requires `createLocally` and a
+          pinned `dbName`.
+        '';
+      };
     };
 
     adminPasswordFile = mkOption {
@@ -391,6 +418,10 @@ in
       {
         assertion = !cfg.logging.rotate || cfg.logging.file != null;
         message = "services.odoo-nix.logging.rotate requires logging.file to be set.";
+      }
+      {
+        assertion = cfg.database.ensureExtensions == [ ] || (cfg.database.createLocally && dbName != null);
+        message = "services.odoo-nix.database.ensureExtensions requires database.createLocally and a pinned dbName.";
       }
     ];
 
@@ -497,6 +528,7 @@ in
 
     services.postgresql = mkIf cfg.database.createLocally {
       enable = true;
+      extensions = cfg.database.extensions;
       ensureDatabases = lib.optional (dbName != null) dbName;
       ensureUsers = [
         {
@@ -506,6 +538,20 @@ in
         }
       ];
     };
+
+    # postgresql-setup runs as the postgres superuser and already owns
+    # ensureDatabases; append so the database exists before the extensions go
+    # into it. `IF NOT EXISTS` keeps it idempotent across restarts, and the
+    # Odoo role owning the database is what lets it use them afterwards.
+    systemd.services.postgresql-setup.script =
+      mkIf (cfg.database.createLocally && dbName != null && cfg.database.ensureExtensions != [ ])
+        (
+          lib.mkAfter (
+            lib.concatMapStrings (ext: ''
+              psql -d '${dbName}' -tAc 'CREATE EXTENSION IF NOT EXISTS "${ext}"'
+            '') cfg.database.ensureExtensions
+          )
+        );
 
     services.nginx = mkIf cfg.nginx.enable {
       enable = true;

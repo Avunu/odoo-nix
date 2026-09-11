@@ -199,6 +199,27 @@ in
           };
         };
 
+        postgres = {
+          extensions = mkOption {
+            type = types.functionTo (types.listOf types.package);
+            default = _: [ ];
+            example = lib.literalExpression "ps: [ ps.postgis ]";
+            description = ''
+              PostgreSQL extensions to build into the dev server, as a
+              function of the server's extension package set
+              (`pkgs.postgresql_16.pkgs`).
+
+              Only makes the extension *available*; nothing creates it in a
+              database. The dev DB role is a superuser, so a module whose
+              `pre_init_hook` runs `CREATE EXTENSION` itself (OCA's
+              `base_geoengine` for PostGIS) needs nothing more. Without the
+              matching entry here, installing such a module fails with
+              `extension "…" is not available` and the install is rolled
+              back — the server ships only what it is built with.
+            '';
+          };
+        };
+
         dev = {
           autoReload = mkOption {
             type = types.bool;
@@ -679,6 +700,11 @@ in
             services.postgres = {
               enable = true;
               package = pkgs.postgresql_16;
+              # devenv wraps the server in `withPackages` whenever this is
+              # non-null, even for an empty list; keep the plain package unless
+              # something is actually requested.
+              extensions =
+                if cfg.postgres.extensions pkgs.postgresql_16.pkgs == [ ] then null else cfg.postgres.extensions;
               listen_addresses = "127.0.0.1";
               port = cfg.odooConf.dbPort;
               initialDatabases = lib.optional (cfg.odooConf.dbName != null) {

@@ -151,6 +151,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | dev.autoReload | true | make Odoo's --dev=reload watcher functional (see Live code reload) |
 | odooConf.extra | { } | arbitrary extra [options] keys merged last |
 | odooConf.withoutDemo | false | skip demo data for every module (without_demo = all) |
+| postgres.extensions | _: [ ] | extensions built into the dev PostgreSQL, e.g. ps: [ ps.postgis ] (base_geoengine) |
 | ide.enable | true | expose the env to editors: ./.venv symlink + merged odoo analysis root |
 | ide.vscodeSettings | true | seed .vscode/settings.json when absent (never overwrites) |
 | extraDevPackages / extraLibraryPaths / extraScripts / extraEnv | [] / [] / {} / {} | dev-shell extras |
@@ -328,7 +329,9 @@ A standalone NixOS module (imported separately from the flake-parts module). One
 }
 ```
 
-Key options: `package`, `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port, user,passwordFile}`, `adminPasswordFile`, `settings` (extra `[options]`), `update` (modules to `-u` on deploy), `autoInit`, `nginx.{enable,domain}`, `logging.{level,handlers,db,dbLevel,file,rotate}` (`rotate` wires up `services.logrotate` against `logging.file`; Odoo's own `WatchedFileHandler` picks up the rotated file automatically, no reload needed).
+Key options: `package`, `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port,user,passwordFile,extensions,ensureExtensions}`, `adminPasswordFile`, `settings` (extra `[options]`), `update` (modules to `-u` on deploy), `autoInit`, `nginx.{enable,domain}`, `logging.{level,handlers,db,dbLevel,file,rotate}` (`rotate` wires up `services.logrotate` against `logging.file`; Odoo's own `WatchedFileHandler` picks up the rotated file automatically, no reload needed).
+
+PostGIS (OCA `base_geoengine`): `database.extensions = ps: [ ps.postgis ];` builds it into the local server and `database.ensureExtensions = [ "postgis" "postgis_topology" ];` creates both in `dbName` as the `postgres` superuser. The module's `pre_init_hook` tries to create them itself, which only works for a superuser — the dev shell's role is one, the production role is not.
 
 ## Production — OCI containers
 

@@ -102,6 +102,14 @@ pkgs.testers.runNixOSTest {
           file = "/var/log/odoo/odoo.log";
           rotate = true;
         };
+        # What OCA base_geoengine needs from the database
+        services.odoo-nix.database = {
+          extensions = ps: [ ps.postgis ];
+          ensureExtensions = [
+            "postgis"
+            "postgis_topology"
+          ];
+        };
       };
   };
 
@@ -166,5 +174,19 @@ pkgs.testers.runNixOSTest {
     # the generated logrotate config (including our stanza) passes its own
     # --debug validation
     tcp.wait_for_unit("logrotate-checkconf.service")
+
+    # ---- tcp mode: extensions built in and created in dbName ----
+    tcp.wait_for_unit("postgresql-setup.service")
+    for ext in ("postgis", "postgis_topology"):
+        tcp.succeed(
+            "sudo -u postgres psql -d odoo -tAc"
+            f" \"select 1 from pg_extension where extname = '{ext}'\" | grep -qx 1"
+        )
+    # base_geoengine's pre_init_hook looks for spatial_ref_sys before trying
+    # (and, as a non-superuser, failing) to create the extension itself
+    tcp.succeed(
+        "sudo -u odoo psql -d odoo -tAc"
+        " 'select count(*) from spatial_ref_sys' | grep -qE '^[0-9]+$'"
+    )
   '';
 }
