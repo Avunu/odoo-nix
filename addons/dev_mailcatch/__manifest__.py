@@ -7,9 +7,11 @@ Catch-all outgoing mail redirection for local development.
 Loaded as a *server-wide* module (``server_wide_modules`` in odoo.conf), so the
 redirection applies to every database on the server without installing anything
 into any of them. The manifest's ``post_load`` hook patches
-``ir.mail_server``'s connect and ``_find_mail_server`` methods so that SMTP
-sessions always land on the configured catcher, no matter which
-``ir.mail_server`` record (or explicit ``mail_server_id``) the caller picked.
+``ir.mail_server``'s connect, ``_find_mail_server`` and ``send_email`` methods so
+that SMTP sessions always land on the configured catcher, no matter which
+``ir.mail_server`` record (or explicit ``mail_server_id``) the caller picked —
+including servers whose transport is an HTTP API rather than SMTP (their
+non-SMTP session is discarded at ``send_email`` and the catcher dialled instead).
 
 Configure via odoo.conf::
 

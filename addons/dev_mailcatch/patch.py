@@ -11,10 +11,21 @@
 # `ir.mail_server` record. Any row in that table — or a `mail.mail` carrying an
 # explicit `mail_server_id`, which skips `_find_mail_server` entirely — would win
 # and send for real. Forcing both methods is what makes this a true catch-all.
+#
+# Why a third patch on `send_email`: API-based transports (e.g. mail_cloudflare,
+# which posts to Cloudflare's Email Sending REST API) override `connect()` to
+# hand back a session object that is not an SMTP connection at all. Their
+# override sits above this patched `connect` in the MRO, so for their servers it
+# never runs and the mail would go out for real. `send_email` is the one chokepoint
+# every sender passes through, so when a non-SMTP session shows up there it is
+# discarded and core is made to connect again — through the patched `connect`,
+# hence to the catcher.
 
 import functools
+import inspect
 import logging
 import os
+import smtplib
 
 from odoo.addons.base.models import ir_mail_server as _ir_mail_server
 from odoo.tools import config
@@ -40,6 +51,13 @@ _CONNECT = "_connect__" if hasattr(IrMailServer, "_connect__") else "connect"
 # catcher behaves exactly like stock Odoo).
 _orig_connect = getattr(IrMailServer, _CONNECT)
 _orig_find_mail_server = IrMailServer._find_mail_server
+_orig_send_email = IrMailServer.send_email
+
+# 17.0+ wraps smtplib in `SMTPConnection`; 16.0 hands out `smtplib.SMTP`
+# directly. Anything else passed as `smtp_session` is an API transport.
+_SMTP_SESSION_TYPES = (smtplib.SMTP,) + tuple(
+    cls for cls in (getattr(_ir_mail_server, "SMTPConnection", None),) if cls
+)
 
 
 def _as_bool(value, default=True):
@@ -145,6 +163,35 @@ def _find_mail_server(self, email_from, mail_servers=None):
     return None, email_from
 
 
+@functools.wraps(_orig_send_email)
+def _send_email(self, *args, **kwargs):
+    enabled, _host, _port = _settings()
+    if not enabled:
+        return _orig_send_email(self, *args, **kwargs)
+
+    # Bind against the real signature rather than assuming positions: callers
+    # mix positional and keyword arguments (mail.mail passes `mail_server_id`
+    # and `smtp_session` as keywords; direct callers may not).
+    bound = inspect.signature(_orig_send_email).bind(self, *args, **kwargs)
+    bound.apply_defaults()
+    session = bound.arguments.get("smtp_session")
+    if session is not None and not isinstance(session, _SMTP_SESSION_TYPES):
+        _logger.debug(
+            "dev_mailcatch: discarding non-SMTP session %s (mail_server_id=%s), "
+            "reconnecting to the catcher",
+            type(session).__name__, bound.arguments.get("mail_server_id"),
+        )
+        # With no session core calls `connect()`; with no `mail_server_id`
+        # (and no host) that goes through the patched `_find_mail_server`,
+        # which returns no server, so the transport's own `connect` override
+        # has nothing to claim and delegates to the patched `connect` here.
+        # Core quits the connection it opened itself once the mail is sent.
+        bound.arguments["smtp_session"] = None
+        bound.arguments["mail_server_id"] = None
+
+    return _orig_send_email(*bound.args, **bound.kwargs)
+
+
 def install():
     """Apply the patches. Idempotent."""
     if getattr(IrMailServer, _PATCHED_FLAG, False):
@@ -152,6 +199,8 @@ def install():
 
     setattr(IrMailServer, _CONNECT, _connect)
     IrMailServer._find_mail_server = _find_mail_server
+    # functools.wraps copies __dict__, so the `@api.model` marker survives.
+    IrMailServer.send_email = _send_email
     setattr(IrMailServer, _PATCHED_FLAG, True)
 
     enabled, host, port = _settings()
