@@ -367,6 +367,17 @@ in
         default = "";
         description = "Server name (FQDN) for the nginx virtualHost. Not required when socketPath is set.";
       };
+      clientMaxBodySize = mkOption {
+        type = types.str;
+        default = "64m";
+        description = ''
+          `client_max_body_size` for the Odoo vhost. NixOS's nginx default is
+          10m, which is below what Odoo itself accepts (128 MiB) and below the
+          25 MiB a Cloudflare Email Routing message can weigh when a Worker
+          pushes it to the `mail_cloudflare` inbound webhook. Scoped to this
+          vhost so other sites on the same host keep their own limit.
+        '';
+      };
       socketPath = mkOption {
         type = types.str;
         default = "";
@@ -565,7 +576,10 @@ in
         # A unix socket has no peer address, so $remote_addr is meaningless.
         # Trust the socket peer and take the real client IP from Cloudflare's
         # header — the socket is only reachable from the connector beside it.
-        extraConfig = optionalString nginxSocket ''
+        extraConfig = ''
+          client_max_body_size ${cfg.nginx.clientMaxBodySize};
+        ''
+        + optionalString nginxSocket ''
           set_real_ip_from unix:;
           real_ip_header CF-Connecting-IP;
         '';
