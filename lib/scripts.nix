@@ -67,6 +67,26 @@ let
       | LC_ALL=C ${pkgs.coreutils}/bin/sort -u > "$f.tmp" && mv "$f.tmp" "$f"
   '';
 
+  # Regenerate the uv path-sources block in pyproject.toml from whatever is on
+  # disk under layout.{externalDir,customDir}, then re-lock. Shared by
+  # addModules, addGitSubmodule and odoo-update, so this uv-lock/patch-build-
+  # deps/relock sequence exists in exactly one place instead of being
+  # copy-pasted per caller.
+  regenerateAndLock = pkgs.writeShellScript "oca-regenerate-and-lock" ''
+    set -euo pipefail
+    cd "''${REPO_ROOT:-$PWD}"
+    echo "==> Regenerating uv path-sources…"
+    ${pkgs.python3}/bin/python3 ${./oca_sources.py} update pyproject.toml \
+      modules.txt "${layout.externalDir}" "${layout.customDir}" "${layout.coreSrc}"
+    echo "==> Re-locking Python environment (uv lock)…"
+    if ${pkgs.uv}/bin/uv lock; then
+      ${pkgs.python3}/bin/python3 ${./uv_build_deps.py} update pyproject.toml uv.lock || true
+      ${pkgs.uv}/bin/uv lock || true
+    else
+      echo "⚠  uv lock failed — resolve in pyproject.toml and re-run." >&2
+    fi
+  '';
+
   # Shared "add these module seeds" flow used by odoo-add-module and
   # odoo-add-bundle: resolve the transitive repo closure, add the NEW repos as
   # shallow submodules, record the seeds in modules.txt, re-aggregate the scoped
@@ -116,15 +136,7 @@ let
     for m in "''${SEL[@]}"; do ${addToModulesTxt} "$m"; done
     ${sortModulesTxt}
 
-    echo "==> Generating uv path-sources + lock (uv resolves all deps)…"
-    ${pkgs.python3}/bin/python3 ${./oca_sources.py} update pyproject.toml \
-      modules.txt "${layout.externalDir}" "${layout.customDir}" "${layout.coreSrc}"
-    if ${pkgs.uv}/bin/uv lock; then
-      ${pkgs.python3}/bin/python3 ${./uv_build_deps.py} update pyproject.toml uv.lock || true
-      ${pkgs.uv}/bin/uv lock || true
-    else
-      echo "⚠  uv lock failed — resolve in pyproject.toml and re-run." >&2
-    fi
+    ${regenerateAndLock}
 
     cat <<EOF
 
@@ -133,6 +145,46 @@ let
         direnv reload
    2. Install:  provision-db    (installs everything in modules.txt)
 EOF
+  '';
+
+  # Register an already-cloned repo (at $3, cloned by the caller into its
+  # final resolved path under layout.externalDir) as a submodule, then record
+  # the given module names (already chosen by the caller -- this does no
+  # prompting) in modules.txt and re-lock. Mirrors the per-repo tail of
+  # addModules' loop, but for exactly one caller-supplied repo instead of an
+  # OCA dependency closure of many.
+  addGitSubmodule = pkgs.writeShellScript "oca-add-git-submodule" ''
+    set -euo pipefail
+    cd "''${REPO_ROOT:-$PWD}"
+    export PATH="${pkgs.git}/bin:$PATH"
+
+    url="$1" branch="$2" path="$3"; shift 3
+    MODS=("$@")
+
+    echo "==> Registering $path as a submodule ($branch)…"
+    git submodule add -q --force -b "$branch" -- "$url" "$path"
+    git config -f .gitmodules "submodule.$path.shallow" true
+    git submodule update --init --recursive -- "$path"
+
+    if [ "''${#MODS[@]}" -gt 0 ]; then
+      for m in "''${MODS[@]}"; do ${addToModulesTxt} "$m"; done
+      ${sortModulesTxt}
+      ${regenerateAndLock}
+      cat <<EOF
+
+✅ Added $path as a submodule and recorded ''${#MODS[@]} module(s) in modules.txt.
+   1. Reload so the Nix engine re-derives addons_path + rebuilds the env:
+        direnv reload
+   2. Install:  provision-db    (installs everything in modules.txt)
+EOF
+    else
+      cat <<EOF
+
+✅ Added $path as a submodule (no modules recorded in modules.txt).
+   Reload so the Nix engine picks up the new addons_path:
+     direnv reload
+EOF
+    fi
   '';
 in
 {
@@ -252,27 +304,103 @@ in
         echo "    (${layout.coreSrc} is a flake input, not a submodule: bump it with 'nix flake update')"
       ''}
 
-      echo "==> Regenerating uv path-sources…"
-      ${pkgs.python3}/bin/python3 ${./oca_sources.py} update pyproject.toml \
-        modules.txt "${layout.externalDir}" "${layout.customDir}" "${layout.coreSrc}"
-
-      echo "==> Re-locking Python environment (uv lock)…"
-      if ${pkgs.uv}/bin/uv lock; then
-        ${pkgs.python3}/bin/python3 ${./uv_build_deps.py} update pyproject.toml uv.lock || true
-        ${pkgs.uv}/bin/uv lock || true
-      else
-        echo "⚠  uv lock failed — resolve in pyproject.toml and re-run." >&2
-      fi
+      ${regenerateAndLock}
       echo "✅ Update complete. Run 'direnv reload' to rebuild the Nix env."
     '';
   };
 
-  # Pick more OCA modules (interactive picker or args), then add them.
+  # Pick more OCA modules (interactive picker or args), then add them -- or,
+  # given a git URL / "owner/repo" shorthand, add that repo directly as a
+  # submodule instead (any git host, not just OCA/GitHub).
   odoo-add-module = {
-    description = "Add OCA module(s): odoo-add-module [module …] (interactive if none)";
+    description = "Add OCA module(s), or a third-party git repo as a submodule: odoo-add-module [module …] | odoo-add-module <git-url-or-owner/repo> [branch] [path]";
     exec = ''
       ${preamble}
       ${ocaPreamble}
+      export PATH="${pkgs.git}/bin:$PATH"
+      has_tty() { [ -t 0 ] && [ -t 1 ]; }
+
+      MODE="oca"
+      if [ "$#" -gt 0 ] && oca_url_shaped "$1"; then
+        MODE="git"
+      elif [ "$#" -eq 0 ] && has_tty; then
+        choice="$(printf '%s\n' "Browse OCA catalog" "Add from a Git URL" \
+          | gum choose --header "odoo-add-module: what do you want to add?" || true)"
+        case "$choice" in
+          "Add from a Git URL") MODE="git" ;;
+          "Browse OCA catalog") MODE="oca" ;;
+          *) echo "Nothing selected."; exit 0 ;;
+        esac
+      fi
+
+      if [ "$MODE" = "git" ]; then
+        SRC="''${1:-}"; BRANCH_ARG="''${2:-}"; PATH_ARG="''${3:-}"
+        if [ -z "$SRC" ]; then
+          if has_tty; then
+            SRC="$(gum input --header "Git URL or owner/repo:" \
+              --placeholder "https://example.com/owner/repo.git  or  owner/repo" || true)"
+            [ -z "$SRC" ] && { echo "Nothing entered."; exit 0; }
+          else
+            echo "usage: odoo-add-module <git-url-or-owner/repo> [branch] [path]" >&2
+            exit 1
+          fi
+        fi
+
+        url="$(oca_resolve_git_url "$SRC")"
+        slug="$(oca_repo_slug "$url")"
+        if [ -n "$PATH_ARG" ]; then
+          slug="$PATH_ARG"
+        elif has_tty; then
+          slug="$(gum input --header "Submodule path (under ${layout.externalDir}/):" --value "$slug" || true)"
+          [ -z "$slug" ] && { echo "Nothing entered."; exit 0; }
+        fi
+        path="${layout.externalDir}/$slug"
+
+        if [ -e "$path" ] || git config -f .gitmodules --get "submodule.$path.path" >/dev/null 2>&1; then
+          echo "✗ '$path' already exists (directory or registered submodule) — pass a different path as the third argument." >&2
+          exit 1
+        fi
+
+        if [ -n "$BRANCH_ARG" ]; then
+          branch="$BRANCH_ARG"
+          git ls-remote --heads "$url" "$branch" 2>/dev/null | grep -q . \
+            || { echo "✗ branch '$branch' not found on $url" >&2; exit 1; }
+        elif git ls-remote --heads "$url" "${odooSeries}" 2>/dev/null | grep -q .; then
+          branch="${odooSeries}"
+        else
+          default_branch="$(oca_default_branch "$url")"
+          [ -z "$default_branch" ] \
+            && { echo "✗ no '${odooSeries}' branch, and could not detect a default branch on $url — pass [branch] explicitly." >&2; exit 1; }
+          if has_tty; then
+            branch="$(gum input --header "No '${odooSeries}' branch on $url — confirm the branch to use:" --value "$default_branch" || true)"
+            [ -z "$branch" ] && branch="$default_branch"
+          else
+            branch="$default_branch"
+            echo "==> no '${odooSeries}' branch — using detected default branch '$branch'." >&2
+          fi
+        fi
+
+        echo "==> Cloning $url ($branch) → $path…"
+        mkdir -p "$(dirname "$path")"
+        git clone -q --depth 1 --branch "$branch" -- "$url" "$path"
+
+        mapfile -t FOUND < <(oca_scan_modules "$path" | LC_ALL=C sort -u)
+        SEL=()
+        if [ "''${#FOUND[@]}" -eq 0 ]; then
+          echo "⚠  no __manifest__.py found in $url — adding the submodule without registering any module." >&2
+        elif [ "''${#FOUND[@]}" -eq 1 ]; then
+          SEL=("''${FOUND[@]}")
+        elif has_tty; then
+          mapfile -t SEL < <(printf '%s\n' "''${FOUND[@]}" \
+            | oca_pick_from_list "Select module(s) to record in modules.txt (space=toggle, enter=confirm):")
+        else
+          SEL=("''${FOUND[@]}")
+          echo "==> non-interactive: recording all ''${#SEL[@]} discovered module(s)." >&2
+        fi
+
+        exec ${addGitSubmodule} "$url" "$branch" "$path" "''${SEL[@]}"
+      fi
+
       if [ "$#" -gt 0 ]; then
         SEL=("$@")
       else
