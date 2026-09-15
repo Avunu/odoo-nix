@@ -28,6 +28,10 @@
   uv2nix,
   pythonLibraries ? { },
   extraOverrides ? (_final: _prev: { }),
+  # OCB from outside the workspace (see modules/devenv.nix `coreSource`): the
+  # `odoo` wheel is built from this tree instead of the workspace's `odoo/`
+  # path source, which then need not exist in the flake's copy of the repo.
+  coreSource ? null,
 }:
 
 let
@@ -36,9 +40,46 @@ let
   rootPyproject = builtins.fromTOML (builtins.readFile (workspaceRoot + "/pyproject.toml"));
   rootPkgName = rootPyproject.project.name;
 
-  overlay = workspace.mkPyprojectOverlay {
-    sourcePreference = "wheel";
-  };
+  sourcePreference = "wheel";
+
+  # With `coreSource`, uv.lock still records `odoo` as the path source
+  # `<coreSrc>/` — that is what `uv lock` saw through the dev shell's symlink —
+  # but the flake's copy of the workspace has no such directory (the symlink is
+  # gitignored), and uv2nix loads every local package's own pyproject.toml from
+  # the workspace at evaluation time. So the overlay is assembled the way
+  # `workspace.mkPyprojectOverlay` assembles it, with one difference: the
+  # `odoo` project is loaded from the store path. Everything downstream — the
+  # wheel build, the editable dev install (which resolves `<coreSrc>/` under
+  # $REPO_ROOT at runtime, i.e. the symlink) — then just works.
+  overlay =
+    if coreSource == null then
+      workspace.mkPyprojectOverlay { inherit sourcePreference; }
+    else
+      let
+        inherit (uv2nix.lib) lock1;
+        lock = lock1.parseLock (lib.importTOML (workspaceRoot + "/uv.lock"));
+        localPackages = lib.filter lock1.isLocalPackage lock.package;
+        coreProjects = {
+          odoo = pyproject-nix.lib.project.loadUVPyproject { projectRoot = coreSource; };
+        };
+        localProjects =
+          lock1.getLocalProjects {
+            inherit lock workspaceRoot;
+            localPackages = lib.filter (p: !(coreProjects ? ${p.name})) localPackages;
+          }
+          // coreProjects;
+      in
+      uv2nix.lib.overlays.mkOverlay {
+        inherit
+          sourcePreference
+          localProjects
+          workspaceRoot
+          lock
+          ;
+        environ = { };
+        spec = workspace.deps.all;
+        inherit (workspace) config;
+      };
 
   # OCB's build backend (pep517_odoo) is vendored in ./setup and referenced via
   # `backend-path = ["setup"]`. pyproject-nix's build doesn't add it to sys.path,

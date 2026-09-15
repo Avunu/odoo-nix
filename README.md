@@ -126,12 +126,13 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | enable | false | enable the dev shell + packages |
 | projectName | — | identifier for env / package / container names |
 | workspaceRoot | — | project root (where pyproject.toml, odoo.conf, odoo/ live) |
+| coreSource | null | OCB from a non-flake input instead of the `odoo/` submodule — see [OCB as a flake input](#ocb-as-a-flake-input) |
 | odooSeries | "18.0" | Odoo series — the OCB/OCA branch + catalog filter (does not select a nixpkgs package) |
 | python | pkgs.python311 | interpreter (match the series) |
 | nodejs | pkgs.nodejs_22 | Node.js (for rtlcss / asset tooling) |
 | pythonOverrides | _: _: {} | uv2nix package-set overlay for native-build overrides |
 | pythonLibraries | { } | per-package native libs to expose to a Python build, e.g. { python-snappy = [ pkgs.snappy ]; } (merged with built-ins; pycups is built in) |
-| layout.coreSrc | "odoo" | path of the OCB source submodule |
+| layout.coreSrc | "odoo" | path of the OCB source submodule (or of the symlink `coreSource` maintains) |
 | layout.externalDir | "modules" | directory holding OCA module-repo submodules |
 | layout.customDir | "custom" | directory holding your own modules |
 | layout.extraAddons | [ ] | extra addons_path entries appended verbatim |
@@ -296,6 +297,60 @@ odoo-nix.pythonLibraries = {
   python-snappy = [ pkgs.snappy ];   # pycups is built in
 };
 ```
+
+## OCB as a flake input
+
+An application project keeps OCB as the `odoo/` git submodule: it is the thing being deployed, and
+`self.submodules = true` puts it into the flake source. A repository that is itself *consumed as an
+addons path* — a library of modules other odoo-nix projects mount under `modules/` — should not:
+every consumer with `self.submodules = true` would recurse into that gitlink and fetch a second copy
+of OCB, and a shallow `git submodule add` of the library would drag it in too. Such a repository
+needs OCB only for its own dev shell and test checks, so it takes it as a plain source input:
+
+```nix
+{
+  inputs = {
+    odoo-nix.url = "github:Avunu/odoo-nix";
+    nixpkgs.follows = "odoo-nix/nixpkgs";
+    ocb = {
+      url = "github:OCA/OCB/18.0";
+      flake = false;
+    };
+  };
+
+  outputs = { self, odoo-nix, ... }@inputs:
+    odoo-nix.lib.mkFlake { inherit inputs; } ({ inputs, ... }: {
+      imports = [ odoo-nix.flakeModules.default ];
+      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      perSystem = { pkgs, ... }: {
+        odoo-nix = {
+          enable = true;
+          projectName = "my-addons";
+          workspaceRoot = ./.;
+          coreSource = inputs.ocb;      # no self.submodules, no odoo/ submodule
+          layout.customDir = ".";       # the repo root is the addons directory
+        };
+      };
+    });
+}
+```
+
+With `coreSource` set:
+
+-   the dev shell keeps `<coreSrc>` (`./odoo`) as a **symlink** to the store path — add `/odoo` to
+    `.gitignore` — so `odoo-bin`, the scripts, the editor mirror and `uv lock` all see OCB where the
+    submodule layout has it, and `pyproject.toml`/`uv.lock` are unchanged (`odoo` stays the path
+    source `odoo/`);
+-   the Python environment builds the `odoo` wheel from the store path (uv2nix would otherwise
+    look for `odoo/` in the flake's copy of the workspace, where the gitignored symlink does not
+    exist);
+-   `addons_path` — the dev `odoo.conf`, `lib.addons`' `addonsPathFor` used by checks, and
+    `builtOdoo` — carries the two core roots as absolute store paths, and `builtOdoo` links the
+    tree instead of copying 2 GB.
+
+Bump the pin with `nix flake update ocb`; `odoo-update` leaves it alone (it only pulls git
+submodules). A repository laid out this way can be mounted by consumers straight from its default
+branch.
 
 ## `addons_path` synthesis
 

@@ -25,6 +25,10 @@
   lib,
   workspaceRoot,
   layout,
+  # OCB from outside the workspace (a non-flake input) instead of the
+  # `layout.coreSrc` submodule: the two core roots are then emitted as absolute
+  # store paths, since a workspace-relative entry could never reach them.
+  coreSource ? null,
   # Absolute addons roots (typically /nix/store paths) appended last, verbatim.
   # Kept separate from layout.extraAddons because those are workspace-relative
   # and get a "./" prefix — which would mangle an absolute path.
@@ -60,16 +64,28 @@ let
 
   hasCustom = pathExists (workspaceRoot + "/${layout.customDir}");
 
-  # The ordered list of addons-path components, as paths relative to the
-  # workspace root (no leading "./").
+  # The two OCB roots, always first: core kernel (base, web, …) then core UI
+  # (account, sale, …). Workspace-relative for the submodule layout, absolute
+  # when OCB comes from `coreSource`.
+  coreRel = [
+    "${layout.coreSrc}/odoo/addons"
+    "${layout.coreSrc}/addons"
+  ];
+  coreAbs = map (sub: "${toString coreSource}/${sub}") [
+    "odoo/addons"
+    "addons"
+  ];
+
+  # The ordered list of workspace-relative addons-path components (no leading
+  # "./"), core included unless it lives outside the workspace.
   componentsRel =
-    [
-      "${layout.coreSrc}/odoo/addons" # core kernel: base, web, …
-      "${layout.coreSrc}/addons" # core UI: account, sale, …
-    ]
+    lib.optionals (coreSource == null) coreRel
     ++ map (r: "${layout.externalDir}/${r}") externalRepos
     ++ lib.optional hasCustom layout.customDir
     ++ layout.extraAddons;
+
+  # Absolute core roots, prepended to both renderings when coreSource is set.
+  coreEntries = lib.optionals (coreSource != null) coreAbs;
 
   # Emit "./relative" entries: odoo.conf addons_path entries are resolved from
   # the CWD where `odoo-bin -c odoo.conf` runs (= workspace root). Relative
@@ -81,7 +97,7 @@ let
   # and are shared verbatim by both the relative and the absolute renderings.
   componentsAbs = map toString extraAddonsAbs;
 
-  addonsPathList = map rel componentsRel ++ componentsAbs;
+  addonsPathList = coreEntries ++ map rel componentsRel ++ componentsAbs;
 in
 {
   # Discovered OCA repo dir names (e.g. [ "account-financial-tools" … ]).
@@ -97,5 +113,6 @@ in
   # module, and containers, where CWD is not the workspace root. Mirrors
   # frappe-nix/lib/bench.nix's `appsPath root`.
   addonsPathFor =
-    root: lib.concatStringsSep "," (map (c: "${root}/${c}") componentsRel ++ componentsAbs);
+    root:
+    lib.concatStringsSep "," (coreEntries ++ map (c: "${root}/${c}") componentsRel ++ componentsAbs);
 }

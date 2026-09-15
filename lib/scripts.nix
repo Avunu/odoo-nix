@@ -26,6 +26,9 @@
   ocaLib,
   bundlesFile,
   layout,
+  # OCB from a flake input (see modules/devenv.nix `coreSource`): only affects
+  # what odoo-update tells the user, the symlink makes everything else the same.
+  coreSource ? null,
 }:
 
 let
@@ -245,6 +248,9 @@ in
       echo "==> Updating git submodules…"
       git submodule update --init --recursive
       git submodule foreach --quiet 'git pull --ff-only origin "$(git rev-parse --abbrev-ref HEAD)" || true'
+      ${lib.optionalString (coreSource != null) ''
+        echo "    (${layout.coreSrc} is a flake input, not a submodule: bump it with 'nix flake update')"
+      ''}
 
       echo "==> Regenerating uv path-sources…"
       ${pkgs.python3}/bin/python3 ${./oca_sources.py} update pyproject.toml \

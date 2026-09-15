@@ -25,10 +25,15 @@
   projectName,
   odooSeries,
   odooPythonEnv,
+  # OCB from outside the workspace (see modules/devenv.nix `coreSource`).
+  coreSource ? null,
 }:
 
 let
-  addons = import ./addons.nix { inherit lib workspaceRoot layout; };
+  addons = import ./addons.nix { inherit lib workspaceRoot layout coreSource; };
+
+  # Where the OCB tree is read from: the workspace submodule, or the store path.
+  coreRoot = if coreSource != null then toString coreSource else "${workspaceRoot}/${layout.coreSrc}";
 
   copyDir = src: dst: ''
     if [ -e "${src}" ]; then
@@ -52,7 +57,13 @@ let
 
     # Assemble the tree into the SAME relative layout the project uses, so the
     # package's addonsPath (addons.addonsPathFor "$out") resolves against it.
-    ${copyDir "${workspaceRoot}/${layout.coreSrc}" "$out/${layout.coreSrc}"}
+    ${
+      if coreSource != null then
+        # Already in the store: link rather than duplicate a 2 GB tree.
+        ''ln -s "${coreRoot}" "$out/${layout.coreSrc}"''
+      else
+        copyDir coreRoot "$out/${layout.coreSrc}"
+    }
     ${lib.concatMapStringsSep "\n" (
       repo: copyDir "${workspaceRoot}/${layout.externalDir}/${repo}" "$out/${layout.externalDir}/${repo}"
     ) addons.externalRepos}
