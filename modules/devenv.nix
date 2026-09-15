@@ -30,6 +30,26 @@ in
           description = "Workspace root (where pyproject.toml, odoo.conf and src/ live).";
         };
 
+        coreSource = mkOption {
+          type = types.nullOr types.path;
+          default = null;
+          example = lib.literalExpression "inputs.ocb";
+          description = ''
+            OCB source tree from outside the workspace — typically a non-flake input
+            (`inputs.ocb = { url = "github:OCA/OCB/18.0"; flake = false; }`) — instead of
+            the `layout.coreSrc` git submodule.
+
+            When set, `<coreSrc>` in the workspace is a symlink to this tree that the
+            dev shell creates and refreshes (add it to `.gitignore`), the Python
+            environment builds the `odoo` wheel from it, and the addons_path,
+            `builtOdoo` and every check resolve the core roots there. The repository
+            then carries no OCB submodule, so `self.submodules = true` is unnecessary
+            and a project that mounts this repository as a submodule never fetches
+            OCB through it. Bump the pin with `nix flake update <input>` rather than
+            `odoo-update`.
+          '';
+        };
+
         odooSeries = mkOption {
           type = types.str;
           default = "18.0";
@@ -411,7 +431,12 @@ in
 
         pythonEnvs = import ../lib/python.nix {
           inherit pkgs lib;
-          inherit (cfg) python workspaceRoot projectName;
+          inherit (cfg)
+            python
+            workspaceRoot
+            projectName
+            coreSource
+            ;
           pyproject-nix = inputs.pyproject-nix;
           pyproject-build-systems = inputs.pyproject-build-systems;
           uv2nix = inputs.uv2nix;
@@ -441,7 +466,7 @@ in
 
         addons = import ../lib/addons.nix {
           inherit lib;
-          inherit (cfg) workspaceRoot layout;
+          inherit (cfg) workspaceRoot layout coreSource;
           extraAddonsAbs = lib.optional cfg.mailcatch.enable odooNixAddons;
         };
 
@@ -469,7 +494,7 @@ in
         scripts = import ../lib/scripts.nix {
           inherit lib pkgs;
           python = "${pythonEnvs.devPythonEnv}/bin/python";
-          inherit (cfg) odooSeries layout;
+          inherit (cfg) odooSeries layout coreSource;
           dbName = if cfg.odooConf.dbName != null then cfg.odooConf.dbName else "odoo_dev";
           ocaDataset = ../data/oca-modules.json;
           ocaLib = ../lib/oca-lib.sh;
@@ -478,7 +503,13 @@ in
 
         builtOdoo = import ../lib/odoo.nix {
           inherit pkgs lib;
-          inherit (cfg) workspaceRoot layout projectName odooSeries;
+          inherit (cfg)
+            workspaceRoot
+            layout
+            projectName
+            odooSeries
+            coreSource
+            ;
           odooPythonEnv = pythonEnvs.odooPythonEnv;
         };
 
@@ -756,6 +787,20 @@ in
               ++ lib.optional cfg.mailcatch.enable "devenv:processes:mailpit@started";
 
             enterShell = ''
+              ${lib.optionalString (cfg.coreSource != null) ''
+                # OCB comes from a flake input: keep <coreSrc> a symlink to it so
+                # odoo-bin, the scripts, the IDE mirror and `uv lock` all find it
+                # where the submodule layout would have it. A real directory there
+                # is a leftover submodule checkout — never clobber it silently.
+                if [ "$(readlink "${cfg.layout.coreSrc}" 2>/dev/null)" != "${toString cfg.coreSource}" ]; then
+                  if [ -e "${cfg.layout.coreSrc}" ] && [ ! -L "${cfg.layout.coreSrc}" ]; then
+                    echo "odoo-nix: ${cfg.layout.coreSrc}/ exists but coreSource is set; remove the" >&2
+                    echo "          checkout (git submodule deinit / rm -rf) so it can become a symlink." >&2
+                  else
+                    ln -sfn "${toString cfg.coreSource}" "${cfg.layout.coreSrc}"
+                  fi
+                fi
+              ''}
               # Initialize git submodules (src/odoo + src/external/*) if needed.
               if git submodule status 2>/dev/null | grep -q '^-'; then
                 echo "Initializing git submodules…"
