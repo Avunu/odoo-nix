@@ -11,7 +11,7 @@ Reusable Nix infrastructure for [Odoo](https://www.odoo.com/) projects built on 
 -   a `builtOdoo` package — the assembled, deployable Odoo tree
 -   a single-instance **NixOS module** (`services.odoo-nix`) with secret-safe config synthesis
 -   an **OCI container** image (`dockerTools`)
--   portable **dev scripts** (`provision-db`, `odoo-add-module`, `odoo-update`, …)
+-   portable **dev scripts** (`provision-db`, `odoo-add-module` — OCA catalog or any third-party git repo — `odoo-update`, …)
 
 It is consumed as a [flake-parts](https://flake.parts/) module.
 
@@ -249,10 +249,24 @@ WARNING dev_mailcatch ACTIVE — ALL outgoing email is redirected to 127.0.0.1:1
 | odoo-upgrade <m[,m2]> [db] | upgrade module(s) (-u) |
 | odoo-shell [db] | Odoo Python REPL |
 | odoo-add-module [module …] | pick more OCA modules → resolve + add repos → record in modules.txt → re-lock |
+| odoo-add-module <git-url\|owner/repo> [branch] [path] | add any third-party git repo as a submodule → record its module(s) → re-lock |
 | odoo-add-bundle [name …] | add a curated bundle of OCA modules (from data/oca-bundles.json) |
 | odoo-update | pull submodules, re-aggregate OCA Python deps, uv lock |
 
 After `odoo-add-module` / `odoo-add-bundle`, run `direnv reload` so the Nix engine re-derives `addons_path` and rebuilds the Python env.
+
+### Adding a third-party module repo
+
+`odoo-add-module` isn't limited to the OCA catalog — give it a git URL (or `owner/repo` GitHub shorthand) and it adds that repo as a submodule under `modules/` the same way it adds an OCA repo, then scans the clone for `__manifest__.py` and records whichever module(s) you pick in `modules.txt`. It works with any git host, not just GitHub.
+
+```sh
+odoo-add-module                                   # interactive: choose "OCA catalog" or "Git URL"
+odoo-add-module https://gitlab.com/foo/bar.git    # any git host, full URL
+odoo-add-module foo/bar                           # GitHub shorthand -> https://github.com/foo/bar.git
+odoo-add-module foo/bar 17.0 my-bar               # explicit branch + submodule folder name
+```
+
+Branch defaults to the project's `odooSeries` (matching OCA convention); if the repo has no such branch, its detected default branch is offered as an editable prompt (or used directly when run non-interactively). The submodule path defaults to a slug derived from the repo name, under `layout.externalDir`. A repo with more than one module prompts with a multi-select (nothing pre-selected) so you choose which to install; a single-module repo needs no prompt.
 
 ### Bundles
 
@@ -424,6 +438,8 @@ data/extract_manifests.py           # rewrites data/oca-modules.json
 Both default to the series list in `lib/odoo-presets.json`; keep the three in sync when a series is added or dropped. A manifest whose `version` disagrees with the branch it was read from is skipped, since every consumer filters on the version prefix.
 
 `data/oca-bundles.json` is a separate, **hand-maintained** file defining the named module bundles used by `odoo-add-bundle` (see [Bundles](#bundles)).
+
+The catalog only powers the OCA-browsing path — `odoo-add-module <git-url>` (see [Adding a third-party module repo](#adding-a-third-party-module-repo)) bypasses it entirely, deriving everything (branch, module names) from the repo itself.
 
 ## Repository layout
 

@@ -48,14 +48,19 @@ it is live. Odoo's own framework code (`odoo/odoo/*.py`) is *not* watched — re
 ```sh
 odoo-add-module                       # interactive picker, resolves dep repos
 odoo-add-module account_financial_report   # or by module name
+odoo-add-module https://example.com/owner/repo.git   # any third-party repo, any git host
+odoo-add-module owner/repo 17.0 my-repo              # GitHub shorthand, explicit branch + path
 odoo-add-bundle                       # add a curated bundle (base, accounting, …)
 odoo-add-bundle base sales            # or by bundle name
 ```
 
-`odoo-add-module` / `odoo-add-bundle` add the required OCA repos as submodules,
+`odoo-add-module` / `odoo-add-bundle` add the required repos as submodules,
 record the modules in `modules.txt`, refresh the Python deps, and re-lock. Run
 `direnv reload` afterwards so the Nix engine re-derives `addons_path` and rebuilds
-the env.
+the env. For a git URL, branch and submodule path are prompted for when omitted
+interactively (branch defaults to the project's Odoo series, else the repo's
+detected default branch; path defaults to a slug of the repo name) and default
+sensibly when run non-interactively.
 
 ## Common commands
 
