@@ -81,7 +81,10 @@ in
           echo "without_demo = ''${ODOO_WITHOUT_DEMO:-False}"
           echo "log_level = ''${ODOO_LOG_LEVEL:-info}"
           [ -n "''${ODOO_LOG_HANDLER:-}" ] && echo "log_handler = ''${ODOO_LOG_HANDLER}"
-          echo "log_db = ''${ODOO_LOG_DB:-False}"
+          # log_db is a database name ("%d" = the request's database); a
+          # literal False would be skipped with a warning on 19.0, so it is
+          # simply left out when unset.
+          [ -n "''${ODOO_LOG_DB:-}" ] && echo "log_db = ''${ODOO_LOG_DB}"
           echo "log_db_level = ''${ODOO_LOG_DB_LEVEL:-warning}"
           [ -n "''${ODOO_DB_NAME:-}" ] && echo "db_name = ''${ODOO_DB_NAME}"
           [ -n "''${ODOO_DB_NAME:-}" ] && echo "dbfilter = ^''${ODOO_DB_NAME}$"

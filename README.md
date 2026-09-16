@@ -82,7 +82,7 @@ A consuming `flake.nix` is just configuration:
   outputs = { self, odoo-nix, ... }@inputs:
     odoo-nix.lib.mkFlake { inherit inputs; } ({ ... }: {
       imports = [ odoo-nix.flakeModules.default ];
-      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
       perSystem = { pkgs, ... }: {
         odoo-nix = {
           enable = true;
@@ -139,19 +139,20 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | mailcatch.enable | true | redirect all outgoing email to the local Mailpit catcher |
 | mailcatch.host / mailcatch.port | "127.0.0.1" / 1025 | catcher SMTP endpoint (drives Mailpit and Odoo) |
 | mailcatch.httpPort | 8025 | Mailpit web UI port |
-| odooConf.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection |
+| odooConf.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
 | odooConf.dataDir | "./.devenv/state/odoo" | Odoo filestore (gitignored under .devenv) |
 | odooConf.adminPasswd | "admin" | DB-manager master password (dev) |
+| odooConf.httpInterface | "127.0.0.1" | interface the dev server binds (http_interface); "0.0.0.0" to reach it from another host/container |
 | odooConf.httpPort/geventPort | 8069 / 8072 | HTTP + websocket/longpolling ports |
 | odooConf.workers | 0 | worker processes (0 = threaded dev mode) |
 | odooConf.devMode | "all" | --dev flag for the dev process |
 | odooConf.logging.level | "info" | root logging verbosity (log_level) |
 | odooConf.logging.handlers | [ ] | per-logger level overrides, e.g. [ "werkzeug:WARNING" ] (log_handler) |
-| odooConf.logging.db/dbLevel | false / "warning" | mirror logs into a database (log_db/log_db_level) |
+| odooConf.logging.db/dbLevel | false / "warning" | mirror logs into a database (log_db/log_db_level): `true` = the request's own database (`%d`), a string = that database |
 | odooConf.logging.file | null | write logs to this file instead of stderr (logfile) |
 | dev.autoReload | true | make Odoo's --dev=reload watcher functional (see Live code reload) |
 | odooConf.extra | { } | arbitrary extra [options] keys merged last |
-| odooConf.withoutDemo | false | skip demo data for every module (without_demo = all) |
+| odooConf.withoutDemo | false | skip demo data for every module (without_demo = True) |
 | postgres.extensions | _: [ ] | extensions built into the dev PostgreSQL, e.g. ps: [ ps.postgis ] (base_geoengine) |
 | ide.enable | true | expose the env to editors: ./.venv symlink + merged odoo analysis root |
 | ide.vscodeSettings | true | seed .vscode/settings.json when absent (never overwrites) |
@@ -335,7 +336,7 @@ needs OCB only for its own dev shell and test checks, so it takes it as a plain 
   outputs = { self, odoo-nix, ... }@inputs:
     odoo-nix.lib.mkFlake { inherit inputs; } ({ inputs, ... }: {
       imports = [ odoo-nix.flakeModules.default ];
-      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
       perSystem = { pkgs, ... }: {
         odoo-nix = {
           enable = true;
@@ -352,9 +353,12 @@ needs OCB only for its own dev shell and test checks, so it takes it as a plain 
 With `coreSource` set:
 
 -   the dev shell keeps `<coreSrc>` (`./odoo`) as a **symlink** to the store path — add `/odoo` to
-    `.gitignore` — so `odoo-bin`, the scripts, the editor mirror and `uv lock` all see OCB where the
-    submodule layout has it, and `pyproject.toml`/`uv.lock` are unchanged (`odoo` stays the path
-    source `odoo/`);
+    `.gitignore` — so `odoo-bin`, the scripts and the editor mirror all see OCB where the submodule
+    layout has it, and `pyproject.toml`/`uv.lock` are unchanged (`odoo` stays the path source
+    `odoo/`). `uv lock` (via `odoo-update` / `odoo-add-module`) is the one thing that cannot go
+    through the link directly — setuptools writes `odoo.egg-info` into the project root, and the
+    store is read-only — so for the duration of a lock the scripts point it at a throwaway
+    writable shadow of the tree (`lib/core-shadow.sh`) and restore it afterwards;
 -   the Python environment builds the `odoo` wheel from the store path (uv2nix would otherwise
     look for `odoo/` in the flake's copy of the workspace, where the gitignored symlink does not
     exist);
@@ -376,7 +380,7 @@ Entries stay workspace-relative so the file is identical across machines and con
 
 `lib/odoo-conf.nix` renders the `[options]` block from your declarative `odooConf.*` settings plus the derived `addons_path` (via `pkgs.formats.ini`) to a read-only `/nix/store` file. The dev shell symlinks it to `./odoo.conf`; `--dev` stays a CLI flag so the same file is prod-usable.
 
-Beside `[options]` it can emit arbitrary extra sections (`extraSections`) for modules that read their own INI section out of `odoo.tools.config.misc` — Odoo's parser keeps unknown sections verbatim. `dev_mailcatch` uses this; OCA modules like `queue_job` follow the same convention.
+Beside `[options]` it can emit arbitrary extra sections (`extraSections`) for modules that read their own INI section — through 18.0 out of `odoo.tools.config.misc`, where Odoo's parser keeps unknown sections verbatim; 19.0 dropped `misc`, so a module re-reads the loaded file (`config['config']`) itself, as `dev_mailcatch` does. OCA modules like `queue_job` follow the same convention.
 
 ## Production — `services.odoo-nix`
 
@@ -422,7 +426,37 @@ Composable `final: prev:` Python overlays for packages needing system libraries 
 
 ### `lib.addons`
 
-The `addons_path` synthesis used internally; importable for `nix eval` testing.
+The `addons_path` synthesis used internally; importable for `nix eval` testing — and tested that way: see `tests/eval.nix`.
+
+## Testing
+
+`nix flake check -L` runs everything. odoo-nix is a library, so its checks do what a consumer does: build a **real** Odoo from a pinned OCB tree — `ocb-18` / `ocb-19`, `flake = false` inputs in the shape [OCB as a flake input](#ocb-as-a-flake-input) prescribes — through `coreSource`, with the same library calls the flake-parts module makes. Checks are one derivation per assertion, so the failure names itself:
+
+| check | what |
+| --- | --- |
+| `eval-addons-*`, `eval-odoo-conf-*`, `odoo-conf-render` | pure tests of `lib/addons.nix` on a synthetic tree (`tests/fixtures/addons-tree`) and of `lib/odoo-conf.nix` rendering |
+| `eval-*-<18\|19>` | per-series eval assertions: the fixture's `requires-python` matches `lib/odoo-presets.json`; `builtOdoo`'s `passthru.addonsPath` / `odooVersion` contract |
+| `lock-fresh-<18\|19>` | `tests/fixtures/<series>/uv.lock` still matches the pinned `ocb-*` input (series + `install_requires`) |
+| `builtOdoo-<18\|19>` | the assembled package builds — including the non-editable `odoo` wheel; `bin/odoo --version` runs on the production env |
+| `odoo-init-<18\|19>` | `-i base` against an in-sandbox PostgreSQL (`postgresqlTestHook`, unix socket); `web` installed proves the second core root, the `dev_mailcatch` banner proves `extraAddonsAbs` |
+| `odoo-test-<18\|19>` | installs the fixture addon `tests/fixtures/<series>/custom/odoo_nix_fixture` and runs its Odoo tests (ORM round-trip + the `dev_mailcatch` redirection), asserting the stats line shows they ran |
+| `module-nginx` | `services.odoo-nix`'s nginx/socket contract, with a stub Odoo that echoes headers (needs KVM) |
+| `module-odoo-<18\|19>` | `services.odoo-nix` with the real `builtOdoo`: `autoInit`, `/web/login` via nginx and directly, `version_info` (needs KVM) |
+
+Everything that runs Odoo or a VM is Linux-only; eval checks and `lock-fresh` run on every system. `nix develop` gives a shell for working on odoo-nix itself (`uv`, `nixfmt`, `odoo-nix-relock`); consumers get their devenv shell from the flake-parts module instead.
+
+The fixtures are the smallest consumer-shaped workspace: a hand-written `pyproject.toml` (`dependencies = ["odoo"]`, OCB as the path source `odoo/` exactly as `oca_sources.py` emits it, `freezegun` + `websocket-client` in the dev group), a committed `uv.lock`, and one custom addon. There is no `odoo/` in the tree — the Nix build gets it from the `ocb-*` input through `coreSource`, and the test run uses `testPythonEnv` (`packages.odooTestEnv` in a consumer): the production wheels plus the dev group, non-editable, so it runs in the sandbox.
+
+### Re-locking
+
+The weekly dependabot PR bumps `ocb-18` / `ocb-19` (their own group, separate from nixpkgs & co). `uv.lock` does not record OCB's revision, only what uv derived from it, so a bump is only *stale* when OCB's `setup.py` `install_requires` (or its series) changed — then `lock-fresh-<major>` fails and prints the fix:
+
+```sh
+nix run .#relock            # or: nix run .#relock -- --upgrade
+git add tests/fixtures/*/uv.lock tests/fixtures/*/pyproject.toml
+```
+
+It runs `uv lock` in each fixture with the series' interpreter from `lib/odoo-presets.json`, then syncs the sdist build-dep block with `lib/uv_build_deps.py` — the tail of what `odoo-update` runs in a consumer, including the lock-time shadow of the store path (`lib/core-shadow.sh`) that `coreSource` needs; `tests/fixtures/<series>/odoo` (gitignored) is left pointing at the pinned tree afterwards.
 
 ## The OCA catalog
 
@@ -459,6 +493,7 @@ lib/
   odoo.nix                   # builtOdoo assembly
   overrides.nix              # native-build Python overlays
   scripts.nix                # dev-shell scripts
+  core-shadow.sh             # writable lock-time shadow of a store-resident OCB (coreSource)
   oca-lib.sh                 # OCA repo resolver + module picker (shell)
   oca_sources.py             # generate uv path-sources (deps + sources blocks)
   uv_build_deps.py           # sdist build-dep sync
@@ -468,6 +503,15 @@ data/
   oca-modules.json           # vendored OCA catalog (+ sync/extract scripts)
   oca-bundles.json           # hand-maintained "must-have" module bundles
 templates/project/           # scaffolder template (thin flake + pyproject + README)
+tests/
+  eval.nix                   # pure assertions over lib/addons.nix + lib/odoo-conf.nix
+  series.nix                 # per-series real-Odoo checks (builtOdoo, odoo-init, odoo-test, module-odoo)
+  module-nginx.nix           # NixOS VM test: nginx/socket contract (stub Odoo)
+  module-odoo.nix            # NixOS VM test: services.odoo-nix with the real builtOdoo
+  lock_fresh.py              # uv.lock ↔ pinned OCB consistency
+  relock.nix                 # `nix run .#relock`
+  fixtures/<series>/         # pyproject.toml + uv.lock + custom/odoo_nix_fixture
+  fixtures/addons-tree*/     # synthetic trees for eval.nix
 ```
 
 ## License
