@@ -1,18 +1,15 @@
-# NixOS VM test for services.odoo-nix.
+# NixOS VM test for services.odoo-nix's nginx front end, against a STUB Odoo.
 #
-# Run: nix build .#checks.<system>.module   (needs KVM)
+# Run: nix build .#checks.<system>.module-nginx   (needs KVM)
 #
-# odoo-nix is a library flake: the real Odoo package is assembled by the
-# consuming project, so there is nothing here to build a genuine Odoo from.
-# Instead a stub package stands in for it — it satisfies the three things the
-# module actually consumes from `package` (a `name`, `passthru.addonsPath`, and
-# `bin/odoo`) and echoes the request headers it receives back as JSON.
-#
-# That makes this a test of the module's generated runtime rather than of Odoo:
-# the systemd units, the synthesized odoo.conf, and — the reason it exists — the
-# nginx front end, including that socket mode forwards the correct client IP and
-# public scheme. Those are exactly the things a stub cannot fake away, because
-# they are produced by this module and asserted end-to-end through nginx.
+# The real-Odoo module tests are checks.module-odoo-<major> (tests/module-odoo.nix).
+# This one deliberately keeps a stub in place of Odoo -- a Python HTTP server
+# that satisfies the three things the module consumes from `package` (a `name`,
+# `passthru.addonsPath`, `bin/odoo`) and echoes the request headers back as
+# JSON -- because what it asserts is produced by the module, not by Odoo: the
+# systemd units, the synthesized odoo.conf, and above all the nginx front end,
+# including that socket mode forwards the correct client IP and public scheme.
+# Echoed headers are something a real Odoo cannot show and a stub cannot fake.
 {
   pkgs,
   odooModule,

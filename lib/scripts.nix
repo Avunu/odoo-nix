@@ -26,8 +26,9 @@
   ocaLib,
   bundlesFile,
   layout,
-  # OCB from a flake input (see modules/devenv.nix `coreSource`): only affects
-  # what odoo-update tells the user, the symlink makes everything else the same.
+  # OCB from a flake input (see modules/devenv.nix `coreSource`). The symlink
+  # makes odoo-bin and friends the same; `uv lock` is the exception, since
+  # setuptools has to write into the project root (lib/core-shadow.sh).
   coreSource ? null,
 }:
 
@@ -79,6 +80,12 @@ let
     ${pkgs.python3}/bin/python3 ${./oca_sources.py} update pyproject.toml \
       modules.txt "${layout.externalDir}" "${layout.customDir}" "${layout.coreSrc}"
     echo "==> Re-locking Python environment (uv lock)…"
+    ${lib.optionalString (coreSource != null) ''
+      # shellcheck source=/dev/null
+      source ${./core-shadow.sh}
+      _shadow="$(core_shadow_begin "${layout.coreSrc}" "${toString coreSource}")"
+      trap 'core_shadow_end "${layout.coreSrc}" "${toString coreSource}" "$_shadow"' EXIT
+    ''}
     if ${pkgs.uv}/bin/uv lock; then
       ${pkgs.python3}/bin/python3 ${./uv_build_deps.py} update pyproject.toml uv.lock || true
       ${pkgs.uv}/bin/uv lock || true

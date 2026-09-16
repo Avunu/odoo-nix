@@ -58,8 +58,6 @@ let
     {
       addons_path = cfg.package.passthru.addonsPath "${cfg.package}";
       data_dir = "${cfg.stateDir}/data";
-      db_host = if socketAuth then "False" else cfg.database.host;
-      db_port = if socketAuth then "False" else toString cfg.database.port;
       db_user = cfg.database.user;
       http_interface = cfg.http.interface;
       http_port = toString cfg.http.port;
@@ -69,12 +67,20 @@ let
       proxy_mode = if cfg.nginx.enable then "True" else "False";
       list_db = if cfg.listDb then "True" else "False";
       log_level = cfg.logging.level;
-      log_db =
-        if builtins.isBool cfg.logging.db then
-          (if cfg.logging.db then "True" else "False")
-        else
-          toString cfg.logging.db;
       log_db_level = cfg.logging.dbLevel;
+    }
+    # Socket auth means no db_host/db_port at all: absent keys fall back to
+    # Odoo's defaults (the unix socket) on every series, where the old literal
+    # "False" was coerced to a falsy bool by 18.0 and is skipped with a warning
+    # by 19.0.
+    // lib.optionalAttrs (!socketAuth) {
+      db_host = cfg.database.host;
+      db_port = toString cfg.database.port;
+    }
+    # log_db is a database *name*; "%d" is Odoo's spelling for "the current
+    # request's database", so that is what `true` renders as. Absent when off.
+    // lib.optionalAttrs (cfg.logging.db != false) {
+      log_db = if cfg.logging.db == true then "%d" else cfg.logging.db;
     }
     // lib.optionalAttrs (dbName != null) {
       db_name = dbName;
@@ -83,8 +89,10 @@ let
     // lib.optionalAttrs (cfg.dbFilter != "") {
       dbfilter = cfg.dbFilter;
     }
+    # "True", not "all": 18.0 only tests the option's truthiness, 19.0 made
+    # it a boolean that warns about anything else.
     // lib.optionalAttrs cfg.withoutDemo {
-      without_demo = "all";
+      without_demo = "True";
     }
     // lib.optionalAttrs (cfg.logging.handlers != [ ]) {
       log_handler = lib.concatStringsSep "," cfg.logging.handlers;
@@ -285,7 +293,7 @@ in
     withoutDemo = mkOption {
       type = types.bool;
       default = false;
-      description = "Skip loading demo data for every installed module (`without_demo = all`).";
+      description = "Skip loading demo data for every installed module (`without_demo = True`).";
     };
 
     database = {
@@ -485,11 +493,15 @@ in
         "network.target"
         "odoo-init.service"
       ]
-      ++ lib.optional cfg.database.createLocally "postgresql.service";
+      # postgresql.target, not .service: ensureUsers/ensureDatabases run in
+      # postgresql-setup.service, which only the target orders after (nixpkgs
+      # postgresql.md: "run this service after postgresql.target"). autoInit's
+      # `-i base` in ExecStartPre would otherwise race the role creation.
+      ++ lib.optional cfg.database.createLocally "postgresql.target";
       requires = [
         "odoo-init.service"
       ]
-      ++ lib.optional cfg.database.createLocally "postgresql.service";
+      ++ lib.optional cfg.database.createLocally "postgresql.target";
 
       path = runtimePath;
       environment = serviceEnv;

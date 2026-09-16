@@ -25,8 +25,9 @@
     "web"
   ],
   # Extra INI sections beside [options], for modules that read their own
-  # section out of `odoo.tools.config.misc` (Odoo's parser keeps unknown
-  # sections verbatim). Values are stringified like the [options] block.
+  # section (through 18.0 out of `odoo.tools.config.misc`, where Odoo's parser
+  # keeps unknown sections verbatim; on 19.0 by re-reading the loaded file).
+  # Values are stringified like the [options] block.
   extraSections ? { },
 }:
 
@@ -38,12 +39,23 @@ let
   toIniValue = v: if builtins.isBool v then (if v then "True" else "False") else toString v;
   toIniSection = builtins.mapAttrs (_n: toIniValue);
 
+  # "No value" for a string option is the key's absence, never the literal
+  # "False": Odoo <= 18.0 coerced that to a falsy bool, 19.0 skips the key
+  # with a warning. Both then fall back to the option's default -- for db_host
+  # / db_password that is the unix socket / no password, which is what the
+  # empty value meant all along.
+  unset = v: v == null || v == "" || v == "False";
+
   optionsBlock =
     {
       # --- database connection ---
-      db_host = odooConf.dbHost;
       db_port = toString odooConf.dbPort;
       db_user = odooConf.dbUser;
+    }
+    // lib.optionalAttrs (!unset odooConf.dbHost) {
+      db_host = odooConf.dbHost;
+    }
+    // lib.optionalAttrs (!unset odooConf.dbPassword) {
       db_password = odooConf.dbPassword;
     }
     // lib.optionalAttrs (odooConf.dbName != null) {
@@ -56,13 +68,20 @@ let
 
       # --- runtime ---
       admin_passwd = odooConf.adminPasswd;
+      http_interface = odooConf.httpInterface;
       http_port = toString odooConf.httpPort;
       gevent_port = toString odooConf.geventPort;
       workers = toString odooConf.workers;
       log_level = odooConf.logging.level;
-      log_db = toIniValue odooConf.logging.db;
       log_db_level = odooConf.logging.dbLevel;
       server_wide_modules = lib.concatStringsSep "," serverWideModules;
+    }
+    # log_db is a database *name*; "%d" is Odoo's own spelling for "the
+    # current request's database" (netsvc.PostgreSQLHandler), so that is what
+    # `true` renders as. Absent when off: 18.0's default is False, 19.0's is
+    # "" and would warn about a literal False.
+    // lib.optionalAttrs (odooConf.logging.db != false) {
+      log_db = if odooConf.logging.db == true then "%d" else odooConf.logging.db;
     }
     // lib.optionalAttrs (odooConf.logging.handlers != [ ]) {
       log_handler = lib.concatStringsSep "," odooConf.logging.handlers;
@@ -70,8 +89,10 @@ let
     // lib.optionalAttrs (odooConf.logging.file != null) {
       logfile = odooConf.logging.file;
     }
+    # "True", not "all": 18.0 only ever tests the option's truthiness, and
+    # 19.0 turned it into a boolean that warns about anything else.
     // lib.optionalAttrs odooConf.withoutDemo {
-      without_demo = "all";
+      without_demo = "True";
     }
     # Escape hatch: arbitrary extra [options] keys win last. Values stringified
     # so callers may pass ints/bools.

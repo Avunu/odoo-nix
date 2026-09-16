@@ -327,6 +327,40 @@
         "type": "github"
       }
     },
+    "ocb-18": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789425031,
+        "narHash": "sha256-2rZ4nKMCxTKwgtt1YqXDuie9dZmP1vHVCq6RyXiCVmY=",
+        "owner": "OCA",
+        "repo": "OCB",
+        "rev": "80a55ddd451c9741a57b1eeb3dbe391be646c23a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "OCA",
+        "ref": "18.0",
+        "repo": "OCB",
+        "type": "github"
+      }
+    },
+    "ocb-19": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789425022,
+        "narHash": "sha256-lmQ9OikQs3qVuH8N3qgUQaUkzznIjdKU6a38LOBrVcM=",
+        "owner": "OCA",
+        "repo": "OCB",
+        "rev": "a874d6b76bd6cb33ccd3d3c3fb2d0572f382ae06",
+        "type": "github"
+      },
+      "original": {
+        "owner": "OCA",
+        "ref": "19.0",
+        "repo": "OCB",
+        "type": "github"
+      }
+    },
     "pyproject-build-systems": {
       "inputs": {
         "nixpkgs": [
@@ -379,6 +413,8 @@
         "flake-parts": "flake-parts_2",
         "nix2container": "nix2container",
         "nixpkgs": "nixpkgs_2",
+        "ocb-18": "ocb-18",
+        "ocb-19": "ocb-19",
         "pyproject-build-systems": "pyproject-build-systems",
         "pyproject-nix": "pyproject-nix",
         "uv2nix": "uv2nix"

@@ -21,6 +21,7 @@
 # discarded and core is made to connect again — through the patched `connect`,
 # hence to the catcher.
 
+import configparser
 import functools
 import inspect
 import logging
@@ -68,15 +69,32 @@ def _as_bool(value, default=True):
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _section():
+    """The ``[dev_mailcatch]`` section of the loaded odoo.conf, as a dict.
+
+    Through 18.0 Odoo's config loader keeps every unknown section verbatim in
+    ``config.misc``, so the section needs no registration. 19.0 dropped
+    ``misc`` and only parses ``[options]``, so there the file Odoo loaded
+    (``config['config']``, the ``-c`` path) is read again with a plain
+    configparser -- the same file, the same parser class Odoo uses.
+    """
+    misc = getattr(config, "misc", None)
+    if misc is not None:
+        return misc.get(SECTION) or {}
+    rcfile = config.get("config")
+    if not rcfile or not os.path.isfile(rcfile):
+        return {}
+    parser = configparser.RawConfigParser()
+    parser.read([rcfile])
+    return dict(parser.items(SECTION)) if parser.has_section(SECTION) else {}
+
+
 def _settings():
     """Resolve the catcher target: odoo.conf ``[dev_mailcatch]``, env wins.
 
-    Odoo's INI parser keeps unknown sections verbatim in ``config.misc``, so the
-    section needs no registration.
-
     :return: ``(enabled, host, port)``
     """
-    section = config.misc.get(SECTION) or {}
+    section = _section()
 
     enabled = _as_bool(os.environ.get("ODOO_MAILCATCH_ENABLED", section.get("enabled")))
     host = os.environ.get("ODOO_MAILCATCH_HOST") or section.get("host") or DEFAULT_HOST

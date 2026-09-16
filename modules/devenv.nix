@@ -104,7 +104,7 @@ in
           dbPassword = mkOption {
             type = types.str;
             default = "False";
-            description = "DB password as an INI literal (\"False\" = none, for dev).";
+            description = "DB password (\"False\" or \"\" = none, for dev: the key is then left out of odoo.conf).";
           };
           dbName = mkOption {
             type = types.nullOr types.str;
@@ -184,6 +184,18 @@ in
                 shell's console.
               '';
             };
+          };
+          httpInterface = mkOption {
+            type = types.str;
+            default = "127.0.0.1";
+            example = "0.0.0.0";
+            description = ''
+              Interface the dev server binds (http_interface). Loopback by
+              default -- a dev instance with `admin` as the master password
+              has no business on the LAN, and Odoo 20.0 makes this its own
+              default (19.0 warns whenever the key is absent). Set "0.0.0.0"
+              to reach the server from another host or container.
+            '';
           };
           httpPort = mkOption {
             type = types.port;
@@ -638,6 +650,7 @@ in
       lib.mkIf cfg.enable {
         packages.odooPythonEnv = pythonEnvs.odooPythonEnv;
         packages.odooDevEnv = pythonEnvs.devPythonEnv;
+        packages.odooTestEnv = pythonEnvs.testPythonEnv;
         packages.odooConf = confSynth.odooConfFile;
         packages.builtOdoo = builtOdoo;
         packages.default = builtOdoo;
@@ -789,9 +802,10 @@ in
             enterShell = ''
               ${lib.optionalString (cfg.coreSource != null) ''
                 # OCB comes from a flake input: keep <coreSrc> a symlink to it so
-                # odoo-bin, the scripts, the IDE mirror and `uv lock` all find it
-                # where the submodule layout would have it. A real directory there
-                # is a leftover submodule checkout — never clobber it silently.
+                # odoo-bin, the scripts and the IDE mirror all find it where the
+                # submodule layout would have it (`uv lock` goes through a
+                # writable shadow of it, see lib/core-shadow.sh). A real directory
+                # there is a leftover submodule checkout — never clobber it silently.
                 if [ "$(readlink "${cfg.layout.coreSrc}" 2>/dev/null)" != "${toString cfg.coreSource}" ]; then
                   if [ -e "${cfg.layout.coreSrc}" ] && [ ! -L "${cfg.layout.coreSrc}" ]; then
                     echo "odoo-nix: ${cfg.layout.coreSrc}/ exists but coreSource is set; remove the" >&2

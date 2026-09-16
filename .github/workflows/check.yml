@@ -1,16 +1,21 @@
 name: check
 
-# CI gate for this repo. Auto-merge (Dependabot PRs, and the weekly flake.lock PR) is
-# only as safe as what runs here, so this is what you mark required on `main`.
+# Everything this repo asserts about itself, run through the flake so that CI and a
+# laptop measure the same tree. This is what you mark required on `main`: auto-merge
+# (Dependabot PRs) is only as safe as what runs here.
 #
-# The `flake` job is the cheap, always-on gate: it evaluates every flake output on
-# x86_64-linux, which is what actually breaks when nixpkgs or uv2nix move under us
-# (renamed attrs, changed function signatures, dropped packages).
+#   eval-*, odoo-conf-render     pure tests of lib/addons.nix + lib/odoo-conf.nix
+#   lock-fresh-<18|19>           tests/fixtures/<series>/uv.lock matches the pinned OCB
+#   builtOdoo-<18|19>            a real Odoo assembled from the pin with the consumer code path
+#   odoo-init-<18|19>            `-i base` against an in-sandbox PostgreSQL
+#   odoo-test-<18|19>            the fixture addon's Odoo tests (incl. dev_mailcatch)
+#   module-nginx                 the NixOS module's nginx/socket contract (stub Odoo, KVM)
+#   module-odoo-<18|19>          the NixOS module bringing up the real Odoo (KVM)
 #
-# The VM test is not on the PR path on purpose — it builds a full Odoo install inside a
-# NixOS guest, which is far past what a hosted runner does in a reasonable time without a
-# binary cache. Run it with "Run workflow", or move it onto `pull_request` once this repo
-# has a Cachix/Attic cache to pull from.
+# OCB is pinned (inputs.ocb-18 / ocb-19, flake = false). Nothing drifts except when
+# flake.lock changes, and dependabot's weekly nix update is what proposes that -- as a
+# pull request that runs these checks. So there is no `schedule:` here; its absence is
+# the point.
 
 on:
   push:
@@ -24,25 +29,36 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # `determinate: false` -- this flake carries no Determinate-only nixConfig
+      # (FlakeHub substituters, lazy trees), so the default buys nothing here and
+      # just has determinate-nixd try to log into FlakeHub for a repo that isn't
+      # registered there, logging a failure annotation on every run. `kvm` stays
+      # at its default (on): the installer adds the udev rule so the daemon
+      # advertises the `kvm` system feature the module-* VM tests need.
       - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
 
-      # Evaluates checks/packages/apps/devShells and the NixOS module without building
-      # the VM test. Catches the overwhelming majority of flake.lock breakage.
-      - name: Evaluate all flake outputs
-        run: nix flake check --no-build --show-trace
+      # Backs /nix/store with the GitHub Actions cache. cache.nixos.org serves the
+      # nixpkgs half of the closure; what it cannot serve is what this run builds
+      # itself -- the `odoo` wheels, the PyPI wheel unpacks, psycopg2/python-ldap
+      # from sdist, the VM test closures -- and those are what this recovers
+      # between runs (~1 GB compressed, well under the 10 GB cap). Fetched flake
+      # inputs (the OCB tarballs) are not uploaded; GitHub serves them fast
+      # enough, so `diff-store` stays off. Fork pull requests get a read-only
+      # token and degrade to pull-only on their own.
+      - uses: DeterminateSystems/magic-nix-cache-action@v15
+        with:
+          # Perf/diagnostic telemetry to Determinate Systems is on by default.
+          diagnostic-endpoint: ""
+          # This isn't a FlakeHub flake; without this the action logs its own
+          # FlakeHub-login-failure annotation on top of determinate-nixd's.
+          use-flakehub: false
 
-      # The scaffolder is small enough to build outright, so the gate is not eval-only.
-      - name: Build the project scaffolder
-        run: nix build .#default --show-trace
+      - name: nix flake check
+        run: nix flake check -L
 
-  vm-tests:
-    # Manual only — see the header note.
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: DeterminateSystems/nix-installer-action@v23
-
-      - name: Run the module NixOS test
-        run: nix build .#checks.x86_64-linux.module -L --show-trace
+      # The scaffolder is what `nix run github:Avunu/odoo-nix` executes; build it
+      # from the same tree.
+      - name: nix build
+        run: nix build .#default -L
