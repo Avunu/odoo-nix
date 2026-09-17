@@ -306,7 +306,26 @@ in
       ${ocaPreamble}
       echo "==> Updating git submodules…"
       git submodule update --init --recursive
-      git submodule foreach --quiet 'git pull --ff-only origin "$(git rev-parse --abbrev-ref HEAD)" || true'
+      # Move each submodule to the tip of its .gitmodules-pinned branch, fetched
+      # fresh by name. Two things rule out the more obvious approaches here:
+      # `update --init --recursive` alone leaves submodules in detached HEAD, so
+      # `git rev-parse --abbrev-ref HEAD` (used by an earlier version of this
+      # script) returns the literal string "HEAD", and pulling "origin HEAD"
+      # then follows the remote's *default* branch instead of the pinned one.
+      # `git submodule update --remote` avoids that but can still fail if a
+      # submodule's local remote-tracking refspec was narrowed to some other
+      # branch at clone time (seen on modules/muk-it-odoo-modules, whose
+      # refspec only tracked origin/19.0 while pinned to 18.0) --
+      # refs/remotes/origin/<pinned-branch> then doesn't exist locally at all.
+      # Both surface as "Not possible to fast-forward" whenever a repo's GitHub
+      # default branch (e.g. OCA/mis-builder, muk-it/odoo-modules -> 19.0) no
+      # longer matches what millrun pins (18.0). Fetching the pinned branch by
+      # name every time sidesteps both.
+      git submodule foreach --quiet '
+        branch="$(git config -f "$toplevel/.gitmodules" --get "submodule.$sm_path.branch")"
+        [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short HEAD || true)"
+        [ -n "$branch" ] && git fetch --depth 1 --quiet origin "$branch" && git checkout --quiet FETCH_HEAD || true
+      '
       ${lib.optionalString (coreSource != null) ''
         echo "    (${layout.coreSrc} is a flake input, not a submodule: bump it with 'nix flake update')"
       ''}
