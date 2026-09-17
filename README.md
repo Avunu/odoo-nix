@@ -248,6 +248,7 @@ WARNING dev_mailcatch ACTIVE — ALL outgoing email is redirected to 127.0.0.1:1
 | provision-db [db] | create the DB + install everything in modules.txt |
 | odoo-init-db [db] | create + initialize a DB (-i base) |
 | odoo-upgrade <m[,m2]> [db] | upgrade module(s) (-u) |
+| odoo-migrate [db] | update all installed modules (-u all) — run after pulling new code |
 | odoo-shell [db] | Odoo Python REPL |
 | odoo-add-module [module …] | pick more OCA modules → resolve + add repos → record in modules.txt → re-lock |
 | odoo-add-module <git-url\|owner/repo> [branch] [path] | add any third-party git repo as a submodule → record its module(s) → re-lock |
