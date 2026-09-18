@@ -602,6 +602,13 @@ in
           cliScripts = null;
         };
 
+        # The dev-shell welcome banner (rich-rendered, lib/banner.py) --
+        # shares lib/rich-python.nix with lib/cli.nix rather than hand-drawn
+        # box-drawing-character `echo` lines, which are fragile to keep
+        # column-aligned by hand and degrade ungracefully (no width
+        # awareness) compared to a real renderer.
+        richPython = import ../lib/rich-python.nix { inherit pkgs; inherit (cfg) python; };
+
         # ── Editor / language-server integration ──────────────────────────
         # Everything below is derived, gitignored and invisible to Odoo: the
         # server and the scripts import from the /nix/store env directly. It
@@ -989,24 +996,10 @@ in
                 fi
               ''}
 
-              echo ""
-              echo "╔════════════════════════════════════════════════════════════╗"
-              echo "║  ${cfg.projectName} — Odoo ${cfg.odooSeries} (OCB + OCA) dev environment"
-              echo "╠════════════════════════════════════════════════════════════╣"
-              echo "║  devenv up             start postgres + odoo + mailpit     ║"
-              echo "║  odoo db provision     create DB + install modules.txt     ║"
-              echo "║  odoo db migrate       upgrade all modules, with progress  ║"
-              echo "║  odoo module add       pick + wire in more OCA modules     ║"
-              echo "║  odoo module add-bundle  add a curated OCA module bundle   ║"
-              echo "║  odoo project update   pull submodules + refresh deps      ║"
-              echo "║  odoo test <mod> [db]  run a module's tests                ║"
-              echo "║  odoo shell             Odoo REPL                           ║"
-              echo "╚════════════════════════════════════════════════════════════╝"
-              echo "  addons_path entries: ${toString (builtins.length addons.addonsPathList)}  (http: ${toString cfg.odooConf.httpPort})"
-              ${lib.optionalString cfg.mailcatch.enable ''
-                echo "  mail: ALL outgoing email → Mailpit (http://127.0.0.1:${toString cfg.mailcatch.httpPort})"
-              ''}
-              echo ""
+              ${richPython}/bin/python ${../lib/banner.py} \
+                "${cfg.projectName}" "${cfg.odooSeries}" \
+                "${toString (builtins.length addons.addonsPathList)}" "${toString cfg.odooConf.httpPort}" \
+                "${if cfg.mailcatch.enable then "1" else "0"}" "${toString cfg.mailcatch.httpPort}"
             '';
 
             # odoo-nix's own site-maintenance commands are the `odoo` CLI
