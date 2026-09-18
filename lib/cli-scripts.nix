@@ -119,18 +119,26 @@ let
 
         if [ "''${#NEW_REPOS[@]}" -gt 0 ]; then
           echo "==> Adding ''${#NEW_REPOS[@]} new repo submodule(s): ''${NEW_REPOS[*]}"
+          ADDED_PATHS=()
           for repo in "''${NEW_REPOS[@]}"; do
             url="$(oca_repo_url "$repo")"; path="${layout.externalDir}/$repo"
             if git ls-remote --heads "$url" "${odooSeries}" 2>/dev/null | grep -q .; then
               git clone -q --depth 1 --branch "${odooSeries}" -- "$url" "$path"
               git submodule add -q --force -b "${odooSeries}" -- "$url" "$path"
               git config -f .gitmodules "submodule.$path.shallow" true
+              ADDED_PATHS+=("$path")
               echo "   + $path"
             else
               echo "   ⚠  $repo has no '${odooSeries}' branch — skipped" >&2
             fi
           done
-          git submodule update --init --recursive
+          # Scoped to just the paths added above (recursive, for any nested
+          # submodules within them) -- never a blanket, unscoped update,
+          # which would also reset every OTHER submodule back to whatever
+          # commit the superproject's index currently records, discarding
+          # an uncommitted `odoo project update` move. Submodules should
+          # only ever move via that explicit command.
+          [ "''${#ADDED_PATHS[@]}" -gt 0 ] && git submodule update --init --recursive -- "''${ADDED_PATHS[@]}"
         else
           echo "==> All required repos already present."
         fi
