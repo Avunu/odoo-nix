@@ -280,6 +280,17 @@ in
     '';
   };
 
+  # Update all installed modules (schema/view/data migrations after a code pull).
+  odoo-migrate = {
+    description = "Update all installed modules: odoo-migrate [db]";
+    exec = ''
+      ${preamble}
+      [ "$#" -ge 1 ] && DB="$1"
+      echo "==> Updating all modules on '$DB'…"
+      exec ${python} "$ODOO_BIN" -c "$CONF" -d "$DB" --update all --stop-after-init
+    '';
+  };
+
   # Provision: create the DB and install every module listed in modules.txt.
   provision-db = {
     description = "Create the dev DB + install all modules from modules.txt";
