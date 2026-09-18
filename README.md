@@ -159,7 +159,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | postgres.extensions | _: [ ] | extensions built into the dev PostgreSQL, e.g. ps: [ ps.postgis ] (base_geoengine) |
 | ide.enable | true | expose the env to editors: ./.venv symlink + merged odoo analysis root |
 | ide.vscodeSettings | true | seed .vscode/settings.json when absent (never overwrites) |
-| ide.languageServer.enable | true | run odoo-ls: `odoo_ls_server` on PATH + regenerated `./odools.toml` — see [Odoo language server](#odoo-language-server-odoo-ls) |
+| ide.languageServer.enable | true | run odoo-ls: `odoo_ls_server` on PATH + symlinked `./odools.toml` — see [Odoo language server](#odoo-language-server-odoo-ls) |
 | ide.languageServer.package | odoo-ls pinned to `odoo-ls-src`/`odoo-ls-typeshed` | the odoo_ls_server package to use |
 | extraDevPackages / extraLibraryPaths / extraScripts / extraEnv | [] / [] / {} / {} | dev-shell extras |
 | containers.enable / containers.registry | false / "" | build the OCI image |
@@ -222,7 +222,7 @@ For a non-VS Code editor, point your language server at the same two paths — e
 
 ### Odoo language server (odoo-ls)
 
-`ide.languageServer.enable` (the default, requires `ide.enable`) adds [odoo-ls](https://github.com/odoo/odoo-ls) — a Rust language server that understands `__manifest__.py`, ORM field types and XML view/QWeb references, on top of the generic Python intelligence above. It puts `odoo_ls_server` on the dev shell `PATH` and regenerates `./odools.toml` on every shell entry (like `odoo.conf` and `.venv` — gitignored, not hand-edited), pointing it at this workspace's OCB checkout, addons_path and `.venv` interpreter under a single profile named `"default"`.
+`ide.languageServer.enable` (the default, requires `ide.enable`) adds [odoo-ls](https://github.com/odoo/odoo-ls) — a Rust language server that understands `__manifest__.py`, ORM field types and XML view/QWeb references, on top of the generic Python intelligence above. It puts `odoo_ls_server` on the dev shell `PATH` and symlinks a Nix-synthesized `./odools.toml` into place (like `odoo.conf` and `.venv` — gitignored, not hand-edited), pointing it at this workspace's OCB checkout, addons_path and `.venv` interpreter under a single profile named `"default"`. Every path inside it is relative to `odools.toml` itself (odoo-ls resolves paths against the file's own location, not the process's CWD), so its content is identical on every machine regardless of checkout path.
 
 **VS Code is a special case.** The official [`Odoo.odoo`](https://marketplace.visualstudio.com/items?itemName=Odoo.odoo) extension bundles its own platform-specific `odoo_ls_server` binary inside its `.vsix` and has no setting to point it at another one — so the Nix-built binary above is never what runs inside VS Code. With `ide.vscodeSettings`, two things are seeded once (never overwritten) to help it anyway:
 

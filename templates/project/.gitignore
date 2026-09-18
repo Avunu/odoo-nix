@@ -4,9 +4,6 @@
 # symlink as a file, so a "dir/" pattern would not match them.
 /odoo.conf
 /.venv
-
-# Regenerated every shell entry from Nix/runtime paths -- see
-# ide.languageServer.enable.
 /odools.toml
 
 # devenv-managed state: postgres cluster + Odoo filestore (.devenv/state/odoo)
