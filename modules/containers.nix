@@ -1,8 +1,10 @@
 # OCI container image builder for Odoo (OCB + OCA) deployments.
 #
 # A flake-parts perSystem module: when `odoo-nix.containers.enable` is set it
-# builds a single all-in-one `odoo` image from the assembled builtOdoo package
-# (config.packages.builtOdoo, defined by devenv.nix). The entrypoint synthesizes
+# builds a single all-in-one `odoo` image from the CLI-wrapped production
+# package (config.packages.default, defined by devenv.nix) -- `docker exec` a
+# running container's `odoo db backup`/`restore`/`migrate` work the same way
+# they do outside a container. The entrypoint synthesizes
 # /etc/odoo/odoo.conf at startup from env-var defaults, then merges secrets from
 # mounted /secrets/* files (printf-based INI; ConfigParser last-wins).
 #
@@ -22,10 +24,15 @@ in
   # Options live in ./devenv.nix (odoo-nix.containers.*). This module only adds
   # config, gated on enable + containers.enable.
   config.perSystem =
-    { config, pkgs, lib, ... }:
+    {
+      config,
+      pkgs,
+      lib,
+      ...
+    }:
     let
       cfg = config.odoo-nix;
-      builtOdoo = config.packages.builtOdoo or null;
+      odooPkg = config.packages.default or null;
 
       inherit (import ../lib/env.nix) blasThreadCaps;
 
@@ -57,7 +64,7 @@ in
       ];
 
       libraryPath = lib.makeLibraryPath runtimeDeps;
-      addonsPath = if builtOdoo != null then builtOdoo.passthru.addonsPath "${builtOdoo}" else "";
+      addonsPath = if odooPkg != null then odooPkg.passthru.addonsPath "${odooPkg}" else "";
 
       entrypoint = pkgs.writeShellScript "odoo-container-entrypoint" ''
         set -euo pipefail
@@ -102,10 +109,14 @@ in
       odooImage = pkgs.dockerTools.buildLayeredImage {
         name = "${cfg.registry or ""}${cfg.projectName}-odoo";
         tag = "latest";
-        contents = [ builtOdoo ] ++ runtimeDeps;
+        contents = [ odooPkg ] ++ runtimeDeps;
         config = {
           Entrypoint = [ "${entrypoint}" ];
-          Cmd = [ "${builtOdoo}/bin/odoo" "-c" "/etc/odoo/odoo.conf" ];
+          Cmd = [
+            "${odooPkg}/bin/odoo"
+            "-c"
+            "/etc/odoo/odoo.conf"
+          ];
           WorkingDir = "/var/lib/odoo";
           ExposedPorts = {
             "8069/tcp" = { };
@@ -116,7 +127,8 @@ in
             "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
             "LANG=C.UTF-8"
             "LD_LIBRARY_PATH=${libraryPath}"
-          ] ++ (lib.mapAttrsToList (name: value: "${name}=${value}") blasThreadCaps);
+          ]
+          ++ (lib.mapAttrsToList (name: value: "${name}=${value}") blasThreadCaps);
           Volumes = {
             "/var/lib/odoo/data" = { };
           };

@@ -1,6 +1,6 @@
 # `nix run .#relock [-- --upgrade]`: regenerate tests/fixtures/<series>/uv.lock
 # against the pinned OCB inputs. Needs network (PyPI) and so runs on the
-# developer's machine, never in a check. The sequence is lib/scripts.nix's
+# developer's machine, never in a check. The sequence is lib/cli-scripts.nix's
 # regenerateAndLock minus oca_sources.py: the fixture pyproject.toml is
 # hand-written, and the custom addon is not a uv source.
 {

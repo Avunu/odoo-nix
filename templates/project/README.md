@@ -22,7 +22,7 @@ distribution + **OCA** modules, managed declaratively with
 git clone --recurse-submodules <this-repo> && cd @PROJECT_NAME@
 direnv allow          # or: nix develop --no-pure-eval
 devenv up             # start postgres + odoo + mailpit
-provision-db          # (another shell) create the DB + install modules.txt
+odoo db provision     # (another shell) create the DB + install modules.txt
 ```
 
 Open <http://localhost:8069>. Mailpit UI is at <http://localhost:8025>.
@@ -46,15 +46,15 @@ it is live. Odoo's own framework code (`odoo/odoo/*.py`) is *not* watched — re
 ## Managing OCA modules
 
 ```sh
-odoo-add-module                       # interactive picker, resolves dep repos
-odoo-add-module account_financial_report   # or by module name
-odoo-add-module https://example.com/owner/repo.git   # any third-party repo, any git host
-odoo-add-module owner/repo 17.0 my-repo              # GitHub shorthand, explicit branch + path
-odoo-add-bundle                       # add a curated bundle (base, accounting, …)
-odoo-add-bundle base sales            # or by bundle name
+odoo module add                       # interactive picker, resolves dep repos
+odoo module add account_financial_report   # or by module name
+odoo module add https://example.com/owner/repo.git   # any third-party repo, any git host
+odoo module add owner/repo 17.0 my-repo              # GitHub shorthand, explicit branch + path
+odoo module add-bundle                # add a curated bundle (base, accounting, …)
+odoo module add-bundle base sales     # or by bundle name
 ```
 
-`odoo-add-module` / `odoo-add-bundle` add the required repos as submodules,
+`odoo module add` / `odoo module add-bundle` add the required repos as submodules,
 record the modules in `modules.txt`, refresh the Python deps, and re-lock. Run
 `direnv reload` afterwards so the Nix engine re-derives `addons_path` and rebuilds
 the env. For a git URL, branch and submodule path are prompted for when omitted
@@ -64,11 +64,13 @@ sensibly when run non-interactively.
 
 ## Common commands
 
-| Command               | Action                                       |
-| --------------------- | -------------------------------------------- |
-| `provision-db [db]`   | Create DB + install all `modules.txt`        |
-| `odoo-add-bundle [n]` | Add a curated OCA module bundle              |
-| `odoo-init-db [db]`   | Create + initialize a DB (base only)         |
-| `odoo-upgrade <m>`    | Upgrade module(s)                            |
-| `odoo-shell [db]`     | Odoo Python REPL                             |
-| `odoo-update`         | Pull submodules + refresh deps + re-lock     |
+| Command                     | Action                                          |
+| ---------------------------- | ------------------------------------------------ |
+| `odoo db provision [db]`     | Create DB + install all `modules.txt`, or migrate it if it already exists |
+| `odoo db migrate [db]`       | Upgrade every installed module, with progress + a summary table |
+| `odoo db upgrade <m> [db]`   | Upgrade specific module(s)                      |
+| `odoo db backup [db]`        | Back up a database (schema + filestore)         |
+| `odoo db restore <db> <zip>` | Restore a database from a backup                |
+| `odoo module add-bundle [n]` | Add a curated OCA module bundle                 |
+| `odoo shell [db]`            | Odoo Python REPL                                |
+| `odoo project update`        | Pull submodules + refresh deps + re-lock, then migrate |

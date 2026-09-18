@@ -17,7 +17,13 @@
 }:
 
 let
-  inherit (lib) mkOption mkEnableOption mkIf types optionalString;
+  inherit (lib)
+    mkOption
+    mkEnableOption
+    mkIf
+    types
+    optionalString
+    ;
   cfg = config.services.odoo-nix;
 
   dbName = cfg.dbName;
@@ -54,55 +60,54 @@ let
 
   # Base [options] (no secrets). addons_path is the assembled package's absolute
   # path; data_dir + the conf live under the stateful directory.
-  baseOptions =
-    {
-      addons_path = cfg.package.passthru.addonsPath "${cfg.package}";
-      data_dir = "${cfg.stateDir}/data";
-      db_user = cfg.database.user;
-      http_interface = cfg.http.interface;
-      http_port = toString cfg.http.port;
-      gevent_port = toString cfg.http.longpollingPort;
-      workers = toString cfg.workers;
-      max_cron_threads = toString cfg.maxCronThreads;
-      proxy_mode = if cfg.nginx.enable then "True" else "False";
-      list_db = if cfg.listDb then "True" else "False";
-      log_level = cfg.logging.level;
-      log_db_level = cfg.logging.dbLevel;
-    }
-    # Socket auth means no db_host/db_port at all: absent keys fall back to
-    # Odoo's defaults (the unix socket) on every series, where the old literal
-    # "False" was coerced to a falsy bool by 18.0 and is skipped with a warning
-    # by 19.0.
-    // lib.optionalAttrs (!socketAuth) {
-      db_host = cfg.database.host;
-      db_port = toString cfg.database.port;
-    }
-    # log_db is a database *name*; "%d" is Odoo's spelling for "the current
-    # request's database", so that is what `true` renders as. Absent when off.
-    // lib.optionalAttrs (cfg.logging.db != false) {
-      log_db = if cfg.logging.db == true then "%d" else cfg.logging.db;
-    }
-    // lib.optionalAttrs (dbName != null) {
-      db_name = dbName;
-      dbfilter = "^${dbName}$";
-    }
-    // lib.optionalAttrs (cfg.dbFilter != "") {
-      dbfilter = cfg.dbFilter;
-    }
-    # "True", not "all": 18.0 only tests the option's truthiness, 19.0 made
-    # it a boolean that warns about anything else.
-    // lib.optionalAttrs cfg.withoutDemo {
-      without_demo = "True";
-    }
-    // lib.optionalAttrs (cfg.logging.handlers != [ ]) {
-      log_handler = lib.concatStringsSep "," cfg.logging.handlers;
-    }
-    // lib.optionalAttrs (cfg.logging.file != null) {
-      logfile = cfg.logging.file;
-    }
-    // builtins.mapAttrs (
-      _n: v: if builtins.isBool v then (if v then "True" else "False") else toString v
-    ) cfg.settings;
+  baseOptions = {
+    addons_path = cfg.package.passthru.addonsPath "${cfg.package}";
+    data_dir = "${cfg.stateDir}/data";
+    db_user = cfg.database.user;
+    http_interface = cfg.http.interface;
+    http_port = toString cfg.http.port;
+    gevent_port = toString cfg.http.longpollingPort;
+    workers = toString cfg.workers;
+    max_cron_threads = toString cfg.maxCronThreads;
+    proxy_mode = if cfg.nginx.enable then "True" else "False";
+    list_db = if cfg.listDb then "True" else "False";
+    log_level = cfg.logging.level;
+    log_db_level = cfg.logging.dbLevel;
+  }
+  # Socket auth means no db_host/db_port at all: absent keys fall back to
+  # Odoo's defaults (the unix socket) on every series, where the old literal
+  # "False" was coerced to a falsy bool by 18.0 and is skipped with a warning
+  # by 19.0.
+  // lib.optionalAttrs (!socketAuth) {
+    db_host = cfg.database.host;
+    db_port = toString cfg.database.port;
+  }
+  # log_db is a database *name*; "%d" is Odoo's spelling for "the current
+  # request's database", so that is what `true` renders as. Absent when off.
+  // lib.optionalAttrs (cfg.logging.db != false) {
+    log_db = if cfg.logging.db == true then "%d" else cfg.logging.db;
+  }
+  // lib.optionalAttrs (dbName != null) {
+    db_name = dbName;
+    dbfilter = "^${dbName}$";
+  }
+  // lib.optionalAttrs (cfg.dbFilter != "") {
+    dbfilter = cfg.dbFilter;
+  }
+  # "True", not "all": 18.0 only tests the option's truthiness, 19.0 made
+  # it a boolean that warns about anything else.
+  // lib.optionalAttrs cfg.withoutDemo {
+    without_demo = "True";
+  }
+  // lib.optionalAttrs (cfg.logging.handlers != [ ]) {
+    log_handler = lib.concatStringsSep "," cfg.logging.handlers;
+  }
+  // lib.optionalAttrs (cfg.logging.file != null) {
+    logfile = cfg.logging.file;
+  }
+  // builtins.mapAttrs (
+    _n: v: if builtins.isBool v then (if v then "True" else "False") else toString v
+  ) cfg.settings;
 
   baseConf = (pkgs.formats.ini { }).generate "odoo-base.conf" { options = baseOptions; };
 
@@ -510,8 +515,15 @@ in
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = cfg.stateDir;
+        # `-i base` on first boot stays a raw odoo-bin passthrough (odoo db
+        # provision would look for a workspace modules.txt that does not
+        # exist in an assembled /nix/store deployment); `cfg.update` instead
+        # goes through `odoo db upgrade` for the same structured progress
+        # summary "odoo project update" gets in the dev shell, degrading to
+        # plain narrated lines under journald (Console.is_terminal is false
+        # here) rather than raw per-module log spam.
         ExecStartPre = lib.optional (cfg.autoInit || cfg.update != [ ]) (
-          pkgs.writeShellScript "odoo-migrate" (
+          pkgs.writeShellScript "odoo-service-start-pre" (
             ''
               set -euo pipefail
             ''
@@ -523,7 +535,7 @@ in
               fi
             ''
             + optionalString (cfg.update != [ ]) ''
-              ${cfg.package}/bin/odoo -c ${runtimeConf} -d ${toString cfg.dbName} -u ${lib.concatStringsSep "," cfg.update} --stop-after-init
+              ${cfg.package}/bin/odoo -c ${runtimeConf} db upgrade ${lib.concatStringsSep "," cfg.update} ${toString cfg.dbName}
             ''
           )
         );

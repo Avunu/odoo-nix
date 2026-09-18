@@ -1,6 +1,6 @@
 # oca-lib.sh — shared OCA catalog helpers for odoo-nix.
 #
-# Sourced by the scaffolder (odoo-init) and the in-project `odoo-add-module` script.
+# Sourced by the scaffolder (odoo-init) and the `odoo module add` script (lib/cli-scripts.nix).
 # Requires the environment variable OCA_DATASET to point at oca-modules.json
 # (both callers bake the vendored data/oca-modules.json store path into it).
 #
@@ -162,7 +162,7 @@ oca_pick_modules() {
 # ── bundles ────────────────────────────────────────────────────────────────
 # Curated, hand-maintained named sets of "must-have" module names, defined in
 # data/oca-bundles.json. Requires OCA_BUNDLES to point at that file (both the
-# scaffolder and the in-project odoo-add-bundle bake the store path into it).
+# scaffolder and `odoo module add-bundle` bake the store path into it).
 
 oca_bundle_names() { jq -r 'keys[]' "$OCA_BUNDLES"; }
 

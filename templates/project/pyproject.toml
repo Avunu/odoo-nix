@@ -6,8 +6,9 @@ requires-python = "@REQUIRES_PYTHON@"
 readme = "README.md"
 
 # Install roots: OCB `odoo` + the modules from modules.txt as odoo-addon-<name>.
-# This block is auto-generated from modules.txt by `odoo-add-module` /
-# `odoo-add-bundle` / `odoo-update` (lib/oca_sources.py) — do not edit by hand.
+# This block is auto-generated from modules.txt by `odoo module add` /
+# `odoo module add-bundle` / `odoo project update` (lib/oca_sources.py) — do
+# not edit by hand.
 dependencies = [
     # >>> odoo-nix: install set (managed from modules.txt) >>>
     # <<< odoo-nix: install set <<<
@@ -19,8 +20,8 @@ dependencies = [
 # none of this ships in a production image.
 #
 # Hand-edited on purpose: unlike [project].dependencies and [tool.uv.sources]
-# above, this block is not managed by oca_sources.py, so odoo-update leaves it
-# alone.
+# above, this block is not managed by oca_sources.py, so `odoo project update`
+# leaves it alone.
 dev = [
     "debugpy",
     "ruff",

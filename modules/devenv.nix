@@ -546,11 +546,10 @@ in
           };
         };
 
-        scripts = import ../lib/scripts.nix {
+        cliScripts = import ../lib/cli-scripts.nix {
           inherit lib pkgs;
           python = "${pythonEnvs.devPythonEnv}/bin/python";
           inherit (cfg) odooSeries layout coreSource;
-          dbName = if cfg.odooConf.dbName != null then cfg.odooConf.dbName else "odoo_dev";
           ocaDataset = ../data/oca-modules.json;
           ocaLib = ../lib/oca-lib.sh;
           bundlesFile = ../data/oca-bundles.json;
@@ -566,6 +565,41 @@ in
             coreSource
             ;
           odooPythonEnv = pythonEnvs.odooPythonEnv;
+        };
+
+        # The `odoo` CLI: db/module/project subcommands + odoo-bin passthrough
+        # (lib/cli.nix). The dev variant's passthrough target is the live
+        # workspace checkout through the editable dev env -- the same
+        # $REPO_ROOT/<coreSrc>/odoo-bin the old lib/scripts.nix preamble ran,
+        # not the Nix-assembled builtOdoo snapshot, so `odoo shell`/`odoo
+        # server`/etc keep seeing live source edits. The production variant
+        # (packages.default, consumed by services.odoo-nix / the container
+        # builder) passes through to builtOdoo's own wrapper instead, and has
+        # no workspace scripts wired in -- there is no git checkout to pull or
+        # modules.txt to add to in an assembled /nix/store deployment.
+        devRawOdooBin = pkgs.writeShellScript "odoo-nix-dev-odoo-bin" ''
+          set -euo pipefail
+          cd "''${REPO_ROOT:-$PWD}"
+          exec ${pythonEnvs.devPythonEnv}/bin/python "''${REPO_ROOT:-$PWD}/${cfg.layout.coreSrc}/odoo-bin" "$@"
+        '';
+
+        odooCliDev = import ../lib/cli.nix {
+          inherit pkgs lib;
+          inherit (cfg) python;
+          inherit cliScripts;
+          name = "${cfg.projectName}-odoo-cli-dev";
+          rawOdooBin = devRawOdooBin;
+          targetPythonEnv = pythonEnvs.devPythonEnv;
+        };
+
+        odooCliProd = import ../lib/cli.nix {
+          inherit pkgs lib;
+          inherit (cfg) python;
+          name = "${cfg.projectName}-odoo-cli";
+          rawOdooBin = "${builtOdoo}/bin/odoo";
+          mirrorTree = builtOdoo;
+          targetPythonEnv = pythonEnvs.odooPythonEnv;
+          cliScripts = null;
         };
 
         # ── Editor / language-server integration ──────────────────────────
@@ -745,8 +779,16 @@ in
         packages.odooDevEnv = pythonEnvs.devPythonEnv;
         packages.odooTestEnv = pythonEnvs.testPythonEnv;
         packages.odooConf = confSynth.odooConfFile;
+        # builtOdoo (lib/odoo.nix) is the un-wrapped assembled tree, still
+        # available directly for anything that specifically wants it (e.g.
+        # tests/series.nix asserts against it). `default`/`package` -- what
+        # services.odoo-nix and the container builder actually consume -- is
+        # the CLI-wrapped production build: `${pkg}/bin/odoo` handles
+        # db/module/project subcommands and passes anything else straight to
+        # the real odoo-bin at `${pkg}/bin/odoo.raw`.
         packages.builtOdoo = builtOdoo;
-        packages.default = builtOdoo;
+        packages.odooCli = odooCliDev;
+        packages.default = odooCliProd;
         packages.odoo-ls = cfg.ide.languageServer.package;
 
         devenv.shells.default =
@@ -765,6 +807,7 @@ in
               with pkgs;
               [
                 pythonEnvs.devPythonEnv
+                odooCliDev
 
                 # Odoo runtime / asset tooling
                 cfg.nodejs
@@ -950,12 +993,14 @@ in
               echo "╔════════════════════════════════════════════════════════════╗"
               echo "║  ${cfg.projectName} — Odoo ${cfg.odooSeries} (OCB + OCA) dev environment"
               echo "╠════════════════════════════════════════════════════════════╣"
-              echo "║  devenv up           start postgres + odoo + mailpit       ║"
-              echo "║  provision-db        create DB + install modules.txt       ║"
-              echo "║  odoo-add-module     pick + wire in more OCA modules       ║"
-              echo "║  odoo-add-bundle     add a curated OCA module bundle       ║"
-              echo "║  odoo-update         pull submodules + refresh deps        ║"
-              echo "║  odoo-shell          Odoo REPL                             ║"
+              echo "║  devenv up             start postgres + odoo + mailpit     ║"
+              echo "║  odoo db provision     create DB + install modules.txt     ║"
+              echo "║  odoo db migrate       upgrade all modules, with progress  ║"
+              echo "║  odoo module add       pick + wire in more OCA modules     ║"
+              echo "║  odoo module add-bundle  add a curated OCA module bundle   ║"
+              echo "║  odoo project update   pull submodules + refresh deps      ║"
+              echo "║  odoo test <mod> [db]  run a module's tests                ║"
+              echo "║  odoo shell             Odoo REPL                           ║"
               echo "╚════════════════════════════════════════════════════════════╝"
               echo "  addons_path entries: ${toString (builtins.length addons.addonsPathList)}  (http: ${toString cfg.odooConf.httpPort})"
               ${lib.optionalString cfg.mailcatch.enable ''
@@ -964,7 +1009,11 @@ in
               echo ""
             '';
 
-            scripts = scripts // cfg.extraScripts;
+            # odoo-nix's own site-maintenance commands are the `odoo` CLI
+            # package above now (db/module/project subcommands), not devenv
+            # scripts -- this option remains solely for a consumer's own
+            # custom scripts.
+            scripts = cfg.extraScripts;
           };
       };
   };
