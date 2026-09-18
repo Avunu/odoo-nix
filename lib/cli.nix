@@ -22,14 +22,15 @@
 #     and nothing in the dev shell reads this package's passthru (odoo.conf's
 #     addons_path is synthesized independently), so $out is just bin/ + lib/.
 #
-# click/rich are nixpkgs packages, not part of the *consuming* project's own
-# uv-managed pyproject.toml/uv.lock (which lib/oca_sources.py auto-generates
-# around OCA module deps only, and which the CLI's own tooling deps have no
-# business coupling to). `cliPython` is `python.withPackages`, using the SAME
-# interpreter passed into lib/python.nix, so PYTHONPATH-prefixing onto
-# `targetPythonEnv`'s site-packages (the project's real, resolved Odoo + deps)
-# is a same-ABI, safe operation -- that's how `import odoo.service.db` works
-# in-process without click/rich ever needing to be in the project's own lock.
+# click/rich are nixpkgs packages (lib/rich-python.nix), not part of the
+# *consuming* project's own uv-managed pyproject.toml/uv.lock (which
+# lib/oca_sources.py auto-generates around OCA module deps only, and which
+# the CLI's own tooling deps have no business coupling to). `cliPython` uses
+# the SAME interpreter passed into lib/python.nix, so PYTHONPATH-prefixing
+# onto `targetPythonEnv`'s site-packages (the project's real, resolved Odoo +
+# deps) is a same-ABI, safe operation -- that's how `import odoo.service.db`
+# works in-process without click/rich ever needing to be in the project's own
+# lock.
 #
 # Usage:
 #   import ./lib/cli.nix {
@@ -56,25 +57,10 @@
 }:
 
 let
-  # rich's python3.11 build (odoo-nix's default 18.0 interpreter) has been
-  # seen failing in nixpkgs: markdown-it-py, one of rich's own *runtime*
-  # dependencies (it renders markdown in the terminal), defaults to
-  # doCheck = true, and its test suite pulls in pytest-regressions -> numpy
-  # -- a numpy version that requires Python >=3.12 while still being offered
-  # to 3.11, a nixpkgs-side version mismatch, not anything about
-  # markdown-it-py's or rich's actual code. `overridePythonAttrs` (not the
-  # generic `overrideAttrs`, which only edits an already-finalized
-  # derivation's attributes and has no effect on `doCheck` specifically,
-  # confirmed empirically -- nativeBuildInputs is computed from `doCheck`
-  # inside buildPythonPackage itself, before overrideAttrs ever runs) drops
-  # that whole checkInputs closure from the build.
-  noCheckMarkdownItPy = python.pkgs."markdown-it-py".overridePythonAttrs (_: {
-    doCheck = false;
-  });
-  cliPython = python.withPackages (ps: [
-    ps.click
-    (ps.rich.override { "markdown-it-py" = noCheckMarkdownItPy; })
-  ]);
+  cliPython = import ./rich-python.nix {
+    inherit pkgs python;
+    extraPackages = ps: [ ps.click ];
+  };
 
   # One space-joined string, not a multi-line here-string with an embedded
   # optionalString -- interleaving a possibly-empty Nix interpolation between
