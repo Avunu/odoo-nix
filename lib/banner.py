@@ -49,7 +49,8 @@ def main() -> None:
             border_style="cyan",
         )
     )
-    console.print(f"  addons_path entries: {addons_count}  (http: {http_port})")
+    console.print(f"  Odoo server: http://127.0.0.1:{http_port}")
+    console.print(f"  addons_path entries: {addons_count}")
     if mailcatch_enabled == "1":
         console.print(f"  mail: ALL outgoing email → Mailpit (http://127.0.0.1:{mailcatch_http_port})")
     console.print()
