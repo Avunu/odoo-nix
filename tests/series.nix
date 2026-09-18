@@ -295,6 +295,72 @@ in
       psql -d "$CLIDB" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
     '';
 
+    # `odoo db backup --format dump` (no filestore), `--keep-days` pruning,
+    # and the project-scoped `odoo project backup`/`odoo project restore`
+    # (every database matching dbfilter by default; explicit --restore DB
+    # PATH pairs, no "latest" auto-discovery) -- a separate check from
+    # cli-lifecycle so a failure here names this surface specifically.
+    cli-project-backup = mkCheck "cli-project-backup-${major}" pg ''
+      DBFLAGS="--db-host $PGHOST --db-user $PGUSER"
+      CLIDB1="odoo_nix_proj1_${major}"
+      CLIDB2="odoo_nix_proj2_${major}"
+
+      # `project backup`'s default scope is *every* database this role owns
+      # -- including postgresqlTestHook's own pre-created $PGDATABASE, which
+      # is otherwise never -i base'd. dump_db_manifest() queries
+      # ir_module_module directly (odoo/service/db.py), so backing up an
+      # uninitialized database raises -- correctly caught and reported by
+      # _run_multi as one failed item rather than a crash, but this check
+      # wants a clean run, so make $PGDATABASE a real Odoo database too.
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$PGDATABASE" 2>&1 | tee provision0.log
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$CLIDB1" 2>&1 | tee provision1.log
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$CLIDB2" 2>&1 | tee provision2.log
+      ! grep -qE ' (ERROR|CRITICAL) ' provision0.log provision1.log provision2.log
+
+      # project backup: no arguments, every database, one subfolder each
+      # under the given parent (not one flat folder -- auto_backup-style
+      # filenames carry no db name, so a flat folder risks two databases'
+      # same-second backups colliding).
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS project backup --path ./project-backups 2>&1 | tee project-backup.log
+      ! grep -qE ' (ERROR|CRITICAL) ' project-backup.log
+      grep -q "$PGDATABASE →" project-backup.log
+      grep -q "$CLIDB1 →" project-backup.log
+      grep -q "$CLIDB2 →" project-backup.log
+      ls ./project-backups/$CLIDB1/*.dump.zip
+      ls ./project-backups/$CLIDB2/*.dump.zip
+
+      # --format dump: plain pg_dump custom format, no filestore -- still a
+      # full round trip through db restore.
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db backup "$CLIDB1" --format dump --path ./dump-format 2>&1 | tee dump-format.log
+      DUMP_FILE=$(ls ./dump-format/*.dump)
+      test -n "$DUMP_FILE"
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db drop "$CLIDB1" --yes
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$CLIDB1" "$DUMP_FILE" 2>&1 | tee dump-restore.log
+      grep -q "restored '$CLIDB1'" dump-restore.log
+      psql -d "$CLIDB1" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
+
+      # --keep-days: a manufactured old-timestamped backup gets pruned, the
+      # one just written does not.
+      mkdir -p ./keepdays-test
+      touch ./keepdays-test/2000_01_01_00_00_00.dump.zip
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db backup "$CLIDB2" --path ./keepdays-test --keep-days 1 2>&1 | tee keepdays.log
+      ! test -e ./keepdays-test/2000_01_01_00_00_00.dump.zip
+      test "$(ls ./keepdays-test/*.dump.zip | wc -l)" = "1"
+
+      # project restore: drop both, restore both in one explicit-pairs batch
+      # call (the zip backups project backup produced above).
+      RESTORE1=$(ls ./project-backups/$CLIDB1/*.dump.zip)
+      RESTORE2=$(ls ./project-backups/$CLIDB2/*.dump.zip)
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db drop "$CLIDB1" --yes
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db drop "$CLIDB2" --yes
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS project restore --restore "$CLIDB1" "$RESTORE1" --restore "$CLIDB2" "$RESTORE2" 2>&1 | tee project-restore.log
+      ! grep -qE ' (ERROR|CRITICAL) ' project-restore.log
+      grep -q "restored '$CLIDB1'" project-restore.log
+      grep -q "restored '$CLIDB2'" project-restore.log
+      psql -d "$CLIDB1" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
+      psql -d "$CLIDB2" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
+    '';
+
     module-odoo = import ./module-odoo.nix {
       inherit pkgs series builtOdoo;
       odooModule = ../modules/nixos.nix;
