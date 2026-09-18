@@ -556,7 +556,10 @@ in
       ensureUsers = [
         {
           name = cfg.database.user;
-          ensureDBOwnership = dbName != null;
+          # nixpkgs' ensureDBOwnership asserts that the database is named
+          # after the role. A project whose dbName differs ("millrun" owned by
+          # "odoo") gets the ownership transferred below instead.
+          ensureDBOwnership = dbName != null && dbName == cfg.database.user;
           ensureClauses.createdb = true;
         }
       ];
@@ -567,10 +570,13 @@ in
     # into it. `IF NOT EXISTS` keeps it idempotent across restarts, and the
     # Odoo role owning the database is what lets it use them afterwards.
     systemd.services.postgresql-setup.script =
-      mkIf (cfg.database.createLocally && dbName != null && cfg.database.ensureExtensions != [ ])
+      mkIf (cfg.database.createLocally && dbName != null)
         (
           lib.mkAfter (
-            lib.concatMapStrings (ext: ''
+            lib.optionalString (dbName != cfg.database.user) ''
+              psql -tAc 'ALTER DATABASE "${dbName}" OWNER TO "${cfg.database.user}"'
+            ''
+            + lib.concatMapStrings (ext: ''
               psql -d '${dbName}' -tAc 'CREATE EXTENSION IF NOT EXISTS "${ext}"'
             '') cfg.database.ensureExtensions
           )
