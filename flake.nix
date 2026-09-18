@@ -44,6 +44,21 @@
       url = "github:OCA/OCB/19.0";
       flake = false;
     };
+
+    # odoo-ls (github.com/odoo/odoo-ls): the Odoo-aware Rust language server,
+    # packaged in lib/odoo-ls.nix. Pinned to its stable 1.4.0 tag (even-minor
+    # = stable per its own release convention). odoo-ls-typeshed is the exact
+    # commit its own `server/typeshed` git submodule points at for that tag --
+    # bump both together (`nix run .#relock-odoo-ls` also refreshes
+    # lib/odoo-ls-Cargo.lock, since odoo-ls does not commit one upstream).
+    odoo-ls-src = {
+      url = "github:odoo/odoo-ls?ref=1.4.0";
+      flake = false;
+    };
+    odoo-ls-typeshed = {
+      url = "github:python/typeshed?rev=80fd73de22748b0fa97d9cc414c0ba854bd6901e";
+      flake = false;
+    };
   };
 
   nixConfig = {
@@ -56,7 +71,12 @@
   };
 
   outputs =
-    { self, nixpkgs, flake-parts, ... }@inputs:
+    {
+      self,
+      nixpkgs,
+      flake-parts,
+      ...
+    }@inputs:
     let
       # No x86_64-darwin: nixpkgs 26.11 dropped it (its Darwin stdenv is
       # gone), so evaluating anything for it is an error, and consumers
@@ -168,6 +188,9 @@
 
         # The addons_path synthesis core, exposed for testing / advanced use.
         addons = import ./lib/addons.nix;
+
+        # The odoo-ls (Odoo language server) package builder.
+        odoo-ls = import ./lib/odoo-ls.nix;
       };
 
       # checks.<system>:
@@ -183,9 +206,7 @@
           evalTests = import ./tests/eval.nix { inherit pkgs lib; };
           evalChecks =
             suffix:
-            lib.mapAttrs' (
-              n: v: lib.nameValuePair "eval-${n}${suffix}" (mkEvalCheck pkgs "${n}${suffix}" v)
-            );
+            lib.mapAttrs' (n: v: lib.nameValuePair "eval-${n}${suffix}" (mkEvalCheck pkgs "${n}${suffix}" v));
           perSeries = lib.concatMapAttrs (
             series: ocb:
             let
@@ -239,27 +260,48 @@
       # `nix run github:<owner>/odoo-nix` scaffolds a new Odoo + OCA project.
       packages = forAllSystems (pkgs: rec {
         odoo-init = odooInit pkgs;
+        odoo-ls = import ./lib/odoo-ls.nix {
+          inherit pkgs;
+          inherit (pkgs) lib;
+          src = inputs.odoo-ls-src;
+          typeshedSrc = inputs.odoo-ls-typeshed;
+        };
         default = odoo-init;
       });
 
-      apps = forAllSystems (pkgs: let
-        program = "${odooInit pkgs}/bin/odoo-init";
-        app = {
-          type = "app";
-          inherit program;
-          meta.description = "Scaffold a new odoo-nix project (Odoo OCB + OCA)";
-        };
-      in {
-        default = app;
-        odoo-init = app;
-        # `nix run .#relock [-- --upgrade]`: regenerate tests/fixtures/*/uv.lock
-        # against the pinned OCB inputs (needs network; never runs in a check).
-        relock = {
-          type = "app";
-          program = "${relock pkgs}/bin/odoo-nix-relock";
-          meta.description = "Re-lock the test fixtures against the pinned OCB inputs";
-        };
-      });
+      apps = forAllSystems (
+        pkgs:
+        let
+          program = "${odooInit pkgs}/bin/odoo-init";
+          app = {
+            type = "app";
+            inherit program;
+            meta.description = "Scaffold a new odoo-nix project (Odoo OCB + OCA)";
+          };
+          relockOdooLs = import ./tests/relock-odoo-ls.nix {
+            inherit pkgs;
+            src = inputs.odoo-ls-src;
+          };
+        in
+        {
+          default = app;
+          odoo-init = app;
+          # `nix run .#relock [-- --upgrade]`: regenerate tests/fixtures/*/uv.lock
+          # against the pinned OCB inputs (needs network; never runs in a check).
+          relock = {
+            type = "app";
+            program = "${relock pkgs}/bin/odoo-nix-relock";
+            meta.description = "Re-lock the test fixtures against the pinned OCB inputs";
+          };
+          # `nix run .#relock-odoo-ls`: regenerate lib/odoo-ls-Cargo.lock against
+          # the pinned odoo-ls-src input (needs network; never runs in a check).
+          relock-odoo-ls = {
+            type = "app";
+            program = "${relockOdooLs}/bin/odoo-nix-relock-odoo-ls";
+            meta.description = "Re-lock lib/odoo-ls-Cargo.lock against the pinned odoo-ls-src input";
+          };
+        }
+      );
 
       # For working on odoo-nix itself (consumers get devenv shells from the
       # flake-parts module). uv here is the same nixpkgs uv the scripts use, so

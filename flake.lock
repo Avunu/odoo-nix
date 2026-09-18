@@ -313,11 +313,11 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1789546076,
-        "narHash": "sha256-zVxLZiSnmaaPLwnhj7pwmqe3axBg/C6nG5JZsJMh2g4=",
+        "lastModified": 1789684949,
+        "narHash": "sha256-ZKhUe/2IJUq1JhKxKMu8rbkgSGmPP2ZCqlIPn40aGCM=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "b1b875982b17dabde9b4a37f3e229e74913e6db3",
+        "rev": "e554fab72f81915600f3f449b786fd9af40439a5",
         "type": "github"
       },
       "original": {
@@ -358,6 +358,40 @@
         "owner": "OCA",
         "ref": "19.0",
         "repo": "OCB",
+        "type": "github"
+      }
+    },
+    "odoo-ls-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784710090,
+        "narHash": "sha256-DTuStRNzP51awj2bqc8ukMsPH3z9UxJn07SjKHsKRnM=",
+        "owner": "odoo",
+        "repo": "odoo-ls",
+        "rev": "1b54aeb358e96825389192d334f230a2430e96a7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "odoo",
+        "ref": "1.4.0",
+        "repo": "odoo-ls",
+        "type": "github"
+      }
+    },
+    "odoo-ls-typeshed": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1769086363,
+        "narHash": "sha256-6JNVqNYr6jJn5lxDoCF3tKawRM5A3I+JFYsMsG8ztY4=",
+        "owner": "python",
+        "repo": "typeshed",
+        "rev": "80fd73de22748b0fa97d9cc414c0ba854bd6901e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "python",
+        "repo": "typeshed",
+        "rev": "80fd73de22748b0fa97d9cc414c0ba854bd6901e",
         "type": "github"
       }
     },
@@ -415,6 +449,8 @@
         "nixpkgs": "nixpkgs_2",
         "ocb-18": "ocb-18",
         "ocb-19": "ocb-19",
+        "odoo-ls-src": "odoo-ls-src",
+        "odoo-ls-typeshed": "odoo-ls-typeshed",
         "pyproject-build-systems": "pyproject-build-systems",
         "pyproject-nix": "pyproject-nix",
         "uv2nix": "uv2nix"

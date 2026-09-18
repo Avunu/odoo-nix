@@ -27,6 +27,10 @@ updates:
   # setup.py install_requires changed, `lock-fresh-<major>` fails and prints the fix
   # (`nix run .#relock`, commit tests/fixtures/*/uv.lock onto the branch). Keeping it
   # separate means an OCB-driven red never parks the nixpkgs/uv2nix bump.
+  #
+  # odoo-ls-src / odoo-ls-typeshed (the language server, lib/odoo-ls.nix) get their own
+  # PR for the same reason: a bump needs `nix run .#relock-odoo-ls` (odoo-ls does not
+  # commit a Cargo.lock upstream) before `nix build .#odoo-ls` goes green again.
   - package-ecosystem: nix
     directory: /
     schedule:
@@ -36,6 +40,8 @@ updates:
     groups:
       ocb:
         patterns: ["ocb-*"]
+      odoo-ls:
+        patterns: ["odoo-ls-*"]
       nix:
         patterns: ["*"]
 

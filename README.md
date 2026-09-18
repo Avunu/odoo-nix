@@ -114,10 +114,13 @@ provision-db            # (another shell) create the DB + install modules.txt
 | lib.mkFlake | flake-parts.lib.mkFlake wrapper that merges odoo-nix's own inputs |
 | lib.overrides | composable Python native-build overlays (psycopg2, python-ldap, lxml, libsass) |
 | lib.addons | the addons_path synthesis function, for testing / advanced use |
+| lib.odoo-ls | the odoo-ls (Odoo language server) package builder |
 | packages.<sys>.odoo-init / .default | the scaffolder executable |
+| packages.<sys>.odoo-ls | odoo-ls, pinned to this repo's `odoo-ls-src`/`odoo-ls-typeshed` inputs |
 | apps.<sys>.odoo-init / .default | nix run entry point |
+| apps.<sys>.relock-odoo-ls | `nix run .#relock-odoo-ls` — re-lock lib/odoo-ls-Cargo.lock |
 
-A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, odooDevEnv, builtOdoo, default}` from the flake-parts module.
+A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, odooDevEnv, builtOdoo, default, odoo-ls}` from the flake-parts module.
 
 ## Options — `perSystem.odoo-nix`
 
@@ -156,6 +159,8 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | postgres.extensions | _: [ ] | extensions built into the dev PostgreSQL, e.g. ps: [ ps.postgis ] (base_geoengine) |
 | ide.enable | true | expose the env to editors: ./.venv symlink + merged odoo analysis root |
 | ide.vscodeSettings | true | seed .vscode/settings.json when absent (never overwrites) |
+| ide.languageServer.enable | true | run odoo-ls: `odoo_ls_server` on PATH + regenerated `./odools.toml` — see [Odoo language server](#odoo-language-server-odoo-ls) |
+| ide.languageServer.package | odoo-ls pinned to `odoo-ls-src`/`odoo-ls-typeshed` | the odoo_ls_server package to use |
 | extraDevPackages / extraLibraryPaths / extraScripts / extraEnv | [] / [] / {} / {} | dev-shell extras |
 | containers.enable / containers.registry | false / "" | build the OCI image |
 
@@ -214,6 +219,17 @@ With `ide.vscodeSettings`, a `.vscode/settings.json` is seeded (once, never over
 ```
 
 For a non-VS Code editor, point your language server at the same two paths — e.g. a `pyrightconfig.json` with `"venv": ".venv"` and the same `extraPaths`.
+
+### Odoo language server (odoo-ls)
+
+`ide.languageServer.enable` (the default, requires `ide.enable`) adds [odoo-ls](https://github.com/odoo/odoo-ls) — a Rust language server that understands `__manifest__.py`, ORM field types and XML view/QWeb references, on top of the generic Python intelligence above. It puts `odoo_ls_server` on the dev shell `PATH` and regenerates `./odools.toml` on every shell entry (like `odoo.conf` and `.venv` — gitignored, not hand-edited), pointing it at this workspace's OCB checkout, addons_path and `.venv` interpreter under a single profile named `"default"`.
+
+**VS Code is a special case.** The official [`Odoo.odoo`](https://marketplace.visualstudio.com/items?itemName=Odoo.odoo) extension bundles its own platform-specific `odoo_ls_server` binary inside its `.vsix` and has no setting to point it at another one — so the Nix-built binary above is never what runs inside VS Code. With `ide.vscodeSettings`, two things are seeded once (never overwritten) to help it anyway:
+
+-   `.vscode/extensions.json` recommends `Odoo.odoo`, prompting VS Code to offer installing it.
+-   `.vscode/settings.json` gets `"Odoo.serverConfigPath": "${workspaceFolder}/odools.toml"`, so its bundled binary picks up the same generated config.
+
+Every **other** editor's LSP client can be pointed at `odoo_ls_server` directly (stdio transport, no `initializationOptions` needed) — that binary is the real payoff of `ide.languageServer.enable`.
 
 ### Outgoing mail catch-all
 
@@ -459,6 +475,13 @@ git add tests/fixtures/*/uv.lock tests/fixtures/*/pyproject.toml
 
 It runs `uv lock` in each fixture with the series' interpreter from `lib/odoo-presets.json`, then syncs the sdist build-dep block with `lib/uv_build_deps.py` — the tail of what `odoo-update` runs in a consumer, including the lock-time shadow of the store path (`lib/core-shadow.sh`) that `coreSource` needs; `tests/fixtures/<series>/odoo` (gitignored) is left pointing at the pinned tree afterwards.
 
+odoo-ls's own weekly dependabot PR (`odoo-ls-src` / `odoo-ls-typeshed`, their own group) is different: odoo-ls does not commit a `Cargo.lock` upstream, so odoo-nix vendors one at `lib/odoo-ls-Cargo.lock`. A bump needs it refreshed, or `nix build .#odoo-ls` fails outright (the lighter-weight equivalent of `lock-fresh-<major>` for this input):
+
+```sh
+nix run .#relock-odoo-ls
+git add lib/odoo-ls-Cargo.lock
+```
+
 ## The OCA catalog
 
 `data/oca-modules.json` is the bundled catalog (every OCA module across the cloned repos, with `repo`, `version`, `application`, `installable`, `depends`, `summary`, …) that powers the picker and dependency resolver. It covers **19.0 and 18.0** — one record per (repo, module, series).
@@ -492,6 +515,8 @@ lib/
   odoo-conf.nix              # odoo.conf INI synthesis
   python.nix                 # uv2nix Python env
   odoo.nix                   # builtOdoo assembly
+  odoo-ls.nix                # odoo-ls (language server) package builder
+  odoo-ls-Cargo.lock         # vendored lockfile (odoo-ls does not commit one upstream)
   overrides.nix              # native-build Python overlays
   scripts.nix                # dev-shell scripts
   core-shadow.sh             # writable lock-time shadow of a store-resident OCB (coreSource)
@@ -511,6 +536,7 @@ tests/
   module-odoo.nix            # NixOS VM test: services.odoo-nix with the real builtOdoo
   lock_fresh.py              # uv.lock ↔ pinned OCB consistency
   relock.nix                 # `nix run .#relock`
+  relock-odoo-ls.nix         # `nix run .#relock-odoo-ls`
   fixtures/<series>/         # pyproject.toml + uv.lock + custom/odoo_nix_fixture
   fixtures/addons-tree*/     # synthetic trees for eval.nix
 ```

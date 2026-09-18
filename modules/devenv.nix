@@ -84,7 +84,7 @@ in
             C-extension dependency (e.g. pycups) without writing a Nix override.
             Merged with odoo-nix's built-in set (which already covers pycups).
           '';
-          example = lib.literalExpression ''{ python-snappy = [ pkgs.snappy ]; }'';
+          example = lib.literalExpression "{ python-snappy = [ pkgs.snappy ]; }";
         };
 
         odooConf = {
@@ -277,21 +277,20 @@ in
         };
 
         mailcatch = {
-          enable =
-            mkOption {
-              type = types.bool;
-              default = true;
-              description = ''
-                Redirect ALL outgoing email to the local Mailpit catcher.
+          enable = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Redirect ALL outgoing email to the local Mailpit catcher.
 
-                Ships odoo-nix's `dev_mailcatch` addon from the Nix store and
-                loads it as a server-wide module, so the redirection covers
-                every database on the dev server without installing anything
-                into any of them — and cannot be defeated by an
-                `ir.mail_server` record. Dev-shell only: the NixOS module and
-                container builder never load it.
-              '';
-            };
+              Ships odoo-nix's `dev_mailcatch` addon from the Nix store and
+              loads it as a server-wide module, so the redirection covers
+              every database on the dev server without installing anything
+              into any of them — and cannot be defeated by an
+              `ir.mail_server` record. Dev-shell only: the NixOS module and
+              container builder never load it.
+            '';
+          };
           host = mkOption {
             type = types.str;
             default = "127.0.0.1";
@@ -381,6 +380,44 @@ in
               Never overwrites an existing file.
             '';
           };
+
+          languageServer = {
+            enable = mkOption {
+              type = types.bool;
+              default = true;
+              description = ''
+                Run odoo-ls (the Odoo-aware Rust language server) alongside
+                Pylance/pyright. Puts `odoo_ls_server` on the dev shell PATH
+                and regenerates `./odools.toml` on every shell entry from
+                this workspace's OCB checkout, addons_path and `.venv`
+                interpreter.
+
+                VS Code's `Odoo.odoo` extension bundles its own copy of this
+                server and never reads this one -- see `vscodeSettings`,
+                which is all VS Code gets from this option (a
+                `Odoo.serverConfigPath` setting pointing at the generated
+                `odools.toml`, plus an extension recommendation). This
+                option's binary is for every other editor's LSP client and
+                for `odoo_ls_server` from the CLI.
+
+                `odools.toml` is regenerated every shell entry, like
+                `odoo.conf` and `.venv` -- add it to `.gitignore`, do not
+                hand-edit it. Only takes effect when `ide.enable` is also
+                true: the generated `python_path` points at `.venv`, which
+                only `ide.enable` creates.
+              '';
+            };
+
+            package = mkOption {
+              type = types.package;
+              default = import ../lib/odoo-ls.nix {
+                inherit pkgs lib;
+                src = inputs.odoo-ls-src;
+                typeshedSrc = inputs.odoo-ls-typeshed;
+              };
+              description = "The odoo_ls_server package to use.";
+            };
+          };
         };
 
         extraDevPackages = mkOption {
@@ -421,7 +458,12 @@ in
 
   config = {
     perSystem =
-      { config, pkgs, lib, ... }:
+      {
+        config,
+        pkgs,
+        lib,
+        ...
+      }:
       let
         cfg = config.odoo-nix;
 
@@ -490,11 +532,12 @@ in
           # series' full default set has to be reproduced: 19.0 added `rpc`
           # (DEFAULT_SERVER_WIDE_MODULES = base,rpc,web) and would otherwise
           # lose XML-RPC/JSON-RPC entirely.
-          serverWideModules =
-            [ "base" ]
-            ++ lib.optional (lib.versionAtLeast cfg.odooSeries "19.0") "rpc"
-            ++ [ "web" ]
-            ++ lib.optional cfg.mailcatch.enable "dev_mailcatch";
+          serverWideModules = [
+            "base"
+          ]
+          ++ lib.optional (lib.versionAtLeast cfg.odooSeries "19.0") "rpc"
+          ++ [ "web" ]
+          ++ lib.optional cfg.mailcatch.enable "dev_mailcatch";
           extraSections = lib.optionalAttrs cfg.mailcatch.enable {
             dev_mailcatch = {
               enabled = true;
@@ -550,21 +593,37 @@ in
         pythonpathRoot = "$DEVENV_STATE/pythonpath";
 
         vscodeSettingsFile = pkgs.writeText "odoo-nix-vscode-settings.json" (
-          builtins.toJSON {
-            "python.defaultInterpreterPath" = "\${workspaceFolder}/.venv/bin/python";
-            "python.analysis.extraPaths" = [ ".devenv/state/pythonpath" ];
-            # The mirror re-exports ~2k module directories; keep the watcher
-            # and the search index off it (VS Code excludes neither by
-            # default, though Pylance already skips dot-directories).
-            "files.watcherExclude" = {
-              "**/.devenv/**" = true;
-              "**/.direnv/**" = true;
-            };
-            "search.exclude" = {
-              "**/.devenv/**" = true;
-              "**/.direnv/**" = true;
-            };
-          }
+          builtins.toJSON (
+            {
+              "python.defaultInterpreterPath" = "\${workspaceFolder}/.venv/bin/python";
+              "python.analysis.extraPaths" = [ ".devenv/state/pythonpath" ];
+              # The mirror re-exports ~2k module directories; keep the watcher
+              # and the search index off it (VS Code excludes neither by
+              # default, though Pylance already skips dot-directories).
+              "files.watcherExclude" = {
+                "**/.devenv/**" = true;
+                "**/.direnv/**" = true;
+              };
+              "search.exclude" = {
+                "**/.devenv/**" = true;
+                "**/.direnv/**" = true;
+              };
+            }
+            # VS Code's own Odoo.odoo extension bundles its own odoo_ls_server
+            # binary and never reads cfg.ide.languageServer.package -- this
+            # setting is the one thing it *does* pick up from this module.
+            // lib.optionalAttrs (cfg.ide.enable && cfg.ide.languageServer.enable) {
+              "Odoo.serverConfigPath" = "\${workspaceFolder}/odools.toml";
+            }
+          )
+        );
+
+        # Recommends the Odoo.odoo VS Code extension (the odoo-ls client) --
+        # seeded once, like vscodeSettingsFile, so VS Code prompts the
+        # developer to install it without odoo-nix ever calling any
+        # extension-management API itself.
+        vscodeExtensionsFile = pkgs.writeText "odoo-nix-vscode-extensions.json" (
+          builtins.toJSON { recommendations = [ "Odoo.odoo" ]; }
         );
 
         # Anchored on $DEVENV_ROOT, not $PWD: these paths have to be the
@@ -630,6 +689,40 @@ in
           unset _pp _want _targets _seen _root _abs _mod _name _e
         '';
 
+        # odools.toml for odoo-ls (see ide.languageServer.enable): unlike
+        # .vscode/*.json, unconditionally rewritten every shell entry --
+        # it's a derived mirror of Nix/runtime paths, same lifecycle class
+        # as odoo.conf and .venv, not user content to seed once and leave
+        # alone. The profile is always named "default": odoo-ls falls back
+        # to that name whenever a client never answers its Odoo-specific
+        # `workspace/configuration` request, which covers every non-VS-Code
+        # client. Reuses the same Nix-embeds-relative-list /
+        # bash-resolves-absolute technique as the `_targets` loop above,
+        # since odools.toml's paths have to be absolute (they point into the
+        # Nix store and at $DEVENV_ROOT/.venv) regardless of where odoo-ls's
+        # own CWD ends up -- unlike odoo.conf, whose relative addons_path
+        # only works because odoo-bin's CWD is guaranteed to be the
+        # workspace root.
+        odoolsTomlSetup = ''
+          _addons_paths=()
+          for _root in ${lib.concatStringsSep " " (map (p: "\"${p}\"") addons.addonsPathList)}; do
+            case "$_root" in
+              /*) _addons_paths+=("$_root") ;;
+              *) _addons_paths+=("$DEVENV_ROOT/''${_root#./}") ;;
+            esac
+          done
+          {
+            echo '[[config]]'
+            echo 'name = "default"'
+            printf 'odoo_path = "%s"\n' "$DEVENV_ROOT/${cfg.layout.coreSrc}"
+            printf 'python_path = "%s"\n' "$DEVENV_ROOT/.venv/bin/python3"
+            printf 'addons_paths = [\n'
+            for _p in "''${_addons_paths[@]}"; do printf '  "%s",\n' "$_p"; done
+            printf ']\n'
+          } > "$DEVENV_ROOT/odools.toml"
+          unset _addons_paths _root _p
+        '';
+
         libraryPath = lib.makeLibraryPath (
           [
             pkgs.stdenv.cc.cc.lib
@@ -654,6 +747,7 @@ in
         packages.odooConf = confSynth.odooConfFile;
         packages.builtOdoo = builtOdoo;
         packages.default = builtOdoo;
+        packages.odoo-ls = cfg.ide.languageServer.package;
 
         devenv.shells.default =
           { config, lib, ... }:
@@ -696,32 +790,32 @@ in
                 just
               ]
               ++ lib.optional (cfg.testBrowser != null) cfg.testBrowser
+              ++ lib.optional (cfg.ide.enable && cfg.ide.languageServer.enable) cfg.ide.languageServer.package
               ++ cfg.extraDevPackages;
 
-            env =
-              {
-                REPO_ROOT = config.devenv.root;
-                ODOO_RC = config.devenv.root + "/odoo.conf";
-                PYTHONPATH = config.devenv.root + "/${cfg.layout.coreSrc}";
+            env = {
+              REPO_ROOT = config.devenv.root;
+              ODOO_RC = config.devenv.root + "/odoo.conf";
+              PYTHONPATH = config.devenv.root + "/${cfg.layout.coreSrc}";
 
-                # NOTE: PGHOST/PGPORT/PGUSER are provided by devenv's postgres
-                # service — do not set them here (it causes an option conflict).
-                # Odoo connects via odoo.conf (db_host/db_port/db_user), not PG*.
+              # NOTE: PGHOST/PGPORT/PGUSER are provided by devenv's postgres
+              # service — do not set them here (it causes an option conflict).
+              # Odoo connects via odoo.conf (db_host/db_port/db_user), not PG*.
 
-                ODOO_HTTP_PORT = toString cfg.odooConf.httpPort;
-                ODOO_GEVENT_PORT = toString cfg.odooConf.geventPort;
-                # Single source of truth: the same values are baked into
-                # odoo.conf's [dev_mailcatch] section, so Odoo and Mailpit can
-                # never drift apart.
-                MAILPIT_SMTP_HOST = cfg.mailcatch.host;
-                MAILPIT_SMTP_PORT = toString cfg.mailcatch.port;
-                MAILPIT_HTTP_PORT = toString cfg.mailcatch.httpPort;
+              ODOO_HTTP_PORT = toString cfg.odooConf.httpPort;
+              ODOO_GEVENT_PORT = toString cfg.odooConf.geventPort;
+              # Single source of truth: the same values are baked into
+              # odoo.conf's [dev_mailcatch] section, so Odoo and Mailpit can
+              # never drift apart.
+              MAILPIT_SMTP_HOST = cfg.mailcatch.host;
+              MAILPIT_SMTP_PORT = toString cfg.mailcatch.port;
+              MAILPIT_HTTP_PORT = toString cfg.mailcatch.httpPort;
 
-                UV_PROJECT_ENVIRONMENT = config.env.DEVENV_STATE + "/uv-env";
-                LD_LIBRARY_PATH = libraryPath;
-              }
-              // blasThreadCaps
-              // cfg.extraEnv;
+              UV_PROJECT_ENVIRONMENT = config.env.DEVENV_STATE + "/uv-env";
+              LD_LIBRARY_PATH = libraryPath;
+            }
+            // blasThreadCaps
+            // cfg.extraEnv;
 
             # Both of these fail silently in Odoo -- a disabled watcher is one
             # INFO line in a very noisy log -- which is exactly how the dev
@@ -734,12 +828,12 @@ in
                 odoo-nix: dev.autoReload is on but odooConf.workers = ${toString cfg.odooConf.workers}.
                 Odoo's reload watcher only runs on the threaded server; set workers = 0 for it to take effect.
               ''
-              ++ lib.optional
-                (cfg.dev.autoReload && !lib.elem "all" devFeatures && !lib.elem "reload" devFeatures)
-                ''
-                  odoo-nix: dev.autoReload is on but odooConf.devMode = "${cfg.odooConf.devMode}" requests
-                  neither "all" nor "reload", so Odoo will not start a file watcher.
-                '';
+              ++
+                lib.optional (cfg.dev.autoReload && !lib.elem "all" devFeatures && !lib.elem "reload" devFeatures)
+                  ''
+                    odoo-nix: dev.autoReload is on but odooConf.devMode = "${cfg.odooConf.devMode}" requests
+                    neither "all" nor "reload", so Odoo will not start a file watcher.
+                  '';
 
             services.postgres = {
               enable = true;
@@ -795,9 +889,10 @@ in
             # applies under process-compose. `processes.<n>.after` is honoured by
             # the native manager and translated back into process-compose's
             # depends_on (@started -> process_started) for older CLIs.
-            processes.odoo.after =
-              [ "devenv:processes:postgres@started" ]
-              ++ lib.optional cfg.mailcatch.enable "devenv:processes:mailpit@started";
+            processes.odoo.after = [
+              "devenv:processes:postgres@started"
+            ]
+            ++ lib.optional cfg.mailcatch.enable "devenv:processes:mailpit@started";
 
             enterShell = ''
               ${lib.optionalString (cfg.coreSource != null) ''
@@ -832,11 +927,22 @@ in
 
               ${lib.optionalString cfg.ide.enable ideSetup}
 
+              ${lib.optionalString (cfg.ide.enable && cfg.ide.languageServer.enable) odoolsTomlSetup}
+
               ${lib.optionalString (cfg.ide.enable && cfg.ide.vscodeSettings) ''
                 # Seeded once; a project's own settings are never overwritten.
                 if [ ! -e "$DEVENV_ROOT/.vscode/settings.json" ]; then
                   mkdir -p "$DEVENV_ROOT/.vscode"
                   install -m 644 "${vscodeSettingsFile}" "$DEVENV_ROOT/.vscode/settings.json"
+                fi
+              ''}
+
+              ${lib.optionalString (cfg.ide.enable && cfg.ide.languageServer.enable && cfg.ide.vscodeSettings) ''
+                # Prompts VS Code to offer installing Odoo.odoo (the odoo-ls
+                # client). Seeded once, same as settings.json above.
+                if [ ! -e "$DEVENV_ROOT/.vscode/extensions.json" ]; then
+                  mkdir -p "$DEVENV_ROOT/.vscode"
+                  install -m 644 "${vscodeExtensionsFile}" "$DEVENV_ROOT/.vscode/extensions.json"
                 fi
               ''}
 
