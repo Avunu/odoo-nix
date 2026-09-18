@@ -28,7 +28,10 @@ pkgs.testers.runNixOSTest {
       services.odoo-nix = {
         enable = true;
         package = builtOdoo;
-        dbName = "odoo";
+        # Deliberately not the role's name: a database named after the
+        # project, owned by the "odoo" role, is the production shape (and
+        # nixpkgs' ensureDBOwnership cannot express it).
+        dbName = "acme";
         database.createLocally = true;
         autoInit = true;
         withoutDemo = true;
@@ -69,8 +72,13 @@ pkgs.testers.runNixOSTest {
     assert info["result"]["server_serie"] == "${series}", info
 
     machine.succeed(
-        "sudo -u postgres psql -d odoo -tAc"
+        "sudo -u postgres psql -d acme -tAc"
         " \"select state from ir_module_module where name = 'base'\" | grep -x installed"
+    )
+    # The database is owned by the Odoo role although it is not named after it.
+    machine.succeed(
+        "sudo -u postgres psql -tAc"
+        " \"select pg_get_userbyid(datdba) from pg_database where datname = 'acme'\" | grep -x odoo"
     )
   '';
 }
