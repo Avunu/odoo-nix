@@ -271,12 +271,14 @@ Everything — dev shell, `services.odoo-nix`, and containers — shares one `od
 | `odoo db duplicate <src> <dest> [--neutralize]` | duplicate a database (schema + filestore) |
 | `odoo db rename <old> <new>` | rename a database (and its filestore) |
 | `odoo db drop <db> [--yes]` | drop a database and its filestore |
-| `odoo db backup [db\|--all] [--path DIR] [--keep N]` | dump database(s) (schema + filestore, zip) to `<data_dir>/backups/<db>/` by default |
+| `odoo db backup [db\|--all] [--path DIR] [--format zip\|dump] [--keep-days N]` | dump database(s) to `<data_dir>/backups/<db>/` by default; `zip` = schema + filestore (Odoo's own Database Manager format, the default), `dump` = plain `pg_dump` custom format, no filestore |
 | `odoo db restore <db> <backup-path> [--force] [--neutralize]` | restore a backup into `<db>`, with numbered progress |
 | `odoo module add [module …]` | pick more OCA modules → resolve + add repos → record in modules.txt → re-lock |
 | `odoo module add <git-url\|owner/repo> [branch] [path]` | add any third-party git repo as a submodule → record its module(s) → re-lock |
 | `odoo module add-bundle [name …]` | add a curated bundle of OCA modules (from data/oca-bundles.json) |
 | `odoo project update [--no-migrate]` | pull submodules, re-aggregate OCA Python deps, uv lock — then migrate every database, unless `--no-migrate` |
+| `odoo project backup [--format zip\|dump] [--path DIR] [--keep-days N]` | back up *every* database matching `dbfilter` in one call — no db argument needed, unlike `db backup` |
+| `odoo project restore --restore DB PATH [--restore DB2 PATH2 …] [--force] [--neutralize]` | restore one or more explicit database=backup pairs in a single batch (no "latest backup" auto-discovery — name each file) |
 | `odoo shell [db]` | Odoo Python REPL |
 | `odoo test <m[,m2]> [db]` | run module tests; refuses to run if a skipped browser tour would silently read as a pass |
 
@@ -284,7 +286,9 @@ After `odoo module add` / `odoo module add-bundle`, run `direnv reload` so the N
 
 `db upgrade`/`db migrate`/`db provision`'s progress comes from Odoo's own module-loading log records (read directly, not reimplemented) rendered as a live `rich` progress bar on a terminal, or narrated lines under a non-interactive stream (journald, CI) — either way ending in a summary table of what was touched, how long each module took, and which migration scripts ran. Odoo commits each module's upgrade as it completes, so a mid-migration failure is reported as "N modules already committed, module X failed" rather than implying an all-or-nothing rollback Odoo itself does not have.
 
-Production (`services.odoo-nix`) and the container image get the same binary and the same `db` subcommands — `docker exec`/`ssh` in and run `odoo db backup mydb`, `odoo db migrate mydb`, etc. `module`/`project` are dev-shell only (no git checkout, no modules.txt, in an assembled `/nix/store` deployment) and fail with a clear message rather than a bare traceback if invoked there.
+Backup naming and layout match the OCA [`auto_backup`](https://github.com/OCA/server-tools/tree/18.0/auto_backup) module's own convention exactly — `<data_dir>/backups/<db>/<timestamp>.dump.zip` (or `.dump` for `--format dump`), timestamp `YYYY_MM_DD_HH_MM_SS`, no db name in the filename since the folder already carries it — so backups produced by this CLI and by an installed `auto_backup` module are interchangeable in the same folder. `--keep-days` prunes the same way `auto_backup`'s own retention does: any backup file whose name sorts lexicographically before "now minus N days" (formatted the same way) is deleted, no `stat()` calls needed since the zero-padded timestamp sorts correctly as a string. `project backup` writes each database into its own `<path>/<db>/` subfolder rather than one flat directory, since two databases backed up in the same second would otherwise collide on that db-name-free filename.
+
+Production (`services.odoo-nix`) and the container image get the same binary and the same `db` subcommands, plus `project backup`/`project restore` (pure `odoo.service.db` wrappers, no workspace needed) — `docker exec`/`ssh` in and run `odoo db backup mydb`, `odoo project backup`, `odoo db migrate mydb`, etc. `module add[-bundle]`/`project update` are dev-shell only (no git checkout, no modules.txt, in an assembled `/nix/store` deployment) and fail with a clear message rather than a bare traceback if invoked there.
 
 ### Adding a third-party module repo
 
