@@ -965,11 +965,21 @@ in
                   fi
                 fi
               ''}
-              # Initialize git submodules (src/odoo + src/external/*) if needed.
-              if git submodule status 2>/dev/null | grep -q '^-'; then
+              # Initialize any git submodule that has never been cloned --
+              # scoped to just those paths, so an already-initialized
+              # submodule is never touched here even if its checked-out
+              # commit differs from what the superproject's index records.
+              # That divergent state is exactly what `odoo project update`
+              # leaves things in until the new pointers are committed; a
+              # blanket `git submodule update` (no path restriction) would
+              # silently reset it back on every shell entry -- submodules
+              # should only ever move via an explicit `odoo project update`.
+              mapfile -t _uninit_submodules < <(git submodule status 2>/dev/null | awk '/^-/ {print $2}')
+              if [ "''${#_uninit_submodules[@]}" -gt 0 ]; then
                 echo "Initializing git submodules…"
-                git submodule update --init --recursive
+                git submodule update --init --recursive -- "''${_uninit_submodules[@]}"
               fi
+              unset _uninit_submodules
 
               # Symlink the Nix-synthesized odoo.conf into place (read-only store
               # target; odoo-bin -c consumes it, never rewrites it).
