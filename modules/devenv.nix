@@ -810,7 +810,16 @@ in
               with pkgs;
               [
                 pythonEnvs.devPythonEnv
-                odooCliDev
+                # hiPrio: OCB itself ships a console-script entry point named
+                # `odoo` (installed by uv2nix into devPythonEnv), colliding
+                # with this CLI's own `bin/odoo`. devenv orders `packages` by
+                # meta.priority precisely for this -- "packages wrapped with
+                # lib.hiPrio shadow other packages that ship a program with
+                # the same name" (devenv's own top-level.nix) -- rather than
+                # relying on list order, which the two already silently
+                # collided on once (OCB's script winning, shadowing this one)
+                # before this was diagnosed.
+                (lib.hiPrio odooCliDev)
 
                 # Odoo runtime / asset tooling
                 cfg.nodejs
