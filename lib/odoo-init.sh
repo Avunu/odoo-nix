@@ -230,5 +230,5 @@ Next steps:
   cd $target
   direnv allow            # or: nix develop --no-pure-eval
   devenv up               # start postgres + odoo + mailpit
-  provision-db            # (another shell) create DB + install modules
+  odoo db provision       # (another shell) create DB + install modules
 EOF

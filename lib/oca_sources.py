@@ -81,13 +81,13 @@ def update(pyproject, modules_txt, modules_dir, custom_dir, core_src):
         roots = [ln.strip() for ln in open(modules_txt, encoding="utf-8") if ln.strip()]
     # Only emit roots that exist locally; a root whose repo isn't cloned would
     # make uv fall back to PyPI (version conflicts). Warn so the user can add it
-    # via odoo-add-module (which clones its repo).
+    # via `odoo module add` (which clones its repo).
     local_roots = [m for m in roots if m in sources]
     missing = [m for m in roots if m not in sources]
     if missing:
         sys.stderr.write(
             "odoo-nix: note — install modules not found on disk (skipped; "
-            "add them with odoo-add-module to clone their repo): "
+            "add them with `odoo module add` to clone their repo): "
             + ", ".join(sorted(missing)) + "\n"
         )
 

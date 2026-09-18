@@ -76,6 +76,18 @@ let
     odooPythonEnv = pythonEnvs.odooPythonEnv;
   };
 
+  # The `odoo` CLI, production-shaped (no workspace scripts -- this fixture
+  # is not a git checkout): exercises the same wrapper NixOS/containers get.
+  odooCli = import ../lib/cli.nix {
+    inherit pkgs lib;
+    python = python;
+    name = "${projectName}-cli";
+    rawOdooBin = "${builtOdoo}/bin/odoo";
+    mirrorTree = builtOdoo;
+    targetPythonEnv = pythonEnvs.odooPythonEnv;
+    cliScripts = null;
+  };
+
   # addons_path for the sandboxed runs: the assembled package's roots, plus
   # odoo-nix's own addons so dev_mailcatch is loadable server-wide -- the dev
   # shell's shape (devenv.nix, extraAddonsAbs), re-rooted on the store copy.
@@ -223,9 +235,8 @@ in
     '';
 
     # The fixture addon's Odoo tests, with the test env (prod wheels + dev
-    # group). Odoo reports a skipped test exactly like a passed one (see the
-    # odoo-test script in lib/scripts.nix), so the stats line must show the
-    # module's tests actually ran.
+    # group). Odoo reports a skipped test exactly like a passed one, so the
+    # stats line must show the module's tests actually ran.
     odoo-test = mkCheck "odoo-test-${major}" pg ''
       ${pythonEnvs.testPythonEnv}/bin/python ${builtOdoo}/odoo/odoo-bin ${odooArgs} \
         -i ${fixtureAddon} --test-enable --test-tags /${fixtureAddon} 2>&1 | tee odoo.log
@@ -234,6 +245,54 @@ in
       grep -E ' 0 failed, 0 error\(s\) of [1-9][0-9]* tests' odoo.log
       grep -q 'dev_mailcatch ACTIVE .* 127.0.0.1:${toString mailcatchPort}' odoo.log
       ${installed fixtureAddon}
+    '';
+
+    # The `odoo` CLI end to end: passthrough (--help/--version), then a full
+    # db lifecycle (provision a fresh database -- the create-if-missing path
+    # `Registry.new()` itself does not cover -- migrate, backup, drop,
+    # restore) against a *different* database than the one `pg`/PGDATABASE
+    # pre-creates, exercising --db-host/--db-user the same way odooArgs does
+    # for the raw odoo-bin checks above.
+    cli-lifecycle = mkCheck "cli-lifecycle-${major}" pg ''
+      DBFLAGS="--db-host $PGHOST --db-user $PGUSER"
+      CLIDB="odoo_nix_cli_${major}"
+
+      ${odooCli}/bin/odoo --help | grep -q "Commands:"
+      ${odooCli}/bin/odoo db --help | grep -q migrate
+      ${odooCli}/bin/odoo --version | tee version.txt
+      grep -qx 'Odoo Server ${series}' version.txt
+
+      # New database: provision creates it (base only -- no modules.txt at
+      # this cwd) since Registry.new() itself assumes the database exists.
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$CLIDB" 2>&1 | tee provision.log
+      ! grep -qE ' (ERROR|CRITICAL) ' provision.log
+      grep -q "provisioned '$CLIDB'" provision.log
+      psql -d "$CLIDB" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
+
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db list | grep -q "$CLIDB"
+
+      # Idempotent re-run: provision on an existing database migrates
+      # instead of reinstalling, through the same progress-summary path
+      # `db migrate` uses.
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$CLIDB" --no-backup 2>&1 | tee reprovision.log
+      ! grep -qE ' (ERROR|CRITICAL) ' reprovision.log
+      grep -q 'already exists' reprovision.log
+      grep -q 'migrated in' reprovision.log
+
+      # Backup, drop, restore.
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db backup "$CLIDB" --path ./backups 2>&1 | tee backup.log
+      grep -q "$CLIDB →" backup.log
+      BACKUP_FILE=$(ls ./backups/*.zip | head -n1)
+      test -n "$BACKUP_FILE"
+
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db drop "$CLIDB" --yes
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db list > after-drop.log
+      ! grep -q "$CLIDB" after-drop.log
+
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$CLIDB" "$BACKUP_FILE" 2>&1 | tee restore.log
+      grep -q "restored '$CLIDB'" restore.log
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db list | grep -q "$CLIDB"
+      psql -d "$CLIDB" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
     '';
 
     module-odoo = import ./module-odoo.nix {
