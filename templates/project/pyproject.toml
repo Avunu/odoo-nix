@@ -49,6 +49,14 @@ dev = [
 # (every module's external_dependencies.python + Odoo's own requirements).
 package = false
 
+# gevent < 23.7 -- including 22.10.2, Odoo 18's own pin for Python 3.11 --
+# imports pkg_resources, and setuptools >= 81 no longer ships it, so the
+# `odoo-bin gevent` websocket worker dies at import while the dev shell
+# (workers = 0, websockets in-process) never notices. A fresh lock resolves a
+# current gevent and pulls in no setuptools at all, so this is inert until
+# something pins gevent back; it then keeps a working setuptools alongside.
+constraint-dependencies = ["setuptools<81"]
+
 # Editable path sources for OCB `odoo` + every local OCA/custom module. Modules
 # are modern whool packages whose metadata declares their deps; uv reads them.
 # Auto-generated (lib/oca_sources.py) — do not edit by hand.

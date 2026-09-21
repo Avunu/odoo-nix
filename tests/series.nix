@@ -221,6 +221,16 @@ in
       grep -q '${pythonEnvs.odooPythonEnv}/bin/python' ${builtOdoo}/bin/odoo
       ${builtOdoo}/bin/odoo --version | tee version.txt
       grep -qx 'Odoo Server ${series}' version.txt
+      # The websocket worker is a separate `odoo-bin gevent` process that only
+      # a multi-worker server spawns. Every other check here runs workers = 0,
+      # as does the dev shell, so this is the one place its import path --
+      # odoo/__init__.py's argv[1] == 'gevent' branch, gevent.monkey.patch_all()
+      # before anything else is imported -- is exercised. A consumer's lock
+      # once carried gevent 22.10.2 (Odoo's own 3.11 pin), which imports
+      # pkg_resources, and setuptools 82, which no longer ships it: the dev
+      # shell was fine and production crash-looped.
+      ${builtOdoo}/bin/odoo gevent --version | tee gevent-version.txt
+      grep -qx 'Odoo Server ${series}' gevent-version.txt
     '';
 
     # `-i base` through the production wrapper. `web` is auto_install with
