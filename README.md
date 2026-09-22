@@ -267,7 +267,7 @@ Everything — dev shell, `services.odoo-nix`, and containers — shares one `od
 | `odoo db create <db> [--demo] [--lang]` | create an empty database (no modules installed) |
 | `odoo db provision [db]` | create + install everything in modules.txt (new database), or migrate it (existing) — idempotent |
 | `odoo db upgrade <m[,m2]> [db\|--all]` | upgrade module(s) (-u), with a live progress bar and a per-module summary table |
-| `odoo db migrate [db\|--all] [--no-backup]` | upgrade every installed module (-u all) — run after pulling new code; backs itself up first unless `--no-backup` |
+| `odoo db migrate [db\|--all] [--full] [--if-needed] [--also m,…] [--snapshot zip\|dump\|none] [--keep N] [--rollback] [--provision-if-empty]` | update the modules whose code or version changed (see [Migrations](#migrations)) — run after pulling new code; snapshots first (`zip` by default), `--rollback` restores it on failure, `--full` is `-u all` |
 | `odoo db duplicate <src> <dest> [--neutralize]` | duplicate a database (schema + filestore) |
 | `odoo db rename <old> <new>` | rename a database (and its filestore) |
 | `odoo db drop <db> [--yes]` | drop a database and its filestore |
@@ -287,6 +287,19 @@ After `odoo module add` / `odoo module add-bundle`, run `direnv reload` so the N
 `db upgrade`/`db migrate`/`db provision`'s progress comes from Odoo's own module-loading log records (read directly, not reimplemented) rendered as a live `rich` progress bar on a terminal, or narrated lines under a non-interactive stream (journald, CI) — either way ending in a summary table of what was touched, how long each module took, and which migration scripts ran. Odoo commits each module's upgrade as it completes, so a mid-migration failure is reported as "N modules already committed, module X failed" rather than implying an all-or-nothing rollback Odoo itself does not have.
 
 Backup naming and layout match the OCA [`auto_backup`](https://github.com/OCA/server-tools/tree/18.0/auto_backup) module's own convention exactly — `<data_dir>/backups/<db>/<timestamp>.dump.zip` (or `.dump` for `--format dump`), timestamp `YYYY_MM_DD_HH_MM_SS`, no db name in the filename since the folder already carries it — so backups produced by this CLI and by an installed `auto_backup` module are interchangeable in the same folder. `--keep-days` prunes the same way `auto_backup`'s own retention does: any backup file whose name sorts lexicographically before "now minus N days" (formatted the same way) is deleted, no `stat()` calls needed since the zero-padded timestamp sorts correctly as a string. `project backup` writes each database into its own `<path>/<db>/` subfolder rather than one flat directory, since two databases backed up in the same second would otherwise collide on that db-name-free filename.
+
+#### Migrations
+
+`odoo db migrate` updates what changed, not everything. Two signals put a module in the update set:
+
+- **its content checksum** differs from the one stored the last time a migration of this database succeeded — Odoo only creates columns, reloads views and data, and runs migration scripts for modules being updated, so changed code without `-u` leaves the schema silently behind it;
+- **version drift**: `ir_module_module.latest_version` is behind the manifest on disk — a database restored from somewhere its modules were never updated.
+
+The checksums use OCA [`module_auto_update`](https://github.com/OCA/server-tools/tree/18.0/module_auto_update)'s algorithm and storage (`module_auto_update.installed_checksums`, honouring `module_auto_update.exclude_patterns`), so it, `click-odoo-update` and this CLI agree on what changed and can share a database. A database with no stored checksums is updated in full once, as a baseline; `db provision` records the baseline for a fresh install. The plan is printed before anything runs: `3 module(s) to update: queue_job (18.0.3.4.1 → 18.0.4.0.0), sale_x (code changed), …`.
+
+Production builds also record which build migrated the database (`odoo_nix.migrated_build`), and `--if-needed` exits after one query when it matches — the no-op path every start of `services.odoo-nix` takes. The marker lives in the database, not on disk, so restoring a dump from elsewhere is itself what triggers the next migration.
+
+The safety net: an advisory lock (a manual migration and a deploy cannot run at once); a snapshot verified readable before anything relies on it, in `<data_dir>/backups/<db>/premigrate/` so `--keep N` never prunes a backup somebody took on purpose (and never prunes after a failure); and `--rollback`, which drops and recreates the database with the same encoding and collation and loads the snapshot. The filestore is left alone — attachments are content-addressed and only ever added — which is also why rollback does not use Odoo's own `exp_drop` (it deletes the filestore) or `restore_db` (it loads the new code against the restored old schema). An uninitialised database is skipped with exit 0, or provisioned with `--provision-if-empty`.
 
 Production (`services.odoo-nix`) and the container image get the same binary and the same `db` subcommands, plus `project backup`/`project restore` (pure `odoo.service.db` wrappers, no workspace needed) — `docker exec`/`ssh` in and run `odoo db backup mydb`, `odoo project backup`, `odoo db migrate mydb`, etc. `module add[-bundle]`/`project update` are dev-shell only (no git checkout, no modules.txt, in an assembled `/nix/store` deployment) and fail with a clear message rather than a bare traceback if invoked there.
 
@@ -436,7 +449,18 @@ A standalone NixOS module (imported separately from the flake-parts module). One
 }
 ```
 
-Key options: `package`, `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port,user,passwordFile,extensions,ensureExtensions}`, `adminPasswordFile`, `settings` (extra `[options]`), `update` (modules to upgrade on deploy — runs through `odoo db upgrade` at service start, same progress summary as the CLI, degraded to plain lines under journald), `autoInit`, `nginx.{enable,domain}`, `logging.{level,handlers,db,dbLevel,file,rotate}` (`rotate` wires up `services.logrotate` against `logging.file`; Odoo's own `WatchedFileHandler` picks up the rotated file automatically, no reload needed).
+Key options: `package` (the CLI package — `packages.default` — which `migrate` requires), `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port,user,passwordFile,extensions,ensureExtensions}`, `adminPasswordFile`, `settings` (extra `[options]`), `migrate.{enable,full,snapshot,rollbackOnFailure,snapshotRetention,timeout}` (below), `update` (modules to update on every deploy even when unchanged), `autoInit` (install `base` + `<stateDir>/modules.txt` into an empty database), `nginx.{enable,domain}`, `logging.{level,handlers,db,dbLevel,file,rotate}` (`rotate` wires up `services.logrotate` against `logging.file`; Odoo's own `WatchedFileHandler` picks up the rotated file automatically, no reload needed).
+
+### Migrations on deploy
+
+The schema follows the code by itself. `odoo-migrate.service` runs `odoo db migrate <dbName> --if-needed --snapshot dump --keep <snapshotRetention> --rollback` (see [Migrations](#migrations)) before **every** start of `odoo.service`: it is a oneshot without `RemainAfterExit`, and `odoo.service` both `Requires` and orders `After` it. So:
+
+- **a deploy** (switch-to-configuration stops `odoo.service` when its unit changes and starts it again) updates exactly the modules whose code or version changed, with Odoo stopped — no worker, cron or `queue_job` runner touches the database mid-update;
+- **a restart of the same build** — a reboot, `systemctl restart odoo`, a crash — costs one query;
+- **a restored dump** carries another build's marker (or none), so the next start migrates it: no manual `-u` after a restore;
+- **a failed migration** is rolled back to its snapshot and `odoo.service` **does not start**. New code on a schema it was not migrated to fails in ways nothing reports — `queue_job`'s runner quietly pauses itself (`database schema is outdated, -u queue_job required`) while every job sits in `pending` — so Odoo stays down and the failure is the unit's, where monitoring sees it. Recover with a fixed deploy or a rollback of the system generation.
+
+The first start on a database with no stored checksums updates every module once to establish the baseline; on a large database that takes minutes, hence `migrate.timeout` defaulting to no limit. `autoInit` provisions an empty database here too (`--provision-if-empty`); without it an empty database is skipped and Odoo starts, so a dump can be restored into it. `migrate.enable = false` restores the old behaviour (`autoInit`'s `-i base` and `update`'s `odoo db upgrade` in `ExecStartPre`, no detection, no snapshot).
 
 PostGIS (OCA `base_geoengine`): `database.extensions = ps: [ ps.postgis ];` builds it into the local server and `database.ensureExtensions = [ "postgis" "postgis_topology" ];` creates both in `dbName` as the `postgres` superuser. The module's `pre_init_hook` tries to create them itself, which only works for a superuser — the dev shell's role is one, the production role is not.
 
@@ -475,8 +499,9 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `odoo-init-<18\|19>` | `-i base` against an in-sandbox PostgreSQL (`postgresqlTestHook`, unix socket); `web` installed proves the second core root, the `dev_mailcatch` banner proves `extraAddonsAbs` |
 | `odoo-test-<18\|19>` | installs the fixture addon `tests/fixtures/<series>/custom/odoo_nix_fixture` and runs its Odoo tests (ORM round-trip + the `dev_mailcatch` redirection), asserting the stats line shows they ran |
 | `cli-lifecycle-<18\|19>` | the `odoo` CLI end to end against an in-sandbox PostgreSQL: passthrough (`--help`/`--version`), then `db provision` → `db provision` again (idempotent migrate path) → `db backup` → `db drop` → `db restore`, on a database distinct from the one the other checks use |
+| `cli-migrate-<18\|19>` | `odoo db migrate` from build to build, the way `odoo-migrate.service` runs it: provision records the baseline; the same build is a one-query no-op; v2 of the fixture (`tests/fixtures/migrate`) updates **only** the fixture — new column, post-migrate script, new build recorded; version drift with unchanged checksums is still migrated; v3's migration commits a change and then fails, and the database is back exactly as v2 left it; `--keep` prunes only after a success; an uninitialised database is skipped |
 | `module-nginx` | `services.odoo-nix`'s nginx/socket contract, with a stub Odoo that echoes headers (needs KVM) |
-| `module-odoo-<18\|19>` | `services.odoo-nix` with the real `builtOdoo`: `autoInit`, `/web/login` via nginx and directly, `version_info` (needs KVM) |
+| `module-odoo-<18\|19>` | `services.odoo-nix` with the real CLI package: `odoo-migrate` provisions the empty database before `odoo.service` starts, `/web/login` via nginx and directly, `version_info`; a restart migrates nothing; deploying v2 (a specialisation) migrates the changed module; deploying v3 fails the migration, rolls it back and leaves `odoo.service` **down**; redeploying v2 recovers (needs KVM) |
 
 Everything that runs Odoo or a VM is Linux-only; eval checks and `lock-fresh` run on every system. `nix develop` gives a shell for working on odoo-nix itself (`uv`, `nixfmt`, `odoo-nix-relock`); consumers get their devenv shell from the flake-parts module instead.
 
@@ -551,7 +576,7 @@ data/
 templates/project/           # scaffolder template (thin flake + pyproject + README)
 tests/
   eval.nix                   # pure assertions over lib/addons.nix + lib/odoo-conf.nix
-  series.nix                 # per-series real-Odoo checks (builtOdoo, odoo-init, odoo-test, cli-lifecycle, module-odoo)
+  series.nix                 # per-series real-Odoo checks (builtOdoo, odoo-init, odoo-test, cli-lifecycle, cli-migrate, module-odoo)
   module-nginx.nix           # NixOS VM test: nginx/socket contract (stub Odoo)
   module-odoo.nix            # NixOS VM test: services.odoo-nix with the real builtOdoo
   lock_fresh.py              # uv.lock ↔ pinned OCB consistency

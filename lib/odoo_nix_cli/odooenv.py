@@ -214,14 +214,33 @@ def _quiet_module_descriptions():
 def run_module_update(db_name: str, *, update: list[str] | None = None, install: list[str] | None = None) -> None:
     """Trigger Odoo's own module load/upgrade loop for one database -- the
     same call odoo-bin's own -u/-i/--stop-after-init makes (Registry.new),
-    just invoked in-process instead of as a subprocess. `update=["all"]`
-    reproduces `--update all` exactly (odoo/modules/graph.py expands the
-    literal 'all' sentinel per module as the dependency graph is built, not
-    via a one-time module-name lookup)."""
+    just invoked in-process instead of as a subprocess.
+
+    Two APIs, detected rather than keyed on a version number:
+
+    - 18.0 and older read the lists from odoo.tools.config['init'] /
+      ['update']; `update=["all"]` reproduces `--update all` exactly
+      (odoo/modules/graph.py expands the literal 'all' sentinel per module as
+      the dependency graph is built).
+    - 19.0 takes them as Registry.new(install_modules=, upgrade_modules=)
+      keywords and no longer reads config for this at all -- setting config
+      alone installs and updates *nothing*, silently. Its own `-u all` is
+      "upgrade base" (tools/config.py), which button_upgrade cascades to every
+      module depending on it, i.e. all of them.
+    """
+    import inspect
+
     import odoo.tools
     from odoo.modules.registry import Registry
 
-    odoo.tools.config["init"] = dict.fromkeys(install or [], 1)
-    odoo.tools.config["update"] = dict.fromkeys(update or [], 1)
+    install = list(install or [])
+    update = list(update or [])
+    update_module = bool(update) or bool(install)
     with _quiet_module_descriptions():
-        Registry.new(db_name, update_module=bool(update) or bool(install))
+        if "upgrade_modules" in inspect.signature(Registry.new).parameters:
+            upgrade = {"base"} if "all" in update else set(update)
+            Registry.new(db_name, update_module=update_module, install_modules=install, upgrade_modules=upgrade)
+        else:
+            odoo.tools.config["init"] = dict.fromkeys(install, 1)
+            odoo.tools.config["update"] = dict.fromkeys(update, 1)
+            Registry.new(db_name, update_module=update_module)

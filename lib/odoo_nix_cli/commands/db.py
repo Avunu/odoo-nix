@@ -10,20 +10,33 @@ ergonomics around them.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import os
+import subprocess
 import sys
+import tempfile
 import time
+import zipfile
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
 from rich.console import Console
 from rich.table import Table
 
-from .. import odooenv
+from .. import migrate_plan, odooenv
 from ..progress import MigrationProgress
 
 console = Console()
+
+
+def say(*objects, **kwargs) -> None:
+    """console.print without wrapping. Off a terminal (journald, CI) rich
+    wraps at 80 columns, which splits one log line -- a migration plan, a
+    snapshot path -- into several."""
+    console.print(*objects, soft_wrap=True, **kwargs)
 
 
 def _load(ctx):
@@ -92,14 +105,19 @@ def db_provision(ctx, db_name, modules_file, no_backup):
 
     from odoo.service import db as odoo_db
 
-    exists = odoo_db.exp_db_exist(target)
-    if exists and _has_odoo_schema(target):
+    if odoo_db.exp_db_exist(target) and _has_odoo_schema(target):
         console.print(f"==> '{target}' already exists — migrating instead of installing.")
-        _migrate_one(target, no_backup)
+        _migrate_one(target, MigrateOptions(snapshot="none" if no_backup else "zip"))
         return
+    _provision_one(target, Path(modules_file))
 
-    modules = _read_modules_file(Path(modules_file))
-    console.print(f"==> Provisioning '{target}' with: base,{','.join(modules)}" if modules else f"==> Provisioning '{target}' with: base")
+
+def _provision_one(target: str, modules_file: Path) -> None:
+    from odoo.service import db as odoo_db
+
+    exists = odoo_db.exp_db_exist(target)
+    modules = _read_modules_file(modules_file)
+    say(f"==> Provisioning '{target}' with: base,{','.join(modules)}" if modules else f"==> Provisioning '{target}' with: base")
     if not exists:
         # Registry.new() (what run_module_update calls) opens a cursor
         # against an existing database -- it does not create one. odoo-bin's
@@ -112,6 +130,9 @@ def db_provision(ctx, db_name, modules_file, no_backup):
         odoo_db._create_empty_database(target)
     with MigrationProgress(target, console):
         odooenv.run_module_update(target, install=["base"] + modules)
+    # A fresh install is the checksum baseline: without it, the first
+    # migrate after provisioning would update every module all over again.
+    _record_success(target)
     console.print(f"[green]✓[/] provisioned '{target}'")
 
 
@@ -150,21 +171,295 @@ def _upgrade_one(db_name: str, modules: list[str]) -> None:
 @db_group.command("migrate")
 @click.argument("database", required=False)
 @click.option("--all", "all_dbs", is_flag=True, help="Migrate every database matching dbfilter.")
-@click.option("--no-backup", is_flag=True, help="Skip the automatic pre-migrate backup.")
+@click.option(
+    "--full",
+    is_flag=True,
+    help="Update every installed module (-u all) instead of only the ones whose code or version changed.",
+)
+@click.option(
+    "--if-needed",
+    is_flag=True,
+    help="Do nothing when this build ($ODOO_NIX_BUILD) already migrated the database.",
+)
+@click.option("--also", default="", help="Comma-separated modules to update even when unchanged.")
+@click.option(
+    "--snapshot",
+    type=click.Choice(["zip", "dump", "none"]),
+    default="zip",
+    show_default=True,
+    help="Pre-migrate snapshot: zip = schema + filestore; dump = pg_dump custom format, schema only; none = no snapshot.",
+)
+@click.option("--no-backup", is_flag=True, help="Same as --snapshot none.")
+@click.option(
+    "--keep",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Keep only the N newest pre-migrate snapshots of each database (0 = keep all).",
+)
+@click.option(
+    "--rollback",
+    is_flag=True,
+    help="If the update fails, restore the database from the pre-migrate snapshot before exiting non-zero.",
+)
+@click.option(
+    "--provision-if-empty",
+    is_flag=True,
+    help="Install base (+ --modules-file) when the database has no Odoo schema, instead of skipping it.",
+)
+@click.option("--modules-file", default="modules.txt", show_default=True, type=click.Path())
 @click.pass_context
-def db_migrate(ctx, database, all_dbs, no_backup):
-    """Upgrade every installed module (-u all), with an automatic backup first."""
+def db_migrate(
+    ctx,
+    database,
+    all_dbs,
+    full,
+    if_needed,
+    also,
+    snapshot,
+    no_backup,
+    keep,
+    rollback,
+    provision_if_empty,
+    modules_file,
+):
+    """Update the modules whose code or version changed, with a snapshot first.
+
+    Change detection compares each module's content checksum with the one
+    stored when this database was last migrated (OCA module_auto_update's
+    algorithm and parameter, so the three tools agree), and its recorded
+    version with its manifest. A database that has never recorded checksums
+    is updated in full once, as a baseline.
+    """
     odoo_config = _load(ctx)
+    if rollback and (no_backup or snapshot == "none"):
+        raise click.UsageError("--rollback needs a snapshot to roll back to (drop --no-backup / --snapshot none).")
+    options = MigrateOptions(
+        full=full,
+        if_needed=if_needed,
+        also=[m.strip() for m in also.split(",") if m.strip()],
+        snapshot="none" if no_backup else snapshot,
+        keep=keep,
+        rollback=rollback,
+        provision_if_empty=provision_if_empty,
+        modules_file=Path(modules_file),
+    )
     targets = odooenv.list_target_databases(database, all_dbs, odoo_config)
-    _run_multi(targets, lambda name: _migrate_one(name, no_backup))
+    _run_multi(targets, lambda name: _migrate_one(name, options))
 
 
-def _migrate_one(db_name: str, no_backup: bool) -> None:
-    if not no_backup:
-        console.print(f"==> backing up '{db_name}' before migrating…")
-        _backup_one(db_name, None)
-    with MigrationProgress(db_name, console):
-        odooenv.run_module_update(db_name, update=["all"])
+@dataclass
+class MigrateOptions:
+    full: bool = False
+    if_needed: bool = False
+    also: list[str] = field(default_factory=list)
+    snapshot: str = "zip"
+    keep: int = 0
+    rollback: bool = False
+    provision_if_empty: bool = False
+    modules_file: Path = Path("modules.txt")
+
+
+def _current_build() -> str | None:
+    """The store path of the build doing the migration -- the value
+    migrate_plan records as odoo_nix.migrated_build. lib/cli.nix sets it only
+    for store-assembled (production) builds: a dev shell runs editable code
+    whose store path does not change when the code does, so it gets no fast
+    path and always runs change detection."""
+    return os.environ.get("ODOO_NIX_BUILD") or None
+
+
+def _migrate_one(db_name: str, options: MigrateOptions | None = None) -> None:
+    options = options or MigrateOptions()
+    from odoo.service import db as odoo_db
+
+    if not (odoo_db.exp_db_exist(db_name) and _has_odoo_schema(db_name)):
+        if options.provision_if_empty:
+            _provision_one(db_name, options.modules_file)
+            return
+        # Installing or restoring a database is an operator's decision, not a
+        # deploy's: say what is missing and succeed, so one uninitialised
+        # database does not fail every start of the service around it.
+        say(
+            f"==> '{db_name}' has no Odoo schema — not initialised; skipping migrate. Provision or restore it, then restart."
+        )
+        return
+
+    build = _current_build()
+    with _migration_lock(db_name):
+        import odoo.sql_db
+
+        with odoo.sql_db.db_connect(db_name).cursor() as cr:
+            if options.if_needed and build and migrate_plan.get_param(cr, migrate_plan.PARAM_MIGRATED_BUILD) == build:
+                say(f"[green]✓[/] {db_name}: already migrated by this build — up to date")
+                return
+            plan = migrate_plan.build_plan(cr, full=options.full, also=options.also)
+
+        say(f"==> {db_name}: {plan.describe()}")
+        if plan.missing:
+            say(
+                f"    [yellow]installed but not on the addons path (left alone):[/] {', '.join(plan.missing)}"
+            )
+        if plan.empty:
+            _record_success(db_name)
+            say(f"[green]✓[/] {db_name}: up to date")
+            return
+
+        snap = None
+        if options.snapshot != "none":
+            say(f"==> snapshotting '{db_name}' before migrating…")
+            snap = _snapshot(db_name, options.snapshot)
+
+        try:
+            with MigrationProgress(db_name, console):
+                odooenv.run_module_update(db_name, update=plan.update)
+        except Exception:
+            if options.rollback and snap is not None:
+                _rollback(db_name, snap)
+            raise
+
+        _record_success(db_name)
+        if snap is not None and options.keep:
+            _prune_snapshots(snap.parent, options.keep)
+
+
+def _record_success(db_name: str) -> None:
+    import odoo.sql_db
+
+    with odoo.sql_db.db_connect(db_name).cursor() as cr:
+        migrate_plan.record_success(cr, _current_build())
+        cr.commit()
+
+
+# ── safety net: lock, snapshot, rollback ─────────────────────────────────────
+
+
+def _raw_connect(db_name: str):
+    """A plain psycopg2 connection with Odoo's own connection settings --
+    for the operations Odoo's pooled Cursor is the wrong tool for: holding a
+    session-level lock for the whole run, and dropping/creating a database."""
+    import psycopg2
+    import odoo.sql_db
+
+    _name, info = odoo.sql_db.connection_info_for(db_name)
+    conn = psycopg2.connect(**info)
+    conn.autocommit = True
+    return conn
+
+
+@contextlib.contextmanager
+def _migration_lock(db_name: str):
+    """A session advisory lock, so a manual `odoo db migrate` and a deploy
+    cannot update the same database at once. Taken in the `postgres`
+    database, not the target: advisory locks are per-database, and holding a
+    session open in the target would stop a rollback from dropping it."""
+    try:
+        conn = _raw_connect("postgres")
+    except Exception as exc:  # noqa: BLE001 -- the lock is a guard, not a precondition
+        say(f"[yellow]warning:[/] could not take the migration lock ({exc}); continuing without it")
+        yield
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (f"odoo_nix.migrate:{db_name}",))
+            if not cur.fetchone()[0]:
+                raise click.ClickException(f"another migration of '{db_name}' is already running")
+        yield
+    finally:
+        conn.close()
+
+
+def _snapshot(db_name: str, fmt: str) -> Path:
+    """A pre-migrate snapshot in its own folder next to the regular backups,
+    so count-based pruning (--keep) never touches a backup somebody took on
+    purpose. Verified before anything relies on it: dump_db() streams the
+    custom format straight from a pg_dump pipe and never checks its exit
+    status, so a failed dump would otherwise leave a truncated safety net."""
+    import odoo.tools
+
+    directory = Path(odoo.tools.config["data_dir"]) / "backups" / db_name / "premigrate"
+    snap = _backup_one(db_name, str(directory), fmt)
+    if fmt == "dump":
+        from odoo.tools.misc import exec_pg_environ, find_pg_tool
+
+        check = subprocess.run(
+            [find_pg_tool("pg_restore"), "--list", str(snap)],
+            env=exec_pg_environ(),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if check.returncode != 0 or snap.stat().st_size == 0:
+            snap.unlink(missing_ok=True)
+            raise click.ClickException(f"pre-migrate snapshot of '{db_name}' is unreadable: {check.stderr.strip()}")
+    return snap
+
+
+def _prune_snapshots(directory: Path, keep: int) -> None:
+    snaps = sorted(p for p in directory.iterdir() if p.is_file())
+    for stale in snaps[:-keep]:
+        stale.unlink()
+        say(f"  [dim]pruned {stale.name}[/]")
+
+
+def _rollback(db_name: str, snap: Path) -> None:
+    """Put the database back exactly as the snapshot has it.
+
+    Not odoo.service.db.exp_drop + restore_db: exp_drop also deletes the
+    filestore, which a schema-only snapshot cannot bring back (and the
+    filestore needs no rollback -- attachments are content-addressed and
+    only ever added), and restore_db loads a registry of the NEW code against
+    the restored OLD schema before returning, which is the very mismatch a
+    failed migration leaves behind. So: drop the database only, recreate it
+    with the same encoding and collation, load the snapshot, and stop there.
+    """
+    from psycopg2 import sql
+
+    import odoo.sql_db
+    from odoo.modules.registry import Registry
+    from odoo.tools.misc import exec_pg_environ, find_pg_tool
+
+    say(f"[bold red]==> rolling '{db_name}' back to {snap}[/]")
+    Registry.delete(db_name)
+    odoo.sql_db.close_db(db_name)
+
+    conn = _raw_connect("postgres")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pg_encoding_to_char(encoding), datcollate, datctype FROM pg_database WHERE datname = %s",
+                (db_name,),
+            )
+            encoding, collate, ctype = cur.fetchone()
+            cur.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
+                (db_name,),
+            )
+            cur.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(db_name)))
+            cur.execute(
+                sql.SQL("CREATE DATABASE {} ENCODING {} LC_COLLATE {} LC_CTYPE {} TEMPLATE template0").format(
+                    sql.Identifier(db_name), sql.Literal(encoding), sql.Literal(collate), sql.Literal(ctype)
+                )
+            )
+    finally:
+        conn.close()
+
+    env = exec_pg_environ()
+    with tempfile.TemporaryDirectory() as tmp:
+        if zipfile.is_zipfile(snap):
+            with zipfile.ZipFile(snap) as zf:
+                zf.extract("dump.sql", tmp)
+            cmd = [find_pg_tool("psql"), "-q", "-v", "ON_ERROR_STOP=1", f"--dbname={db_name}", "-f", os.path.join(tmp, "dump.sql")]
+        else:
+            cmd = [find_pg_tool("pg_restore"), "--no-owner", "--exit-on-error", f"--dbname={db_name}", str(snap)]
+        result = subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        say(
+            f"[bold red]✗ rollback of '{db_name}' FAILED — the database may be incomplete. "
+            f"Snapshot preserved at {snap}.[/]\n{result.stderr.strip()}"
+        )
+        return
+    say(f"[bold red]✗ {db_name}: migration failed; database restored from {snap}[/]")
 
 
 def _run_multi(
@@ -294,7 +589,7 @@ def _backup_one(db_name: str, out_dir: str | None, fmt: str = "zip", keep_days: 
     with open(dest, "wb") as stream:
         odoo_db.dump_db(db_name, stream, backup_format=fmt)
     elapsed = time.monotonic() - start
-    console.print(f"[green]✓[/] {db_name} → {dest}  ({_human_size(dest.stat().st_size)}, {elapsed:.1f}s)")
+    say(f"[green]✓[/] {db_name} → {dest}  ({_human_size(dest.stat().st_size)}, {elapsed:.1f}s)")
     if keep_days:
         _prune_backups_by_age(dest.parent, fmt, keep_days)
     return dest

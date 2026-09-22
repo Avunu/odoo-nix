@@ -788,7 +788,8 @@ in
         # services.odoo-nix and the container builder actually consume -- is
         # the CLI-wrapped production build: `${pkg}/bin/odoo` handles
         # db/module/project subcommands and passes anything else straight to
-        # the real odoo-bin at `${pkg}/bin/odoo.raw`.
+        # the real odoo-bin (`passthru.builtOdoo`'s bin/odoo, which the
+        # wrapper execs via $ODOO_NIX_RAW_ODOO).
         packages.builtOdoo = builtOdoo;
         packages.odooCli = odooCliDev;
         packages.default = odooCliProd;

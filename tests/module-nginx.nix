@@ -66,6 +66,8 @@ let
       package = stubOdoo;
       dbName = "odoo";
       database.createLocally = true;
+      # The stub has no `odoo db migrate`; module-odoo covers the migration.
+      migrate.enable = false;
     };
   };
 in

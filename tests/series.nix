@@ -78,15 +78,17 @@ let
 
   # The `odoo` CLI, production-shaped (no workspace scripts -- this fixture
   # is not a git checkout): exercises the same wrapper NixOS/containers get.
-  odooCli = import ../lib/cli.nix {
-    inherit pkgs lib;
-    python = python;
-    name = "${projectName}-cli";
-    rawOdooBin = "${builtOdoo}/bin/odoo";
-    mirrorTree = builtOdoo;
-    targetPythonEnv = pythonEnvs.odooPythonEnv;
-    cliScripts = null;
-  };
+  mkCli =
+    name: tree:
+    import ../lib/cli.nix {
+      inherit pkgs lib name;
+      python = python;
+      rawOdooBin = "${tree}/bin/odoo";
+      mirrorTree = tree;
+      targetPythonEnv = pythonEnvs.odooPythonEnv;
+      cliScripts = null;
+    };
+  odooCli = mkCli "${projectName}-cli" builtOdoo;
 
   # addons_path for the sandboxed runs: the assembled package's roots, plus
   # odoo-nix's own addons so dev_mailcatch is loadable server-wide -- the dev
@@ -97,51 +99,81 @@ let
     extraAddonsAbs = [ odooNixAddons ];
   };
 
-  confSynth = import ../lib/odoo-conf.nix {
-    inherit pkgs lib;
-    addonsPath = addons.addonsPathFor "${builtOdoo}";
-    odooConf = {
-      # Empty host/password = keys left out = unix socket, no password (the
-      # run passes --db_host=$PGHOST anyway).
-      dbHost = "";
-      dbPort = 5432;
-      dbUser = "odoo";
-      dbPassword = "";
-      dbName = null;
-      # Relative to CWD, which mkCheck sets to the build directory.
-      dataDir = "./odoo-data";
-      adminPasswd = "admin";
-      httpInterface = "127.0.0.1";
-      httpPort = 18069;
-      geventPort = 18072;
-      workers = 0;
-      logging = {
-        level = "test";
-        handlers = [ ];
-        db = false;
-        dbLevel = "warning";
-        file = null;
+  # One odoo.conf per assembled tree: addons_path points into it, so a
+  # migration check needs a conf for each build it runs.
+  mkConf =
+    tree:
+    (import ../lib/odoo-conf.nix {
+      inherit pkgs lib;
+      addonsPath = addons.addonsPathFor "${tree}";
+      odooConf = {
+        # Empty host/password = keys left out = unix socket, no password (the
+        # run passes --db_host=$PGHOST anyway).
+        dbHost = "";
+        dbPort = 5432;
+        dbUser = "odoo";
+        dbPassword = "";
+        dbName = null;
+        # Relative to CWD, which mkCheck sets to the build directory.
+        dataDir = "./odoo-data";
+        adminPasswd = "admin";
+        httpInterface = "127.0.0.1";
+        httpPort = 18069;
+        geventPort = 18072;
+        workers = 0;
+        logging = {
+          level = "test";
+          handlers = [ ];
+          db = false;
+          dbLevel = "warning";
+          file = null;
+        };
+        withoutDemo = true;
+        extra = { };
       };
-      withoutDemo = true;
-      extra = { };
+      # Mirrors devenv.nix: setting the key replaces Odoo's default set, and
+      # 19.0's default includes `rpc`.
+      serverWideModules = [
+        "base"
+      ]
+      ++ lib.optional is19 "rpc"
+      ++ [
+        "web"
+        "dev_mailcatch"
+      ];
+      extraSections.dev_mailcatch = {
+        enabled = true;
+        host = "127.0.0.1";
+        port = mailcatchPort;
+      };
+    }).odooConfFile;
+  conf = mkConf builtOdoo;
+
+  # Later builds of the same project for the migration checks: the fixture
+  # addon at 1.0.1 (a new field + a post-migrate script) and 1.0.2 (a
+  # migration that commits a change and then fails). Only custom/ differs --
+  # same OCB, same Python env -- so each is a cheap assembly plus its own
+  # production-shaped CLI, whose store path is the build identity the
+  # migration records.
+  mkBuild =
+    version:
+    let
+      tree = import ../lib/odoo.nix {
+        inherit pkgs lib layout;
+        workspaceRoot = ./fixtures/migrate + "/${version}";
+        projectName = "${projectName}-${version}";
+        odooSeries = series;
+        coreSource = ocb;
+        odooPythonEnv = pythonEnvs.odooPythonEnv;
+      };
+    in
+    {
+      inherit tree;
+      conf = mkConf tree;
+      cli = mkCli "${projectName}-${version}-cli" tree;
     };
-    # Mirrors devenv.nix: setting the key replaces Odoo's default set, and
-    # 19.0's default includes `rpc`.
-    serverWideModules = [
-      "base"
-    ]
-    ++ lib.optional is19 "rpc"
-    ++ [
-      "web"
-      "dev_mailcatch"
-    ];
-    extraSections.dev_mailcatch = {
-      enabled = true;
-      host = "127.0.0.1";
-      port = mailcatchPort;
-    };
-  };
-  conf = confSynth.odooConfFile;
+  v2 = mkBuild "v2";
+  v3 = mkBuild "v3";
 
   # In-sandbox PostgreSQL: postgresqlTestHook runs initdb + pg_ctl as the build
   # user on a unix socket under $NIX_BUILD_TOP/run/postgresql with TCP off, and
@@ -282,12 +314,13 @@ in
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db list | grep -q "$CLIDB"
 
       # Idempotent re-run: provision on an existing database migrates
-      # instead of reinstalling, through the same progress-summary path
-      # `db migrate` uses.
+      # instead of reinstalling -- and since provisioning recorded the
+      # checksum baseline and nothing changed since, that migration has
+      # nothing to update. (cli-migrate covers the runs that do.)
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$CLIDB" --no-backup 2>&1 | tee reprovision.log
       ! grep -qE ' (ERROR|CRITICAL) ' reprovision.log
       grep -q 'already exists' reprovision.log
-      grep -q 'migrated in' reprovision.log
+      grep -q 'up to date' reprovision.log
 
       # Backup, drop, restore.
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db backup "$CLIDB" --path ./backups 2>&1 | tee backup.log
@@ -371,8 +404,96 @@ in
       psql -d "$CLIDB2" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
     '';
 
+    # `odoo db migrate` from one build to the next, as the deploy-time
+    # migration runs it (odoo-migrate.service): change detection, the
+    # --if-needed fast path, version drift, a verified snapshot, rollback of
+    # a migration that fails after committing, snapshot retention, and an
+    # uninitialised database left alone.
+    cli-migrate = mkCheck "cli-migrate-${major}" pg ''
+      DBFLAGS="--db-host $PGHOST --db-user $PGUSER"
+      DB="odoo_nix_migrate_${major}"
+      SERVICE_ARGS="--if-needed --snapshot dump --keep 2 --rollback"
+      icp() { psql -d "$DB" -tAc "select value from ir_config_parameter where key = '$1'"; }
+      fixture_version() { psql -d "$DB" -tAc "select latest_version from ir_module_module where name = 'odoo_nix_fixture'"; }
+      snapshots() { find ./odoo-data/backups/"$DB"/premigrate -type f 2>/dev/null | wc -l; }
+      # `! grep` would not trip errexit (a negated pipeline never does).
+      no_errors() {
+        if grep -E ' (ERROR|CRITICAL) ' "$1"; then
+          echo "odoo-nix: errors in $1 (above)" >&2
+          exit 1
+        fi
+      }
+
+      # v1: provision installs base + the fixture and records the baseline
+      # (checksums + this build), so the first migrate is not a full -u all.
+      echo odoo_nix_fixture > modules.txt
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$DB" --modules-file modules.txt 2>&1 | tee v1.log
+      no_errors v1.log
+      grep -q "provisioned '$DB'" v1.log
+      test "$(icp odoo_nix.migrated_build)" = "${odooCli}"
+      icp module_auto_update.installed_checksums | grep -q '"odoo_nix_fixture"'
+
+      # Same build again: one query, no registry load.
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db migrate "$DB" $SERVICE_ARGS 2>&1 | tee v1-again.log
+      grep -q "already migrated by this build" v1-again.log
+      test "$(snapshots)" = 0
+
+      # v2: only the fixture changed, so only the fixture is updated -- its
+      # new column exists, its post-migrate ran, and v2 is recorded.
+      ${v2.cli}/bin/odoo -c ${v2.conf} $DBFLAGS db migrate "$DB" $SERVICE_ARGS 2>&1 | tee v2.log
+      no_errors v2.log
+      grep -q "1 module(s) to update: odoo_nix_fixture" v2.log
+      test "$(icp odoo_nix_fixture.migrated_to)" = "1.0.1"
+      test "$(fixture_version)" = "${series}.1.0.1"
+      psql -d "$DB" -tAc "select 1 from information_schema.columns where table_name = 'res_partner' and column_name = 'odoo_nix_fixture_flag'" | grep -qx 1
+      test "$(icp odoo_nix.migrated_build)" = "${v2.cli}"
+      test "$(snapshots)" = 1
+
+      # Version drift with unchanged checksums -- a database restored from
+      # somewhere its modules were never updated -- is still migrated. The
+      # build marker is cleared too, as a restored dump's would differ.
+      psql -d "$DB" -c "update ir_module_module set latest_version = '${series}.1.0.0' where name = 'odoo_nix_fixture'"
+      psql -d "$DB" -c "delete from ir_config_parameter where key = 'odoo_nix.migrated_build'"
+      ${v2.cli}/bin/odoo -c ${v2.conf} $DBFLAGS db migrate "$DB" $SERVICE_ARGS 2>&1 | tee drift.log
+      no_errors drift.log
+      grep -q "odoo_nix_fixture (${series}.1.0.0 → ${series}.1.0.1)" drift.log
+      test "$(fixture_version)" = "${series}.1.0.1"
+
+      # v3 fails after committing 'partial': non-zero exit, and the database
+      # is back exactly as v2 left it.
+      if ${v3.cli}/bin/odoo -c ${v3.conf} $DBFLAGS db migrate "$DB" $SERVICE_ARGS > v3.log 2>&1; then
+        cat v3.log; echo "odoo-nix: the failing v3 migration exited 0" >&2; exit 1
+      fi
+      cat v3.log
+      grep -q "database restored from" v3.log
+      test "$(icp odoo_nix_fixture.migrated_to)" = "1.0.1"
+      test "$(fixture_version)" = "${series}.1.0.1"
+      test "$(icp odoo_nix.migrated_build)" = "${v2.cli}"
+      # ...and v2 still runs on it: nothing left half-updated.
+      ${v2.cli}/bin/odoo -c ${v2.conf} $DBFLAGS db migrate "$DB" $SERVICE_ARGS 2>&1 | tee after-rollback.log
+      grep -q "already migrated by this build" after-rollback.log
+
+      # A failure never prunes: all three snapshots are still there, the
+      # one the rollback used included. The next successful migration
+      # applies --keep 2 (clearing the marker forces one; --also gives it
+      # something to update, so it snapshots).
+      test "$(snapshots)" = 3
+      psql -d "$DB" -c "delete from ir_config_parameter where key = 'odoo_nix.migrated_build'"
+      ${v2.cli}/bin/odoo -c ${v2.conf} $DBFLAGS db migrate "$DB" $SERVICE_ARGS --also odoo_nix_fixture 2>&1 | tee keep.log
+      no_errors keep.log
+      grep -q "odoo_nix_fixture (requested)" keep.log
+      test "$(snapshots)" = 2
+
+      # An uninitialised database is skipped, successfully.
+      createdb odoo_nix_empty_${major}
+      ${v2.cli}/bin/odoo -c ${v2.conf} $DBFLAGS db migrate odoo_nix_empty_${major} $SERVICE_ARGS 2>&1 | tee empty.log
+      grep -q "has no Odoo schema" empty.log
+    '';
+
     module-odoo = import ./module-odoo.nix {
-      inherit pkgs series builtOdoo;
+      inherit pkgs series odooCli;
+      odooCliV2 = v2.cli;
+      odooCliV3 = v3.cli;
       odooModule = ../modules/nixos.nix;
     };
   };
