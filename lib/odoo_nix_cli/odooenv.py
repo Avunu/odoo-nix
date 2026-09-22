@@ -13,6 +13,7 @@ need the same things `migrate` does.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 from pathlib import Path
@@ -178,6 +179,38 @@ def list_target_databases(explicit: str | None, all_flag: bool, odoo_config) -> 
     )
 
 
+@contextlib.contextmanager
+def _quiet_module_descriptions():
+    """ir.module.module._get_desc() renders every updated module's manifest
+    `description` as RST via docutils straight to stderr whenever the module
+    has no static/description/index.html (true for addons pulled in as raw
+    git checkouts, i.e. everything odoo-nix builds from -- even Odoo's own
+    `mail`). Those docutils messages never go through Odoo's logger, so
+    there's no --log-level/odoo.log knob for them; they're also almost never
+    actionable, since MyWriter already strips the corresponding nodes from
+    the rendered HTML before it reaches the Apps page. This raises docutils'
+    own report threshold above SEVERE for that one call so the routine
+    ERROR/WARNING/INFO noise is dropped, while halt_level (unset by Odoo,
+    so still its default 4/SEVERE) is untouched -- a truly broken
+    description still raises, and lands in ir_module's own `except Exception`
+    fallback, which *does* log through _logger with the module name attached."""
+    from odoo.addons.base.models import ir_module
+
+    orig_publish_string = ir_module.publish_string
+
+    def quiet_publish_string(*args, **kwargs):
+        overrides = dict(kwargs.get("settings_overrides") or {})
+        overrides.setdefault("report_level", 5)
+        kwargs["settings_overrides"] = overrides
+        return orig_publish_string(*args, **kwargs)
+
+    ir_module.publish_string = quiet_publish_string
+    try:
+        yield
+    finally:
+        ir_module.publish_string = orig_publish_string
+
+
 def run_module_update(db_name: str, *, update: list[str] | None = None, install: list[str] | None = None) -> None:
     """Trigger Odoo's own module load/upgrade loop for one database -- the
     same call odoo-bin's own -u/-i/--stop-after-init makes (Registry.new),
@@ -190,4 +223,5 @@ def run_module_update(db_name: str, *, update: list[str] | None = None, install:
 
     odoo.tools.config["init"] = dict.fromkeys(install or [], 1)
     odoo.tools.config["update"] = dict.fromkeys(update or [], 1)
-    Registry.new(db_name, update_module=bool(update) or bool(install))
+    with _quiet_module_descriptions():
+        Registry.new(db_name, update_module=bool(update) or bool(install))
