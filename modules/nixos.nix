@@ -9,6 +9,11 @@
 # via pkgs.formats.ini; an odoo-init oneshot copies it to a 0600 runtime file
 # and appends db_password / admin_passwd from secret files (ConfigParser
 # last-wins), so secret *values* never enter /nix/store.
+#
+# Schema follows code: odoo-migrate runs `odoo db migrate` before every start
+# of odoo.service and updates exactly the modules whose code or version
+# changed, behind a verified snapshot, rolling back on failure -- and
+# odoo.service does not start on a failed migration (see migrateScript).
 {
   config,
   lib,
@@ -146,6 +151,53 @@ let
     ''}
     chown ${cfg.user}:${cfg.group} ${runtimeConf} "${cfg.stateDir}/data"
   '';
+
+  mg = cfg.migrate;
+
+  # Nothing else brings the schema along with the code: Odoo creates columns,
+  # loads views and runs migration scripts only for modules being installed or
+  # updated, so a deploy that ships new module code -- or a database restored
+  # from somewhere else -- leaves the schema behind the code without a word.
+  # (queue_job then refused to run anything: "database schema is outdated, -u
+  # queue_job required", while every job sat in `pending`.)
+  #
+  # `odoo db migrate` decides what to update (content checksums stored in the
+  # database, plus manifest-version drift), snapshots first, and rolls back on
+  # failure. `--if-needed` makes the common case -- a restart of a build that
+  # already migrated this database -- one query. The marker is in the
+  # database, so restoring a dump from elsewhere is itself what triggers the
+  # next migration.
+  migrateArgs = lib.escapeShellArgs (
+    [
+      "-c"
+      runtimeConf
+      "db"
+      "migrate"
+    ]
+    ++ (if dbName != null then [ dbName ] else [ "--all" ])
+    ++ [ "--if-needed" ]
+    ++ lib.optional mg.full "--full"
+    ++ lib.optionals (cfg.update != [ ]) [
+      "--also"
+      (lib.concatStringsSep "," cfg.update)
+    ]
+    ++ (
+      if mg.snapshot then
+        [
+          "--snapshot"
+          "dump"
+          "--keep"
+          (toString mg.snapshotRetention)
+        ]
+        ++ lib.optional mg.rollbackOnFailure "--rollback"
+      else
+        [
+          "--snapshot"
+          "none"
+        ]
+    )
+    ++ lib.optional cfg.autoInit "--provision-if-empty"
+  );
 in
 {
   options.services.odoo-nix = {
@@ -364,13 +416,74 @@ in
     update = mkOption {
       type = types.listOf types.str;
       default = [ ];
-      description = "Modules to upgrade (-u) on (re)start. Use sparingly; requires a pinned dbName.";
+      description = ''
+        Modules to update on every deploy even when their code is unchanged
+        (passed to the migration as `--also`). Rarely needed: migrate.* already
+        updates every module whose code or version changed. Requires a pinned
+        dbName.
+      '';
     };
 
     autoInit = mkOption {
       type = types.bool;
       default = false;
-      description = "Initialize the pinned database with `-i base` on first boot.";
+      description = ''
+        Install `base` into the pinned database when it has no Odoo schema yet
+        (first boot). Without it, an uninitialised database is left alone and
+        odoo.service starts anyway, so a database can be restored into it.
+      '';
+    };
+
+    migrate = {
+      enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Bring the database schema in line with the code before every start of
+          odoo.service (odoo-migrate.service). Updates the modules whose code
+          changed (content checksums recorded in the database, the same ones OCA
+          module_auto_update uses) or whose manifest version is ahead of the
+          database; the first run on a database with no recorded checksums
+          updates everything once. odoo.service does not start if it fails.
+          Requires the CLI package (the project flake's `packages.default`).
+        '';
+      };
+      full = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Update every installed module (`-u all`) on each new build instead of only the changed ones.";
+      };
+      snapshot = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Take a `pg_dump` snapshot before updating anything, under
+          `<data_dir>/backups/<db>/premigrate/`. Schema changes are DDL and
+          Odoo commits module by module, so a snapshot is the only way back.
+          The filestore is not included: attachments are content-addressed and
+          only ever added, so a migration never needs it rolled back.
+        '';
+      };
+      rollbackOnFailure = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Restore the snapshot if the migration fails. No effect without migrate.snapshot.";
+      };
+      snapshotRetention = mkOption {
+        type = types.ints.positive;
+        default = 3;
+        description = "How many pre-migrate snapshots to keep per database.";
+      };
+      timeout = mkOption {
+        type = types.str;
+        default = "infinity";
+        example = "30min";
+        description = ''
+          TimeoutStartSec for odoo-migrate.service. A first migration of a large
+          database updates every module and can take many minutes; killing it
+          part-way leaves a half-updated schema for the rollback to undo.
+        '';
+      };
     };
 
     nginx = {
@@ -423,6 +536,17 @@ in
       {
         assertion = cfg.update == [ ] || cfg.dbName != null;
         message = "services.odoo-nix.update requires a pinned dbName.";
+      }
+      {
+        assertion = !cfg.autoInit || cfg.dbName != null;
+        message = "services.odoo-nix.autoInit requires a pinned dbName.";
+      }
+      {
+        # The raw builtOdoo tree has only odoo-bin, not `odoo db migrate`.
+        assertion = !mg.enable || cfg.package.passthru ? builtOdoo;
+        message =
+          "services.odoo-nix.migrate needs the odoo CLI package -- set package to the project flake's"
+          + " `packages.default` (lib/cli.nix), not the raw builtOdoo tree, or set migrate.enable = false.";
       }
       {
         assertion = !cfg.nginx.enable || cfg.nginx.domain != "" || nginxSocket;
@@ -491,6 +615,36 @@ in
       };
     };
 
+    # A oneshot WITHOUT RemainAfterExit: it goes back to inactive when it
+    # finishes, so odoo.service's Requires= starts it again on every start of
+    # odoo.service -- a deploy (switch-to-configuration stops odoo.service
+    # when its unit changes and starts it again), a reboot, `nomad job
+    # restart`, a restart after restoring a dump. With odoo.service stopped
+    # while it runs, no worker, cron or queue_job runner touches the database
+    # mid-update. A no-op start costs one query (--if-needed).
+    systemd.services.odoo-migrate = mkIf mg.enable {
+      description = "Migrate the Odoo database to ${cfg.package.name}";
+      after = [
+        "network.target"
+        "odoo-init.service"
+      ]
+      ++ lib.optional cfg.database.createLocally "postgresql.target";
+      requires = [
+        "odoo-init.service"
+      ]
+      ++ lib.optional cfg.database.createLocally "postgresql.target";
+      path = runtimePath;
+      environment = serviceEnv;
+      serviceConfig = {
+        Type = "oneshot";
+        User = cfg.user;
+        Group = cfg.group;
+        WorkingDirectory = cfg.stateDir;
+        TimeoutStartSec = mg.timeout;
+        ExecStart = "${cfg.package}/bin/odoo ${migrateArgs}";
+      };
+    };
+
     systemd.services.odoo = {
       description = "Odoo (OCB + OCA) server";
       wantedBy = [ "multi-user.target" ];
@@ -500,13 +654,21 @@ in
       ]
       # postgresql.target, not .service: ensureUsers/ensureDatabases run in
       # postgresql-setup.service, which only the target orders after (nixpkgs
-      # postgresql.md: "run this service after postgresql.target"). autoInit's
-      # `-i base` in ExecStartPre would otherwise race the role creation.
-      ++ lib.optional cfg.database.createLocally "postgresql.target";
+      # postgresql.md: "run this service after postgresql.target"). The
+      # migration (or autoInit's `-i base`) would otherwise race the role
+      # creation.
+      ++ lib.optional cfg.database.createLocally "postgresql.target"
+      ++ lib.optional mg.enable "odoo-migrate.service";
+      # Requires, not only After: new code must never serve a schema it was
+      # not migrated to. A failed migration has been rolled back to the old
+      # schema, and the new code on top of it fails in ways nothing reports
+      # (a paused job runner, a missing column on one screen) -- so Odoo stays
+      # down instead, and the failure is the unit's.
       requires = [
         "odoo-init.service"
       ]
-      ++ lib.optional cfg.database.createLocally "postgresql.target";
+      ++ lib.optional cfg.database.createLocally "postgresql.target"
+      ++ lib.optional mg.enable "odoo-migrate.service";
 
       path = runtimePath;
       environment = serviceEnv;
@@ -515,14 +677,11 @@ in
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = cfg.stateDir;
-        # `-i base` on first boot stays a raw odoo-bin passthrough (odoo db
-        # provision would look for a workspace modules.txt that does not
-        # exist in an assembled /nix/store deployment); `cfg.update` instead
-        # goes through `odoo db upgrade` for the same structured progress
-        # summary "odoo project update" gets in the dev shell, degrading to
-        # plain narrated lines under journald (Console.is_terminal is false
-        # here) rather than raw per-module log spam.
-        ExecStartPre = lib.optional (cfg.autoInit || cfg.update != [ ]) (
+        # Only with migrate disabled: odoo-migrate handles both autoInit
+        # (--provision-if-empty) and update (--also) otherwise. The legacy
+        # path runs `-i base` once (stamp file) and `odoo db upgrade` on every
+        # start, with no change detection and no snapshot.
+        ExecStartPre = lib.optional (!mg.enable && (cfg.autoInit || cfg.update != [ ])) (
           pkgs.writeShellScript "odoo-service-start-pre" (
             ''
               set -euo pipefail
@@ -581,18 +740,16 @@ in
     # ensureDatabases; append so the database exists before the extensions go
     # into it. `IF NOT EXISTS` keeps it idempotent across restarts, and the
     # Odoo role owning the database is what lets it use them afterwards.
-    systemd.services.postgresql-setup.script =
-      mkIf (cfg.database.createLocally && dbName != null)
-        (
-          lib.mkAfter (
-            lib.optionalString (dbName != cfg.database.user) ''
-              psql -tAc 'ALTER DATABASE "${dbName}" OWNER TO "${cfg.database.user}"'
-            ''
-            + lib.concatMapStrings (ext: ''
-              psql -d '${dbName}' -tAc 'CREATE EXTENSION IF NOT EXISTS "${ext}"'
-            '') cfg.database.ensureExtensions
-          )
-        );
+    systemd.services.postgresql-setup.script = mkIf (cfg.database.createLocally && dbName != null) (
+      lib.mkAfter (
+        lib.optionalString (dbName != cfg.database.user) ''
+          psql -tAc 'ALTER DATABASE "${dbName}" OWNER TO "${cfg.database.user}"'
+        ''
+        + lib.concatMapStrings (ext: ''
+          psql -d '${dbName}' -tAc 'CREATE EXTENSION IF NOT EXISTS "${ext}"'
+        '') cfg.database.ensureExtensions
+      )
+    );
 
     services.nginx = mkIf cfg.nginx.enable {
       enable = true;

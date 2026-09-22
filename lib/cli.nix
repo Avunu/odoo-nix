@@ -73,6 +73,14 @@ let
       ''--add-flags "-m odoo_nix_cli"''
       ''--set ODOO_NIX_RAW_ODOO "${rawOdooBin}"''
     ]
+    # The identity `odoo db migrate --if-needed` records in the database
+    # (odoo_nix.migrated_build) and compares against on every start. Only
+    # for the store-assembled shape: the dev shell runs editable code, whose
+    # changes never change this package's store path, so it gets no fast
+    # path and always runs change detection instead.
+    ++ lib.optionals (mirrorTree != null) [
+      ''--set ODOO_NIX_BUILD "$out"''
+    ]
     ++ lib.optionals (cliScripts != null) [
       ''--set ODOO_NIX_MODULE_ADD "${cliScripts.moduleAdd}"''
       ''--set ODOO_NIX_MODULE_ADD_BUNDLE "${cliScripts.moduleAddBundle}"''

@@ -13,7 +13,7 @@ import click
 from rich.console import Console
 
 from .. import odooenv
-from .db import _backup_one, _migrate_one, _restore_one, _run_multi
+from .db import MigrateOptions, _backup_one, _migrate_one, _restore_one, _run_multi
 
 console = Console()
 
@@ -46,7 +46,7 @@ def project_update(ctx, migrate):
         console.print("[yellow]no databases to migrate.[/]")
         return
     console.print(f"==> Migrating {len(targets)} database(s)…")
-    _run_multi(targets, lambda name: _migrate_one(name, no_backup=False))
+    _run_multi(targets, lambda name: _migrate_one(name, MigrateOptions()))
 
 
 @project_group.command("backup")
