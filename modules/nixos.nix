@@ -14,6 +14,12 @@
 # of odoo.service and updates exactly the modules whose code or version
 # changed, behind a verified snapshot, rolling back on failure -- and
 # odoo.service does not start on a failed migration (see migrateScript).
+#
+# Logging goes to journald, not files: every unit this module defines or
+# enables carries APP_SERVICE/APP_SITE journal fields (LogExtraFields), and
+# Odoo's records reach the journal with their real syslog priority (see
+# logging.journald and lib/odoo_nix_cli/journald.py) -- what a log shipper
+# reading the journal (Vector -> Loki, `journalctl -p warning`) filters on.
 {
   config,
   lib,
@@ -33,6 +39,23 @@ let
 
   dbName = cfg.dbName;
   socketAuth = cfg.database.createLocally && cfg.database.passwordFile == null;
+
+  # The journal-field contract shared with frappe-nix and wordpress-nix:
+  # APP_SERVICE names the role, APP_SITE the site the unit serves. With no
+  # pinned dbName (multi-database via dbFilter) no one site is served, so
+  # APP_SITE is left out rather than guessed. LogExtraFields applies to
+  # everything journald attributes to the unit's cgroup -- stdout/stderr and
+  # syslog alike -- so nginx's access log (syslog, below) carries them too.
+  logFields = role: [ "APP_SERVICE=${role}" ] ++ lib.optional (dbName != null) "APP_SITE=${dbName}";
+
+  # Odoo writes its own records to stderr only when neither logfile nor
+  # syslog is configured -- they are mutually exclusive in init_logger, and
+  # either one takes the records away from the journal's stream.
+  journaldActive =
+    cfg.logging.journald
+    && cfg.logging.file == null
+    && !(cfg.settings ? logfile)
+    && !(cfg.settings ? syslog);
 
   # nginx serves the public side over a unix socket; Odoo itself stays on
   # loopback TCP. Verified against the Odoo 18.0 source this module builds:
@@ -135,6 +158,9 @@ let
     LANG = "C.UTF-8";
   }
   // blasThreadCaps
+  # Read by the odoo CLI (lib/odoo_nix_cli/journald.py), which also checks
+  # that stderr really is the journal stream before changing anything.
+  // lib.optionalAttrs journaldActive { ODOO_NIX_JOURNALD = "1"; }
   // cfg.extraEnv;
 
   mkInitScript = pkgs.writeShellScript "odoo-nix-init" ''
@@ -304,11 +330,29 @@ in
         default = "warning";
         description = "Minimum level mirrored to the database (log_db_level).";
       };
+      journald = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Log to the journal natively: Odoo's stderr records (and the odoo
+          CLI's, for odoo-migrate) are rendered as `<N>dbname logger: message`,
+          where `<N>` is the record's syslog priority (DEBUG 7, INFO 6,
+          WARNING 4, ERROR 3, CRITICAL 2) on every line of the record,
+          tracebacks included, and the asctime/pid/colour journald already
+          records or cannot use are dropped. Without it every line lands at
+          PRIORITY=6. Only takes effect when `logging.file` is null and
+          `settings` sets neither `logfile` nor `syslog`, and only when stderr
+          is the journal stream; needs the CLI package (`packages.default`),
+          the raw builtOdoo tree keeps Odoo's format.
+        '';
+      };
       file = mkOption {
         type = types.nullOr types.path;
         default = null;
         description = ''
           Write logs to this file (logfile) instead of stderr/journald.
+          Leave it null under systemd: the journal already timestamps,
+          rotates and ships the log, with priorities (`logging.journald`).
           Odoo's file and stderr log handlers are mutually exclusive, so
           setting this stops Odoo's own log records from reaching
           `journalctl -u odoo` (uncaught tracebacks printed before logging
@@ -325,6 +369,27 @@ in
           instead detects when logrotate has renamed/recreated the file and
           reopens it automatically, so no reload/signal is needed. Requires
           `logging.file` to be set.
+        '';
+      };
+      accessLog = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Send nginx's request log to the journal as one JSON object per
+          request (SYSLOG_IDENTIFIER=nginx_access): time, site (Host), method,
+          uri, status, bytes, request_time, upstream_time, remote_addr,
+          user_agent, referer. `false` turns the access log off. Only with
+          `nginx.enable`.
+        '';
+      };
+      slowQueryMs = mkOption {
+        type = types.nullOr types.ints.unsigned;
+        default = null;
+        example = 500;
+        description = ''
+          Log every statement that runs at least this many milliseconds
+          (PostgreSQL's `log_min_duration_statement`); `0` logs all of them.
+          Only with `database.createLocally`.
         '';
       };
     };
@@ -532,6 +597,16 @@ in
   };
 
   config = mkIf cfg.enable {
+    # A warning, not an assertion: logging.file predates logging.journald and
+    # a configuration that sets it must keep evaluating.
+    warnings = lib.optional (cfg.logging.journald && cfg.logging.file != null) ''
+      services.odoo-nix.logging.file is set, so Odoo logs to ${cfg.logging.file}
+      and logging.journald has no effect: `journalctl -u odoo` sees only output
+      from before Odoo's logging starts, and without per-record priorities.
+      Leave logging.file null to log to the journal, or set
+      logging.journald = false to keep the file and silence this warning.
+    '';
+
     assertions = [
       {
         assertion = cfg.update == [ ] || cfg.dbName != null;
@@ -612,6 +687,8 @@ in
         Type = "oneshot";
         RemainAfterExit = true;
         ExecStart = mkInitScript;
+        SyslogIdentifier = "odoo-init";
+        LogExtraFields = logFields "init";
       };
     };
 
@@ -642,6 +719,8 @@ in
         WorkingDirectory = cfg.stateDir;
         TimeoutStartSec = mg.timeout;
         ExecStart = "${cfg.package}/bin/odoo ${migrateArgs}";
+        SyslogIdentifier = "odoo-migrate";
+        LogExtraFields = logFields "migrate";
       };
     };
 
@@ -701,6 +780,11 @@ in
         ExecStart = "${cfg.package}/bin/odoo -c ${runtimeConf}";
         Restart = "always";
         RestartSec = "5";
+        # Otherwise each Exec line's own executable name (ExecStartPre's is a
+        # generated script's), which follows the package, not the role --
+        # stable names are what a query can key on.
+        SyslogIdentifier = "odoo";
+        LogExtraFields = logFields "web";
       };
     };
 
@@ -734,7 +818,26 @@ in
           ensureClauses.createdb = true;
         }
       ];
+      # journald already stamps time and PID (nixpkgs' default prefix is
+      # "[%p] "); what it cannot know is which database and role a line is
+      # about. mkDefault: a host that wants its own prefix just sets it.
+      settings = {
+        log_line_prefix = lib.mkDefault "%d %u ";
+      }
+      // lib.optionalAttrs (cfg.logging.slowQueryMs != null) {
+        log_min_duration_statement = cfg.logging.slowQueryMs;
+      };
     };
+
+    # The upstream units this module turns on serve this instance alone, so
+    # they carry its journal fields too (see logFields).
+    systemd.services.postgresql.serviceConfig.LogExtraFields = mkIf cfg.database.createLocally (
+      logFields "db"
+    );
+    systemd.services.postgresql-setup.serviceConfig.LogExtraFields = mkIf cfg.database.createLocally (
+      logFields "db"
+    );
+    systemd.services.nginx.serviceConfig.LogExtraFields = mkIf cfg.nginx.enable (logFields "nginx");
 
     # postgresql-setup runs as the postgres superuser and already owns
     # ensureDatabases; append so the database exists before the extensions go
@@ -755,6 +858,23 @@ in
       enable = true;
       recommendedProxySettings = true;
       recommendedGzipSettings = true;
+      # http-level, so every server block inherits it. commonHttpConfig
+      # rather than appendHttpConfig: a log_format has to be defined before
+      # the first access_log that names it, and the vhosts come in between.
+      # To syslog on /dev/log, i.e. journald, with its own identifier so the
+      # request lines are separable from nginx's error log (stderr, same
+      # unit). escape=json makes each line a valid JSON object; $status,
+      # $body_bytes_sent and $request_time are always numeric, so unquoted.
+      commonHttpConfig =
+        if cfg.logging.accessLog then
+          ''
+            log_format journal_json escape=json '{"time":"$time_iso8601","site":"$host","method":"$request_method","uri":"$request_uri","status":$status,"bytes":$body_bytes_sent,"request_time":$request_time,"upstream_time":"$upstream_response_time","remote_addr":"$remote_addr","user_agent":"$http_user_agent","referer":"$http_referer"}';
+            access_log syslog:server=unix:/dev/log,tag=nginx_access,nohostname journal_json;
+          ''
+        else
+          ''
+            access_log off;
+          '';
       upstreams.odoo.servers."127.0.0.1:${toString cfg.http.port}" = { };
       upstreams.odoochat.servers."127.0.0.1:${toString cfg.http.longpollingPort}" = { };
       virtualHosts.${vhostName} = {

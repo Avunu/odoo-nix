@@ -10,6 +10,8 @@
 # systemd units, the synthesized odoo.conf, and above all the nginx front end,
 # including that socket mode forwards the correct client IP and public scheme.
 # Echoed headers are something a real Odoo cannot show and a stub cannot fake.
+# Also the journal side of the units: APP_SERVICE/APP_SITE and the stable
+# SyslogIdentifier on what reaches the journal, and nginx's JSON access log.
 {
   pkgs,
   odooModule,
@@ -36,6 +38,8 @@ let
         opts = cp["options"]
         host = opts.get("http_interface") or "127.0.0.1"
         port = int(opts.get("http_port"))
+        # one line for the journal assertions to find
+        print("stub odoo listening", file=sys.stderr, flush=True)
 
         class H(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -100,6 +104,8 @@ pkgs.testers.runNixOSTest {
           handlers = [ "werkzeug:WARNING" ];
           file = "/var/log/odoo/odoo.log";
           rotate = true;
+          # a log file on purpose; this is how to say so without a warning
+          journald = false;
         };
         # What OCA base_geoengine needs from the database
         services.odoo-nix.database = {
@@ -151,6 +157,47 @@ pkgs.testers.runNixOSTest {
     # the real client IP survives, despite a unix socket having no peer address
     assert hdrs["x-real-ip"] == "203.0.113.9", hdrs
     assert hdrs["x-forwarded-for"] == "203.0.113.9", hdrs
+
+    # the request above, as JSON in the journal: nginx's access log goes to
+    # /dev/log (reachable despite the unit's PrivateDevices/ProtectSystem
+    # sandbox), and journald stamps the unit's LogExtraFields on syslog
+    # messages too
+    def journal(m, *matches):
+        out = m.succeed("journalctl -o json --no-pager " + " ".join(matches))
+        return [json.loads(line) for line in out.splitlines() if line.strip()]
+
+    socket.wait_until_succeeds(
+        "journalctl -o json SYSLOG_IDENTIFIER=nginx_access | grep -q MESSAGE"
+    )
+    entry = journal(socket, "SYSLOG_IDENTIFIER=nginx_access")[-1]
+    access = json.loads(entry["MESSAGE"])
+    assert access["status"] == 200 and access["method"] == "GET", access
+    assert access["uri"] == "/" and access["site"] == "odoo", access
+    # $remote_addr after real_ip: the client, not the socket
+    assert access["remote_addr"] == "203.0.113.9", access
+    assert isinstance(access["request_time"], float), access
+    assert entry["APP_SERVICE"] == "nginx" and entry["APP_SITE"] == "odoo", entry
+    # nothing written to nginx's compiled-in default log file instead
+    socket.fail("test -s /var/log/nginx/access.log")
+
+    # every unit carries the fields: the stub's own stderr line (under the
+    # stable identifier, not the wrapper's name), PostgreSQL's startup
+    entry = next(
+        e for e in journal(socket, "_SYSTEMD_UNIT=odoo.service")
+        if e.get("MESSAGE") == "stub odoo listening"
+    )
+    assert entry["SYSLOG_IDENTIFIER"] == "odoo", entry
+    assert entry["APP_SERVICE"] == "web" and entry["APP_SITE"] == "odoo", entry
+    assert any(
+        "database system is ready" in e.get("MESSAGE", "")
+        for e in journal(socket, "APP_SERVICE=db", "APP_SITE=odoo")
+    )
+    socket.succeed("journalctl -o json APP_SERVICE=init APP_SITE=odoo | grep -q MESSAGE")
+    # the log_line_prefix the module sets (database, user) on a session's line
+    socket.succeed("sudo -u postgres psql -d odoo -c 'select pg_catalog.no_such_function()' || true")
+    socket.wait_until_succeeds(
+        "journalctl APP_SERVICE=db -o cat --no-pager | grep -E '^odoo postgres ERROR:.*no_such_function'"
+    )
 
     # nothing listens on the network in socket mode
     socket.fail("curl -sS --max-time 5 http://localhost/")

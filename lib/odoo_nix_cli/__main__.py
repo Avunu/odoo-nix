@@ -52,8 +52,26 @@ def _raw_odoo_bin() -> str:
     return path
 
 
+def _setup_journald() -> None:
+    """journald-native logging (services.odoo-nix sets $ODOO_NIX_JOURNALD; see
+    journald.py). Both halves are set up here, before dispatch, because this
+    is the one point every invocation passes through: the in-process handler
+    for our own commands, and -- since most invocations leave this process
+    through os.execv -- the sitecustomize directory on PYTHONPATH, which is
+    what carries the patch into odoo-bin and whatever it spawns."""
+    from . import journald
+
+    if not journald.enabled():
+        return
+    site_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_journald_site")
+    current = os.environ.get("PYTHONPATH")
+    os.environ["PYTHONPATH"] = f"{site_dir}{os.pathsep}{current}" if current else site_dir
+    journald.install_root_handler()
+
+
 def main() -> None:
     argv = sys.argv[1:]
+    _setup_journald()
     if _first_command(argv) not in OWN_COMMANDS:
         raw = _raw_odoo_bin()
         os.execv(raw, [raw, *argv])
