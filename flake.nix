@@ -195,6 +195,8 @@
 
       # checks.<system>:
       #   eval-addons-*, eval-odoo-conf-*, odoo-conf-render   pure library tests (all systems)
+      #   journald-formatter                                  the CLI's journald output (all systems)
+      #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
       #   eval-*-<major>, lock-fresh-<major>                  per-series, no Odoo run (all systems)
       #   builtOdoo-<major>, odoo-init-<major>, odoo-test-<major>,
       #   module-odoo-<major>, module-nginx                   run Odoo / a VM (Linux only)
@@ -245,8 +247,25 @@
             grep -qE '^http_interface\s*=\s*127\.0\.0\.1$' "$f"
             grep -qE '^limit_time_real\s*=\s*1200$' "$f"
           '';
+
+          # lib/odoo_nix_cli/journald.py needs neither Odoo nor the CLI's
+          # click/rich, so it runs on plain interpreters: each one a series
+          # runs the CLI on.
+          journald-formatter = mkCheck pkgs "journald-formatter" { } (
+            lib.concatMapStrings (py: ''
+              ${py}/bin/python3 ${./tests/test_journald.py} ${./lib}
+            '') (lib.unique (map (series: pkgs.${presets.${series}.python}) (lib.attrNames ocbInputs)))
+          );
         }
         // perSeries
+        // lib.optionalAttrs isLinux (
+          evalChecks "" (
+            import ./tests/module-eval.nix {
+              inherit pkgs;
+              odooModule = ./modules/nixos.nix;
+            }
+          )
+        )
         // lib.optionalAttrs isLinux {
           # The nginx/socket contract test, against a stub Odoo (see the file
           # header). Real-Odoo module tests are module-odoo-<major>.

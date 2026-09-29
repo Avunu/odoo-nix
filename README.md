@@ -152,7 +152,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | odooConf.logging.level | "info" | root logging verbosity (log_level) |
 | odooConf.logging.handlers | [ ] | per-logger level overrides, e.g. [ "werkzeug:WARNING" ] (log_handler) |
 | odooConf.logging.db/dbLevel | false / "warning" | mirror logs into a database (log_db/log_db_level): `true` = the request's own database (`%d`), a string = that database |
-| odooConf.logging.file | null | write logs to this file instead of stderr (logfile) |
+| odooConf.logging.file | null | write logs to this file instead of stderr (logfile); production logging is [`services.odoo-nix`'s](#logging) |
 | dev.autoReload | true | make Odoo's --dev=reload watcher functional (see Live code reload) |
 | odooConf.extra | { } | arbitrary extra [options] keys merged last |
 | odooConf.withoutDemo | false | skip demo data for every module (without_demo = True) |
@@ -449,7 +449,7 @@ A standalone NixOS module (imported separately from the flake-parts module). One
 }
 ```
 
-Key options: `package` (the CLI package — `packages.default` — which `migrate` requires), `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port,user,passwordFile,extensions,ensureExtensions}`, `adminPasswordFile`, `settings` (extra `[options]`), `migrate.{enable,full,snapshot,rollbackOnFailure,snapshotRetention,timeout}` (below), `update` (modules to update on every deploy even when unchanged), `autoInit` (install `base` + `<stateDir>/modules.txt` into an empty database), `nginx.{enable,domain}`, `logging.{level,handlers,db,dbLevel,file,rotate}` (`rotate` wires up `services.logrotate` against `logging.file`; Odoo's own `WatchedFileHandler` picks up the rotated file automatically, no reload needed).
+Key options: `package` (the CLI package — `packages.default` — which `migrate` requires), `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port,user,passwordFile,extensions,ensureExtensions}`, `adminPasswordFile`, `settings` (extra `[options]`), `migrate.{enable,full,snapshot,rollbackOnFailure,snapshotRetention,timeout}` (below), `update` (modules to update on every deploy even when unchanged), `autoInit` (install `base` + `<stateDir>/modules.txt` into an empty database), `nginx.{enable,domain}`, `logging.{level,handlers,db,dbLevel,journald,accessLog,slowQueryMs}` ([Logging](#logging), below), `logging.{file,rotate}` (a log file instead of the journal; `rotate` wires up `services.logrotate` against it, and Odoo's own `WatchedFileHandler` picks up the rotated file automatically, no reload needed).
 
 ### Migrations on deploy
 
@@ -461,6 +461,23 @@ The schema follows the code by itself. `odoo-migrate.service` runs `odoo db migr
 - **a failed migration** is rolled back to its snapshot and `odoo.service` **does not start**. New code on a schema it was not migrated to fails in ways nothing reports — `queue_job`'s runner quietly pauses itself (`database schema is outdated, -u queue_job required`) while every job sits in `pending` — so Odoo stays down and the failure is the unit's, where monitoring sees it. Recover with a fixed deploy or a rollback of the system generation.
 
 The first start on a database with no stored checksums updates every module once to establish the baseline; on a large database that takes minutes, hence `migrate.timeout` defaulting to no limit. `autoInit` provisions an empty database here too (`--provision-if-empty`); without it an empty database is skipped and Odoo starts, so a dump can be restored into it. `migrate.enable = false` restores the old behaviour (`autoInit`'s `-i base` and `update`'s `odoo db upgrade` in `ExecStartPre`, no detection, no snapshot).
+
+### Logging
+
+Everything goes to the journal — no log files — in a shape a shipper reading it (Vector → Loki, `journalctl -p warning`) can filter without parsing text:
+
+- **Fields.** Every unit the module defines or turns on carries `APP_SERVICE` and `APP_SITE` (systemd `LogExtraFields`, so they are on everything journald attributes to the unit — its output, syslog messages, systemd's own lines about it). `APP_SERVICE` is the role: `web` (`odoo.service`), `migrate` (`odoo-migrate`), `init` (`odoo-init`), `db` (`postgresql`/`postgresql-setup`, with `database.createLocally`), `nginx` (with `nginx.enable`). `APP_SITE` is `dbName`; with no pinned `dbName` (several databases behind `dbFilter`) it is left out. The Odoo units also have a fixed `SyslogIdentifier` — `odoo`, `odoo-migrate`, `odoo-init`. The same contract as frappe-nix and wordpress-nix, so one query spans all three.
+- **Priorities** — `logging.journald`, on by default. Odoo's stderr format is made for a terminal (`2026-01-01 12:00:00,000 1234 INFO acme odoo.http: …`) and lands in the journal at priority 6 whatever its level. Instead each record is written as `<N>acme odoo.http: …`: journald reads `<N>` as the syslog priority (DEBUG 7, INFO 6, WARNING 4, ERROR 3, CRITICAL 2) and strips it; asctime and pid, which the journal records anyway, and colour codes are dropped. journald splits on newlines, so **every** line of a record carries its `<N>` — a traceback stays at the priority of the error it belongs to. `odoo-migrate`'s own progress output stays plain lines (priority 6); Odoo's warnings and errors during a migration get their priorities too. It needs the CLI package (`packages.default`), which applies it before handing over to `odoo-bin`, and only acts when stderr really is the journal stream (`$JOURNAL_STREAM`), so running the same package from a shell keeps Odoo's own format.
+- **Requests** — `logging.accessLog`, on by default. nginx logs one JSON object per request to the journal (`SYSLOG_IDENTIFIER=nginx_access`): `time`, `site` (the Host), `method`, `uri`, `status`, `bytes`, `request_time`, `upstream_time`, `remote_addr` (the real client, in socket mode too), `user_agent`, `referer`. `false` turns the access log off. nginx's error log stays on stderr, same unit.
+- **PostgreSQL** (with `createLocally`) prefixes each line with database and role (`log_line_prefix = "%d %u "`, a `mkDefault`); `logging.slowQueryMs = 500;` logs every statement that runs that long (`log_min_duration_statement`).
+
+```sh
+journalctl APP_SITE=acme -p warning           # everything wrong with one site
+journalctl APP_SERVICE=migrate APP_SITE=acme  # its deploy-time migrations
+journalctl SYSLOG_IDENTIFIER=nginx_access -o cat | jq 'select(.status >= 500)'
+```
+
+`logging.file` still works, but Odoo's file and stderr handlers are mutually exclusive: with a file set, the journal only sees what is printed before Odoo's logging starts, so the module warns. Leave it null under systemd — the journal already timestamps, rotates and ships — or set `logging.journald = false` to keep the file without the warning. `settings.syslog` is left alone too (it is not stderr).
 
 PostGIS (OCA `base_geoengine`): `database.extensions = ps: [ ps.postgis ];` builds it into the local server and `database.ensureExtensions = [ "postgis" "postgis_topology" ];` creates both in `dbName` as the `postgres` superuser. The module's `pre_init_hook` tries to create them itself, which only works for a superuser — the dev shell's role is one, the production role is not.
 
@@ -500,8 +517,10 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `odoo-test-<18\|19>` | installs the fixture addon `tests/fixtures/<series>/custom/odoo_nix_fixture` and runs its Odoo tests (ORM round-trip + the `dev_mailcatch` redirection), asserting the stats line shows they ran |
 | `cli-lifecycle-<18\|19>` | the `odoo` CLI end to end against an in-sandbox PostgreSQL: passthrough (`--help`/`--version`), then `db provision` → `db provision` again (idempotent migrate path) → `db backup` → `db drop` → `db restore`, on a database distinct from the one the other checks use |
 | `cli-migrate-<18\|19>` | `odoo db migrate` from build to build, the way `odoo-migrate.service` runs it: provision records the baseline; the same build is a one-query no-op; v2 of the fixture (`tests/fixtures/migrate`) updates **only** the fixture — new column, post-migrate script, new build recorded; version drift with unchanged checksums is still migrated; v3's migration commits a change and then fails, and the database is back exactly as v2 left it; `--keep` prunes only after a success; an uninitialised database is skipped |
-| `module-nginx` | `services.odoo-nix`'s nginx/socket contract, with a stub Odoo that echoes headers (needs KVM) |
-| `module-odoo-<18\|19>` | `services.odoo-nix` with the real CLI package: `odoo-migrate` provisions the empty database before `odoo.service` starts, `/web/login` via nginx and directly, `version_info`; a restart migrates nothing; deploying v2 (a specialisation) migrates the changed module; deploying v3 fails the migration, rolls it back and leaves `odoo.service` **down**; redeploying v2 recovers (needs KVM) |
+| `journald-formatter` | the CLI's journald output without Odoo (`tests/test_journald.py`, on each series' interpreter): level → `<N>`, every line of a traceback prefixed, and the full `odoo` → sitecustomize → patched `init_logger` path against a stand-in `odoo.netsvc` |
+| `eval-module-*` | `services.odoo-nix` evaluated, nothing built (`tests/module-eval.nix`): `APP_SERVICE`/`APP_SITE` and `SyslogIdentifier` on every unit, `APP_SITE` left out without `dbName`, the journald switch and the `logging.file` warning, PostgreSQL's log settings, nginx's access log |
+| `module-nginx` | `services.odoo-nix`'s nginx/socket contract, with a stub Odoo that echoes headers; the journal fields on what the units log and nginx's JSON access log in the journal (needs KVM) |
+| `module-odoo-<18\|19>` | `services.odoo-nix` with the real CLI package: `odoo-migrate` provisions the empty database before `odoo.service` starts, `/web/login` via nginx and directly, `version_info`; a restart migrates nothing; deploying v2 (a specialisation) migrates the changed module; deploying v3 fails the migration, rolls it back and leaves `odoo.service` **down**; redeploying v2 recovers; Odoo's records in the journal at their priority with no asctime/pid (workers and the gevent process included), a traceback at the error's priority on every line (needs KVM) |
 
 Everything that runs Odoo or a VM is Linux-only; eval checks and `lock-fresh` run on every system. `nix develop` gives a shell for working on odoo-nix itself (`uv`, `nixfmt`, `odoo-nix-relock`); consumers get their devenv shell from the flake-parts module instead.
 
@@ -577,8 +596,10 @@ templates/project/           # scaffolder template (thin flake + pyproject + REA
 tests/
   eval.nix                   # pure assertions over lib/addons.nix + lib/odoo-conf.nix
   series.nix                 # per-series real-Odoo checks (builtOdoo, odoo-init, odoo-test, cli-lifecycle, cli-migrate, module-odoo)
+  module-eval.nix            # evaluation assertions over services.odoo-nix (journal fields, log settings)
   module-nginx.nix           # NixOS VM test: nginx/socket contract (stub Odoo)
   module-odoo.nix            # NixOS VM test: services.odoo-nix with the real builtOdoo
+  test_journald.py           # the CLI's journald formatter + init_logger patch, without Odoo
   lock_fresh.py              # uv.lock ↔ pinned OCB consistency
   relock.nix                 # `nix run .#relock`
   relock-odoo-ls.nix         # `nix run .#relock-odoo-ls`

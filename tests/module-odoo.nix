@@ -12,7 +12,9 @@
 #     runs, its new column exists;
 #   - a deploy of v3, whose migration fails after committing: rolled back,
 #     and odoo.service stays DOWN rather than serving v3 on v2's schema;
-#   - redeploying v2 recovers.
+#   - redeploying v2 recovers;
+#   - logs: Odoo's records reach the journal with their syslog priority on
+#     every line (tracebacks too), no asctime/pid, and the journal fields.
 #
 # Run: nix build .#checks.<system>.module-odoo-18   (needs KVM)
 {
@@ -66,6 +68,7 @@ pkgs.testers.runNixOSTest {
 
   testScript = ''
     import json
+    import re
     from datetime import timedelta
 
     def psql(sql):
@@ -118,6 +121,69 @@ pkgs.testers.runNixOSTest {
         "sudo -u postgres psql -tAc"
         " \"select pg_get_userbyid(datdba) from pg_database where datname = 'acme'\" | grep -x odoo"
     )
+
+    with subtest("Odoo logs to the journal natively"):
+        def journal(*matches):
+            out = machine.succeed("journalctl -o json --no-pager " + " ".join(matches))
+            return [json.loads(line) for line in out.splitlines() if line.strip()]
+
+        def text(e):
+            # journald exports a MESSAGE it considers binary as a byte array
+            m = e.get("MESSAGE", "")
+            return bytes(m).decode("utf-8", "replace") if isinstance(m, list) else m
+
+        def odoo_entries(unit):
+            # PID 1's own lines about the unit are not Odoo's
+            return [e for e in journal(f"_SYSTEMD_UNIT={unit}") if e.get("_PID") != "1"]
+
+        web = odoo_entries("odoo.service")
+        version = next(e for e in web if "odoo: Odoo version" in text(e))
+        # <6> consumed by journald as the priority; dbname ('?': no request)
+        # and logger stay, asctime and pid (fields journald has) go
+        assert text(version).startswith("? odoo: Odoo version ${series}"), version
+        assert version["PRIORITY"] == "6", version
+        assert version["SYSLOG_IDENTIFIER"] == "odoo", version
+        assert version["APP_SERVICE"] == "web" and version["APP_SITE"] == "acme", version
+        # Not one line in Odoo's terminal format -- the prefork workers and
+        # the separately exec'd gevent process included.
+        stamped = [text(e) for e in web if re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ ", text(e))]
+        assert not stamped, stamped[:5]
+        # the request log of the curls above, with Odoo's perf_info
+        assert any(re.search(r"werkzeug: .*\"GET /web/login HTTP/1\.[01]\" 200 ", text(e)) for e in web)
+
+        migrate = odoo_entries("odoo-migrate.service")
+        assert any("provisioned 'acme'" in text(e) for e in migrate), migrate[-5:]
+        assert all(
+            e["SYSLOG_IDENTIFIER"] == "odoo-migrate" and e["APP_SERVICE"] == "migrate" and e["APP_SITE"] == "acme"
+            for e in migrate
+        ), migrate[-5:]
+
+        # An ERROR with a traceback, from the same package and environment
+        # the service runs with (a server-wide module that does not exist;
+        # the database exists, so nothing is created): every line of it at
+        # PRIORITY 3, the traceback's as much as the message's.
+        machine.execute(
+            "systemd-run --wait --collect --unit odoo-journald-probe"
+            " -p User=odoo -p Group=odoo -p WorkingDirectory=/var/lib/odoo"
+            " -p Environment=ODOO_NIX_JOURNALD=1"
+            " ${odooCli}/bin/odoo -c /var/lib/odoo/odoo.conf --load=base,web,no_such_module"
+            " --workers=0 --max-cron-threads=0 --stop-after-init"
+        )
+        probe = odoo_entries("odoo-journald-probe.service")
+        failed = next(i for i, e in enumerate(probe) if "Failed to load server-wide module `no_such_module`" in text(e))
+        assert text(probe[failed]).startswith("? odoo.service.server: Failed to load"), probe[failed]
+        assert text(probe[failed + 1]) == "Traceback (most recent call last):", probe[failed:failed + 3]
+        # ...down to the exception itself, the record's last line
+        last = next(i for i in range(failed, len(probe)) if "No module named" in text(probe[i]))
+        record = probe[failed:last + 1]
+        assert len(record) > 3 and all(e["PRIORITY"] == "3" for e in record), record
+
+        # nginx's access log, as JSON, with the site's fields
+        entry = journal("SYSLOG_IDENTIFIER=nginx_access")[-1]
+        access = json.loads(text(entry))
+        assert access["site"] == "odoo.example.com" and access["uri"] == "/web/login", access
+        assert access["status"] == 200, access
+        assert entry["APP_SERVICE"] == "nginx" and entry["APP_SITE"] == "acme", entry
 
     with subtest("a restart of the same build migrates nothing"):
         machine.succeed("systemctl restart odoo.service")
