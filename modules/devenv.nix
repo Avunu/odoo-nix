@@ -552,6 +552,7 @@ in
 
         cliScripts = import ../lib/cli-scripts.nix {
           inherit lib pkgs;
+          submodulesInitBin = "${submodulesInit}/bin/odoo-nix-submodules-init";
           python = "${pythonEnvs.devPythonEnv}/bin/python";
           inherit (cfg) odooSeries layout coreSource;
           ocaDataset = ../data/oca-modules.json;
@@ -979,7 +980,7 @@ in
               # was set up and has since been removed or deinitialized brought
               # back: submodules should only ever move via an explicit `odoo
               # project update`. See lib/submodules-init.nix.
-              ${submodulesInit}/bin/odoo-nix-submodules-init "$DEVENV_ROOT" || true
+              ${submodulesInit}/bin/odoo-nix-submodules-init --core ${lib.escapeShellArg cfg.layout.coreSrc} "$DEVENV_ROOT" || true
 
               # Symlink the Nix-synthesized odoo.conf into place (read-only store
               # target; odoo-bin -c consumes it, never rewrites it).

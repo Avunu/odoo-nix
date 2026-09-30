@@ -39,7 +39,23 @@ check_eq() { # <description> <expected> <actual>
 }
 says() { grep -qF -- "$1" <<< "$OUT"; }
 silent_on() { ! grep -qF -- "$1" <<< "$OUT"; }
-run() { OUT="$("$TOOL" "$PWD" 2>&1)" && RC=0 || RC=$?; }
+run() { OUT="$("$TOOL" --core odoo "$PWD" 2>&1)" && RC=0 || RC=$?; }
+
+# Whether an object is on disk, without the lazy fetch a partial clone would
+# otherwise make to answer the question.
+has_obj() { # <repo> <object>
+  GIT_NO_LAZY_FETCH=1 git -C "$1" cat-file -e "$2" 2> /dev/null
+}
+
+# The shape the first entry gives a clone: partial, not shallow, every branch
+# of origin fetched, and commits only from here on.
+partial_all_branches() { # <path>
+  [ "$(git -C "$1" config remote.origin.promisor)" = true ] \
+    && [ "$(git -C "$1" rev-parse --is-shallow-repository)" = false ] \
+    && [ "$(git -C "$1" config --get-all remote.origin.fetch)" = '+refs/heads/*:refs/remotes/origin/*' ] \
+    && [ "$(git -C "$1" config remote.origin.partialclonefilter)" = tree:0 ] \
+    && git -C "$1" rev-parse -q --verify refs/remotes/origin/other > /dev/null
+}
 
 # Everything git knows about the project and its submodules, and the file tree.
 snapshot() {
@@ -57,6 +73,18 @@ at_pin() { # <path>
 }
 empty() { [ -z "$(ls -A "$1" 2>/dev/null)" ]; }
 
+commit_to() { # <name> <branch> <message> -- a commit on the seed, pushed
+  local seed="$ROOT/seed/$1"
+  git -C "$seed" checkout -q "$2"
+  mkdir -p "$seed/$2"
+  printf '%s\n' "$3" > "$seed/$2/log.txt"
+  git -C "$seed" add -A
+  git -C "$seed" commit -q -m "$3"
+  git -C "$seed" push -q "$ROOT/remotes/$1.git" "$2"
+}
+# main, which the project pins, and other, which it never checks out. Filters
+# allowed, as GitHub does: without them a partial clone quietly falls back to
+# a full one and nothing below would be tested.
 seed_remote() { # <name>
   local seed="$ROOT/seed/$1"
   mkdir -p "$seed"
@@ -65,7 +93,13 @@ seed_remote() { # <name>
   git -C "$seed" add -A
   git -C "$seed" commit -q -m init
   git init -q --bare "$ROOT/remotes/$1.git"
+  git -C "$ROOT/remotes/$1.git" symbolic-ref HEAD refs/heads/main
+  git -C "$ROOT/remotes/$1.git" config uploadpack.allowFilter true
+  git -C "$ROOT/remotes/$1.git" config uploadpack.allowAnySHA1InWant true
   git -C "$seed" push -q "$ROOT/remotes/$1.git" main
+  git -C "$seed" branch -q other
+  commit_to "$1" main "main 1"
+  commit_to "$1" other "other 1"
 }
 for r in odoo present fresh taken inplace; do seed_remote "$r"; done
 
@@ -87,10 +121,14 @@ mkdir -p modules/stray && git -C modules/stray init -q -b main
 printf 'x\n' > modules/stray/f && git -C modules/stray add -A && git -C modules/stray commit -q -m i
 git -c advice.addEmbeddedRepo=false add -A 2> /dev/null
 git commit -q -m project
+# Upstream moves on past what the project pins, so a checkout at the branch
+# tip is not a checkout at the pin.
+for r in odoo present fresh taken inplace; do commit_to "$r" main "main 2"; done
 
 # Fresh clones of the project as committed, for the sections further down.
 git clone -q "$PROJECT" "$ROOT/clone"
 git clone -q "$PROJECT" "$ROOT/clone2"
+git clone -q "$PROJECT" "$ROOT/clone3"
 
 # fresh: what `git submodule deinit` leaves -- its clone kept in the git dir.
 git submodule deinit -q -f -- modules/fresh
@@ -124,7 +162,16 @@ run
 check_eq "exits 0" 0 "$RC"
 for p in odoo modules/present modules/fresh modules/inplace; do
   check "checks out $p at its pinned commit" at_pin "$p"
+  check "…as a partial clone of every branch" partial_all_branches "$p"
 done
+# origin/main is a commit past the pin, so nothing of it was checked out.
+check "the paired branch has its folders past the checkout…" has_obj modules/present 'origin/main^{tree}'
+check_not "…but not their file contents" has_obj modules/present 'origin/main:main/log.txt'
+check_not "…except OCB's, whose branch comes as commits only" has_obj odoo 'origin/main^{tree}'
+check_not "another branch has its commits but not its folders" has_obj modules/present 'origin/other^{tree}'
+check "and switching to it downloads what it needs" git -C modules/present switch -q other
+check "…files and all" test -f modules/present/other/log.txt
+git -C modules/present switch -q --detach "$(git ls-files -s -- modules/present | awk '{ print $2 }')"
 check "…past a gitlink with no .gitmodules entry" empty modules/stray
 check "says so" says "Initializing git submodule odoo (first shell entry in this clone)"
 check "names a submodule whose directory is in the way" says "modules/taken is not checked out, but its directory is not empty"
@@ -149,6 +196,38 @@ check "…and both are reported" says "registered but not checked out: modules/p
 rmdir modules/taken/leftover
 run
 check "once its directory is cleared, the one in the way is checked out" at_pin modules/taken
+
+echo "── shallow clones from before ───────────────────────────────────"
+cd "$ROOT/clone3"
+# What `shallow = true` made of a submodule: the remote's default branch at
+# depth 1, and only that branch followed ...
+git submodule update -q --init --depth 1 -- odoo modules/present modules/fresh modules/taken
+printf 'mine\n' > modules/present/local.txt
+git -C modules/present add local.txt
+git -C modules/present commit -q -m "a local commit"
+# ... and what the scaffolder and `odoo module add` made: a --depth 1 clone
+# registered in place, its .git kept in the working tree.
+git clone -q --depth 1 --branch main "file://$ROOT/remotes/inplace.git" modules/inplace
+git submodule init -q -- modules/inplace
+declare -A head_before
+for p in odoo modules/present modules/fresh modules/taken modules/inplace; do
+  head_before[$p]="$(git -C "$p" rev-parse HEAD)"
+done
+check "(they start out shallow)" test "$(git -C modules/inplace rev-parse --is-shallow-repository)" = true
+run
+check_eq "exits 0" 0 "$RC"
+for p in odoo modules/present modules/fresh modules/taken modules/inplace; do
+  check "$p becomes a partial clone of every branch" partial_all_branches "$p"
+  check_eq "…its checkout where it was" "${head_before[$p]}" "$(git -C "$p" rev-parse HEAD)"
+done
+check_eq "a local commit is kept, and the worktree left clean" "" "$(git -C modules/present status --porcelain)"
+check "the paired branch gains its folders" has_obj modules/fresh 'origin/main~2^{tree}'
+check "says what it is fetching" says "modules/fresh is a shallow or single-branch clone"
+before="$(snapshot)"
+run
+after="$(snapshot)"
+check_eq "the next entry changes nothing" "$before" "$after"
+check_eq "…and says nothing" "" "$OUT"
 
 echo "── a first checkout that fails ──────────────────────────────────"
 cd "$ROOT/clone2"

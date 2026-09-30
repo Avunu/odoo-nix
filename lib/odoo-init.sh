@@ -178,7 +178,13 @@ add_submodule() {  # $1=url  $2=path
   local url="$1" path="$2"
   if git ls-remote --heads "$url" "$branch" 2>/dev/null | grep -q .; then
     echo "  + $path ($branch)"
-    git clone -q --depth 1 --branch "$branch" -- "$url" "$path"
+    # A partial clone of the one branch, as shell entry makes them
+    # (lib/submodules-init.nix): every commit and folder, the files of the
+    # checkout -- OCB with its commits alone, its folder history being
+    # enormous. Shell entry adds every other branch's commits.
+    local filter=blob:none
+    [ "$path" != odoo ] || filter=tree:0
+    git clone -q --filter="$filter" --single-branch --branch "$branch" -- "$url" "$path"
     git submodule add -q --force -b "$branch" -- "$url" "$path"
     git config -f .gitmodules "submodule.$path.shallow" true
     return 0

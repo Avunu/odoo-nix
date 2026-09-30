@@ -35,6 +35,9 @@
   # OCB from a flake input (see modules/devenv.nix `coreSource`) -- affects
   # only the "bump it with nix flake update" note in projectUpdate.
   coreSource ? null,
+  # lib/submodules-init.nix's tool: projectUpdate checks out a submodule this
+  # clone has never had the way shell entry does, as a partial clone.
+  submodulesInitBin ? null,
 }:
 
 let
@@ -123,7 +126,10 @@ let
           for repo in "''${NEW_REPOS[@]}"; do
             url="$(oca_repo_url "$repo")"; path="${layout.externalDir}/$repo"
             if git ls-remote --heads "$url" "${odooSeries}" 2>/dev/null | grep -q .; then
-              git clone -q --depth 1 --branch "${odooSeries}" -- "$url" "$path"
+              # A partial clone of the one branch, as shell entry makes them
+              # (lib/submodules-init.nix): every commit and folder, the files
+              # of the checkout. Shell entry adds every other branch's commits.
+              git clone -q --filter=blob:none --single-branch --branch "${odooSeries}" -- "$url" "$path"
               git submodule add -q --force -b "${odooSeries}" -- "$url" "$path"
               git config -f .gitmodules "submodule.$path.shallow" true
               ADDED_PATHS+=("$path")
@@ -271,7 +277,7 @@ let
 
       echo "==> Cloning $url ($branch) → $path…"
       mkdir -p "$(dirname "$path")"
-      git clone -q --depth 1 --branch "$branch" -- "$url" "$path"
+      git clone -q --filter=blob:none --single-branch --branch "$branch" -- "$url" "$path"
 
       mapfile -t FOUND < <(oca_scan_modules "$path" | LC_ALL=C sort -u)
       SEL=()
@@ -329,6 +335,11 @@ let
   projectUpdate = pkgs.writeShellScript "odoo-nix-project-update" ''
     ${preamble}
     echo "==> Updating git submodules…"
+    ${lib.optionalString (submodulesInitBin != null) ''
+      # A submodule this clone has never had is checked out as shell entry
+      # does it -- a partial clone, not the shallow one `update --init` makes.
+      ${submodulesInitBin} --core ${lib.escapeShellArg layout.coreSrc} "$PWD"
+    ''}
     git submodule update --init --recursive
     # Move each submodule to the tip of its .gitmodules-pinned branch, fetched
     # fresh by name. Two things rule out the more obvious approaches here:
@@ -341,10 +352,24 @@ let
     # fast-forward" whenever a repo's GitHub default branch no longer matches
     # what's pinned. Fetching the pinned branch by name every time sidesteps
     # both.
+    #
+    # How much of it to fetch follows how the submodule was cloned. A partial
+    # clone (lib/submodules-init.nix) keeps its pinned branch with every
+    # commit's folders -- OCB (${layout.coreSrc}) with its commits only -- and
+    # anything else as commits only, its configured filter; so ask for the
+    # folders, except for OCB. --depth 1 would turn it into a shallow clone
+    # again, so that is only for one still shallow.
     git submodule foreach --quiet '
       branch="$(git config -f "$toplevel/.gitmodules" --get "submodule.$sm_path.branch")"
       [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short HEAD || true)"
-      [ -n "$branch" ] && git fetch --depth 1 --quiet origin "$branch" && git checkout --quiet FETCH_HEAD || true
+      if [ "$(git config remote.origin.promisor)" = true ]; then
+        if [ "$sm_path" = "${layout.coreSrc}" ]; then depth=""; else depth="--filter=blob:none"; fi
+      elif [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+        depth="--depth=1"
+      else
+        depth=""
+      fi
+      [ -n "$branch" ] && git fetch $depth --quiet origin "$branch" && git checkout --quiet FETCH_HEAD || true
     '
     ${lib.optionalString (coreSource != null) ''
       echo "    (${layout.coreSrc} is a flake input, not a submodule: bump it with 'nix flake update')"
