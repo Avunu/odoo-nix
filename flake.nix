@@ -196,6 +196,7 @@
       # checks.<system>:
       #   eval-addons-*, eval-odoo-conf-*, odoo-conf-render   pure library tests (all systems)
       #   journald-formatter                                  the CLI's journald output (all systems)
+      #   submodules-init                                     shell entry's submodule checkout (all systems)
       #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
       #   eval-*-<major>, lock-fresh-<major>                  per-series, no Odoo run (all systems)
       #   builtOdoo-<major>, odoo-init-<major>, odoo-test-<major>,
@@ -256,6 +257,22 @@
               ${py}/bin/python3 ${./tests/test_journald.py} ${./lib}
             '') (lib.unique (map (series: pkgs.${presets.${series}.python}) (lib.attrNames ocbInputs)))
           );
+
+          # What shell entry does about the project's submodules: checks out a
+          # fresh clone's once, and past that touches nothing. Git only, with
+          # file:// remotes standing in for GitHub.
+          submodules-init =
+            mkCheck pkgs "submodules-init"
+              {
+                nativeCheckInputs = [
+                  pkgs.git
+                  pkgs.findutils
+                ];
+              }
+              ''
+                bash ${./tests/submodules-init.sh} \
+                  ${import ./lib/submodules-init.nix { inherit pkgs; }}/bin/odoo-nix-submodules-init
+              '';
         }
         // perSeries
         // lib.optionalAttrs isLinux (

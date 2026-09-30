@@ -611,6 +611,8 @@ in
         # box-drawing-character `echo` lines, which are fragile to keep
         # column-aligned by hand and degrade ungracefully (no width
         # awareness) compared to a real renderer.
+        submodulesInit = import ../lib/submodules-init.nix { inherit pkgs; };
+
         richPython = import ../lib/rich-python.nix {
           inherit pkgs;
           inherit (cfg) python;
@@ -966,21 +968,18 @@ in
                   fi
                 fi
               ''}
-              # Initialize any git submodule that has never been cloned --
-              # scoped to just those paths, so an already-initialized
-              # submodule is never touched here even if its checked-out
-              # commit differs from what the superproject's index records.
-              # That divergent state is exactly what `odoo project update`
-              # leaves things in until the new pointers are committed; a
-              # blanket `git submodule update` (no path restriction) would
-              # silently reset it back on every shell entry -- submodules
-              # should only ever move via an explicit `odoo project update`.
-              mapfile -t _uninit_submodules < <(git submodule status 2>/dev/null | awk '/^-/ {print $2}')
-              if [ "''${#_uninit_submodules[@]}" -gt 0 ]; then
-                echo "Initializing git submodules…"
-                git submodule update --init --recursive -- "''${_uninit_submodules[@]}"
-              fi
-              unset _uninit_submodules
+              # Check out the git submodules this clone has never had -- a
+              # fresh clone's, on its first entry -- scoped to just those
+              # paths, so an already-initialized submodule is never touched
+              # here even if its checked-out commit differs from what the
+              # superproject's index records. That divergent state is exactly
+              # what `odoo project update` leaves things in until the new
+              # pointers are committed; a blanket `git submodule update` would
+              # silently reset it back on every shell entry. Nor is one that
+              # was set up and has since been removed or deinitialized brought
+              # back: submodules should only ever move via an explicit `odoo
+              # project update`. See lib/submodules-init.nix.
+              ${submodulesInit}/bin/odoo-nix-submodules-init "$DEVENV_ROOT" || true
 
               # Symlink the Nix-synthesized odoo.conf into place (read-only store
               # target; odoo-bin -c consumes it, never rewrites it).

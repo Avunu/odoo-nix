@@ -172,7 +172,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 -   **odoo** — `odoo-bin -c odoo.conf --dev=all` (threaded; serves HTTP + websockets),
 -   **mailpit** — SMTP sink + web UI.
 
-On shell entry it initializes git submodules, symlinks the synthesized `odoo.conf` into place, ensures the filestore + `custom/` directories exist, and refreshes the editor integration below.
+On shell entry it checks out the git submodules a fresh clone has never had (once: one you later remove or deinitialize stays out until `odoo project update`), symlinks the synthesized `odoo.conf` into place, ensures the filestore + `custom/` directories exist, and refreshes the editor integration below.
 
 ### Live code reload
 
