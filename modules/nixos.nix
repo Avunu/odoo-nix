@@ -812,7 +812,7 @@ in
         {
           name = cfg.database.user;
           # nixpkgs' ensureDBOwnership asserts that the database is named
-          # after the role. A project whose dbName differs ("millrun" owned by
+          # after the role. A project whose dbName differs ("myshop" owned by
           # "odoo") gets the ownership transferred below instead.
           ensureDBOwnership = dbName != null && dbName == cfg.database.user;
           ensureClauses.createdb = true;
