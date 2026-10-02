@@ -544,7 +544,7 @@ def _human_size(n: int) -> str:
 
 
 #: OCA auto_backup's own extension convention (models/db_backup.py:261-271
-#: in the millrun/modules/server-tools/auto_backup source): a zip-format dump
+#: in the OCA server-tools auto_backup source): a zip-format dump
 #: (dump.sql + filestore/ + manifest.json -- the same odoo.service.db.dump_db
 #: output either producer writes) is named "*.dump.zip"; the plain
 #: `pg_dump -Fc` custom format (no filestore) is named "*.dump". Adopted
