@@ -609,4 +609,6 @@ tests/
 
 ## License
 
-See repository.
+MIT, see [LICENSE](LICENSE).
+
+The `dev_mailcatch` addon (`addons/`) and the test fixture addons (`tests/fixtures/`) are Odoo modules and declare `LGPL-3` in their own `__manifest__.py`.
