@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/@avunu/docusystem/config.schema.json",
+  "name": "odoo-nix",
+  "tagline": "Reproducible Nix infrastructure for Odoo Community (OCB) and OCA projects, from scaffolding and development to containers and NixOS.",
+  "slug": "odoo-nix",
+  "platform": "nixos",
+  "repo": "https://github.com/Avunu/odoo-nix",
+  "domain": "odoo-nix.avunu.net",
+  "license": "MIT"
+}

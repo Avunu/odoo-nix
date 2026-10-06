@@ -1,0 +1,614 @@
+# odoo-nix
+
+Reusable Nix infrastructure for [Odoo](https://www.odoo.com/) projects built on the **[Odoo Community Backports (OCB)](https://github.com/OCA/OCB)** distribution and **[OCA](https://odoo-community.org/) modules** — the open alternative to Odoo Enterprise.
+
+`odoo-nix` packages everything needed to develop and ship an Odoo + OCA project declaratively, so a consuming project's flake stays a thin wrapper instead of a hand-rolled monolith. From a small top-level source tree it provides:
+
+-   a **`gum`\-based scaffolder** (`nix run github:Avunu/odoo-nix`) that optionally picks OCA bundles or modules from a bundled catalog, resolves their transitive **dependency repos**, and wires them in as git submodules — decline both and you get plain Odoo core
+-   **auto-synthesized `addons_path`** — derived from the folders actually present, so it can never drift out of sync with your submodules
+-   a Nix-synthesized **`odoo.conf`** (declared in your flake, symlinked into place)
+-   a **devenv** development shell (PostgreSQL + Odoo + Mailpit) with a reproducible Python environment via [uv2nix](https://github.com/pyproject-nix/uv2nix)
+-   a `builtOdoo` package — the assembled, deployable Odoo tree
+-   a single-instance **NixOS module** (`services.odoo-nix`) with secret-safe config synthesis
+-   an **OCI container** image (`dockerTools`)
+-   a single **`odoo` CLI** — database lifecycle (`db provision`/`migrate`/`upgrade`/`backup`/`restore`/…, with live progress, not just raw log output), OCA/git module management (`module add`, `module add-bundle`), workspace updates (`project update`), and everything else (`shell`, `scaffold`, `populate`, …) passed straight through to the real `odoo-bin` — the same binary in the dev shell, `services.odoo-nix`, and containers
+
+It is consumed as a [flake-parts](https://flake.parts/) module.
+
+## Requirements
+
+-   Nix with flakes enabled, and [direnv](https://direnv.net/) for the dev shell.
+-   A project laid out top-level (the scaffolder writes this for you):
+
+```
+.
+├── flake.nix          # your thin wrapper (see Quick start)
+├── pyproject.toml      # Odoo core deps + scoped OCA deps; built by uv2nix
+├── uv.lock             # committed lock — drives the Nix Python env
+├── modules.txt         # OCA modules to install (any installable module)
+├── odoo/               # OCB source (git submodule, branch = series)
+├── modules/            # OCA module-repo submodules
+│   ├── account-financial-reporting/
+│   └── …
+├── custom/             # your own Odoo modules
+└── odoo.conf           # symlink into the Nix store (synthesized)
+```
+
+`.devenv/state/` holds the dev PostgreSQL cluster **and** Odoo's filestore — nothing mutable is tracked.
+
+## Create a new project
+
+`nix run github:Avunu/odoo-nix` scaffolds a fresh project — the odoo-nix equivalent of a manual Odoo bootstrap. It selects an Odoo series (which fixes the Python version from a preset), _optionally_ lets you add OCA software, resolves the dependency repos, writes the wrapper flake, adds OCB + the resolved repos as shallow git submodules, generates `pyproject.toml` and runs `uv lock`:
+
+```sh
+nix run github:Avunu/odoo-nix                    # interactive (gum prompts)
+# or fully non-interactive:
+nix run github:Avunu/odoo-nix -- \
+  --series 18.0 --bundles base \
+  --modules account_financial_report,repair_order_group \
+  --name acme --db acme acme
+cd acme && direnv allow && devenv up             # then `odoo db provision` in another shell
+```
+
+**OCA software is entirely opt-in.** The scaffolder asks two independent, skippable questions — "add curated bundles?" then "add individual modules?" — each defaulting to _no_. Decline both (or pass neither `--bundles` nor `--modules`) and you get a plain Odoo core project; answer both and the two selections are unioned and de-duplicated. Modules can always be added later with `odoo module add` / `odoo module add-bundle`.
+
+Series presets are curated in `lib/odoo-presets.json`:
+
+| Series | Python | OCB / OCA branch |
+| --- | --- | --- |
+| 18.0 | python311 | 18.0 |
+| 19.0 | python312 | 19.0 |
+
+18.0 is the default for `odoo-nix.odooSeries` and the series the bundled OCA catalog is richest for; 19.0 is fully supported and catalogued, but OCA's port to it is still in progress, so fewer modules exist there.
+
+### The module picker
+
+The interactive picker lists **all installable modules** for the series (fuzzy search via `gum filter --no-fuzzy`, so typing a repo or module name does prefix matching, not loose subsequence matching). Modules flagged `application` in their manifest are marked with a ★ and sorted first, but every installable module is selectable — most useful OCA modules (localizations, feature modules) are _not_ applications.
+
+Picking a module resolves the **transitive closure of OCA repos** it needs (via each module's `depends`) and adds only the new repos as submodules. The set of modules you chose is recorded in `modules.txt`, which drives both installation (`odoo db provision`) and the scoped Python-dependency aggregation.
+
+## Quick start
+
+A consuming `flake.nix` is just configuration:
+
+```nix
+{
+  inputs = {
+    self.submodules = true;                  # submodule contents enter the flake source tree
+    odoo-nix.url = "github:Avunu/odoo-nix";
+    nixpkgs.follows = "odoo-nix/nixpkgs";
+  };
+
+  outputs = { self, odoo-nix, ... }@inputs:
+    odoo-nix.lib.mkFlake { inherit inputs; } ({ ... }: {
+      imports = [ odoo-nix.flakeModules.default ];
+      systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
+      perSystem = { pkgs, ... }: {
+        odoo-nix = {
+          enable = true;
+          projectName = "acme";
+          workspaceRoot = ./.;
+          odooSeries = "18.0";
+          python = pkgs.python311;
+          odooConf.dbName = "acme";
+          odooConf.adminPasswd = "change-me";  # dev only
+        };
+      };
+    });
+}
+```
+
+```sh
+direnv allow            # or: nix develop --no-pure-eval
+devenv up               # PostgreSQL + Odoo + Mailpit
+odoo db provision       # (another shell) create the DB + install modules.txt
+# → http://localhost:8069   (Mailpit UI: http://localhost:8025)
+```
+
+## Flake outputs
+
+| Output | Description |
+| --- | --- |
+| flakeModules.default | the flake-parts module (devenv shell + containers + the odoo-nix option namespace) |
+| nixosModules.default | the standalone services.odoo-nix NixOS module |
+| lib.mkFlake | flake-parts.lib.mkFlake wrapper that merges odoo-nix's own inputs |
+| lib.overrides | composable Python native-build overlays (psycopg2, python-ldap, lxml, libsass) |
+| lib.addons | the addons_path synthesis function, for testing / advanced use |
+| lib.odoo-ls | the odoo-ls (Odoo language server) package builder |
+| packages.<sys>.odoo-init / .default | the scaffolder executable |
+| packages.<sys>.odoo-ls | odoo-ls, pinned to this repo's `odoo-ls-src`/`odoo-ls-typeshed` inputs |
+| apps.<sys>.odoo-init / .default | nix run entry point |
+| apps.<sys>.relock-odoo-ls | `nix run .#relock-odoo-ls` — re-lock lib/odoo-ls-Cargo.lock |
+
+A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, odooDevEnv, builtOdoo, odooCli, default, odoo-ls}` from the flake-parts module. `builtOdoo` is the raw assembled tree; `odooCli` / `default` wrap it with the `odoo` CLI (`bin/odoo` dispatches `db`/`module`/`project`/`shell`/`test`, and passes anything else straight through to the real `odoo-bin`) — `default` is what `services.odoo-nix.package` and the container builder consume.
+
+## Options — `perSystem.odoo-nix`
+
+| Option | Default | Description |
+| --- | --- | --- |
+| enable | false | enable the dev shell + packages |
+| projectName | — | identifier for env / package / container names |
+| workspaceRoot | — | project root (where pyproject.toml, odoo.conf, odoo/ live) |
+| coreSource | null | OCB from a non-flake input instead of the `odoo/` submodule — see [OCB as a flake input](#ocb-as-a-flake-input) |
+| odooSeries | "18.0" | Odoo series — the OCB/OCA branch + catalog filter (does not select a nixpkgs package) |
+| python | pkgs.python311 | interpreter (match the series) |
+| nodejs | pkgs.nodejs_22 | Node.js (for rtlcss / asset tooling) |
+| pythonOverrides | _: _: {} | uv2nix package-set overlay for native-build overrides |
+| pythonLibraries | { } | per-package native libs to expose to a Python build, e.g. { python-snappy = [ pkgs.snappy ]; } (merged with built-ins; pycups is built in) |
+| layout.coreSrc | "odoo" | path of the OCB source submodule (or of the symlink `coreSource` maintains) |
+| layout.externalDir | "modules" | directory holding OCA module-repo submodules |
+| layout.customDir | "custom" | directory holding your own modules |
+| layout.extraAddons | [ ] | extra addons_path entries appended verbatim |
+| mailcatch.enable | true | redirect all outgoing email to the local Mailpit catcher |
+| mailcatch.host / mailcatch.port | "127.0.0.1" / 1025 | catcher SMTP endpoint (drives Mailpit and Odoo) |
+| mailcatch.httpPort | 8025 | Mailpit web UI port |
+| odooConf.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
+| odooConf.dataDir | "./.devenv/state/odoo" | Odoo filestore (gitignored under .devenv) |
+| odooConf.adminPasswd | "admin" | DB-manager master password (dev) |
+| odooConf.httpInterface | "127.0.0.1" | interface the dev server binds (http_interface); "0.0.0.0" to reach it from another host/container |
+| odooConf.httpPort/geventPort | 8069 / 8072 | HTTP + websocket/longpolling ports |
+| odooConf.workers | 0 | worker processes (0 = threaded dev mode) |
+| odooConf.devMode | "all" | --dev flag for the dev process |
+| odooConf.logging.level | "info" | root logging verbosity (log_level) |
+| odooConf.logging.handlers | [ ] | per-logger level overrides, e.g. [ "werkzeug:WARNING" ] (log_handler) |
+| odooConf.logging.db/dbLevel | false / "warning" | mirror logs into a database (log_db/log_db_level): `true` = the request's own database (`%d`), a string = that database |
+| odooConf.logging.file | null | write logs to this file instead of stderr (logfile); production logging is [`services.odoo-nix`'s](#logging) |
+| dev.autoReload | true | make Odoo's --dev=reload watcher functional (see Live code reload) |
+| odooConf.extra | { } | arbitrary extra [options] keys merged last |
+| odooConf.withoutDemo | false | skip demo data for every module (without_demo = True) |
+| postgres.extensions | _: [ ] | extensions built into the dev PostgreSQL, e.g. ps: [ ps.postgis ] (base_geoengine) |
+| ide.enable | true | expose the env to editors: ./.venv symlink + merged odoo analysis root |
+| ide.vscodeSettings | true | seed .vscode/settings.json when absent (never overwrites) |
+| ide.languageServer.enable | true | run odoo-ls: `odoo_ls_server` on PATH + symlinked `./odools.toml` — see [Odoo language server](#odoo-language-server-odoo-ls) |
+| ide.languageServer.package | odoo-ls pinned to `odoo-ls-src`/`odoo-ls-typeshed` | the odoo_ls_server package to use |
+| extraDevPackages / extraLibraryPaths / extraScripts / extraEnv | [] / [] / {} / {} | dev-shell extras |
+| containers.enable / containers.registry | false / "" | build the OCI image |
+
+## Development shell
+
+`devenv up` starts:
+
+-   **PostgreSQL** (state under `.devenv/state`; Odoo connects via `odoo.conf`),
+-   **odoo** — `odoo-bin -c odoo.conf --dev=all` (threaded; serves HTTP + websockets),
+-   **mailpit** — SMTP sink + web UI.
+
+On shell entry it checks out the git submodules a fresh clone has never had (once: one you later remove or deinitialize stays out until `odoo project update`) as partial clones — the pinned branch with every commit and folder but only the checkout's files (OCB: commits only), every other branch as commits, so `git switch` works and downloads what it needs — and brings any shallow or single-branch submodule to the same shape in place, once; it also symlinks the synthesized `odoo.conf` into place, ensures the filestore + `custom/` directories exist, and refreshes the editor integration below.
+
+### Live code reload
+
+Edit a `.py` file anywhere on the `addons_path` and the dev server restarts itself — in place, via `os.execve`, so the PID, the CWD and the open HTTP socket all survive. Nothing to run, no `devenv up` restart.
+
+This is Odoo's own `--dev=reload` watcher, which `devMode = "all"` already requests. The catch it hides: Odoo only starts the watcher if it can `import` a filesystem watcher, and it declares neither `inotify` nor `watchdog` as a dependency — so `--dev=all` on its own logs one INFO line (`Code autoreload feature is disabled`) in a very noisy log and then never reloads. `dev.autoReload` (on by default) closes that: the scaffolded `pyproject.toml` pins `watchdog` in `[dependency-groups].dev`, and for projects that predate it the dev process falls back to the nixpkgs `watchdog` on `PYTHONPATH`. Look for this line at start-up:
+
+```
+AutoReload watcher running with watchdog
+```
+
+What it does and does not cover:
+
+-   **Python** — every `addons_path` root is watched recursively: `odoo/odoo/addons`, `odoo/addons`, each `modules/<repo>`, and `custom/`. A change restarts the server; a syntax error is logged and the restart is skipped until you fix it.
+-   **XML, QWeb, assets** — no restart needed at all. `--dev=xml` drops the ORM cache on `ir.ui.view` / `ir.asset` / `ir.qweb`, so views, templates and JS/SCSS bundles are re-read from disk. Just reload the browser.
+-   **Odoo framework code** (`odoo/odoo/*.py` — `models.py`, `fields.py`, `http.py`) is _not_ an addons root, so it is not watched. Restart the process for those.
+-   **`workers` must be 0** (the default). The watcher only runs on the threaded server; the dev shell warns if you set workers and leave `autoReload` on.
+
+Python packages are installed editable against `$REPO_ROOT`, so module _source_ was always live — only the restart trigger was missing.
+
+### Editor / language-server integration
+
+`ide.enable` (the default) produces two derived artifacts. Neither is read at runtime — the server and the scripts import from the store env directly — they exist so a static analyser resolves the same names the interpreter does.
+
+| Artifact | Purpose |
+| --- | --- |
+| ./.venv → the Nix-built dev env | the venv layout every editor probes for at the workspace root |
+| .devenv/state/pythonpath | a merged odoo package whose addons/ aggregates every addons_path root |
+
+The second one is not optional dressing. Two things hide Odoo's imports from an analyser, and both need a real directory to look at:
+
+1.  uv2nix installs every OCA/custom module **editable**, through `.pth` files whose body is `sys.path.append(os.path.expandvars(…))`. Only a running interpreter executes those.
+2.  `odoo.addons` is a `pkgutil` namespace that Odoo extends from `addons_path` at startup — and the bulk of the standard addons (`sale`, `portal`, `mail`, …) live in `<coreSrc>/addons`, _outside_ the `odoo` package. Nothing static can see them either.
+
+So without it, `from odoo.addons.sale.models.sale_order import SaleOrder` is unresolved even for stock Odoo. The mirror links each module in first-root-wins order — the same precedence Odoo applies — and is rebuilt only when that set changes.
+
+With `ide.vscodeSettings`, a `.vscode/settings.json` is seeded (once, never overwritten) pointing Pylance at both:
+
+```json
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.analysis.extraPaths": [".devenv/state/pythonpath"]
+}
+```
+
+For a non-VS Code editor, point your language server at the same two paths — e.g. a `pyrightconfig.json` with `"venv": ".venv"` and the same `extraPaths`.
+
+### Odoo language server (odoo-ls)
+
+`ide.languageServer.enable` (the default, requires `ide.enable`) adds [odoo-ls](https://github.com/odoo/odoo-ls) — a Rust language server that understands `__manifest__.py`, ORM field types and XML view/QWeb references, on top of the generic Python intelligence above. It puts `odoo_ls_server` on the dev shell `PATH` and symlinks a Nix-synthesized `./odools.toml` into place (like `odoo.conf` and `.venv` — gitignored, not hand-edited), pointing it at this workspace's OCB checkout, addons_path and `.venv` interpreter under a single profile named `"default"`. Every path inside it is relative to `odools.toml` itself (odoo-ls resolves paths against the file's own location, not the process's CWD), so its content is identical on every machine regardless of checkout path.
+
+**VS Code is a special case.** The official [`Odoo.odoo`](https://marketplace.visualstudio.com/items?itemName=Odoo.odoo) extension bundles its own platform-specific `odoo_ls_server` binary inside its `.vsix` and has no setting to point it at another one — so the Nix-built binary above is never what runs inside VS Code. With `ide.vscodeSettings`, two things are seeded once (never overwritten) to help it anyway:
+
+-   `.vscode/extensions.json` recommends `Odoo.odoo`, prompting VS Code to offer installing it.
+-   `.vscode/settings.json` gets `"Odoo.serverConfigPath": "${workspaceFolder}/odools.toml"`, so its bundled binary picks up the same generated config.
+
+Every **other** editor's LSP client can be pointed at `odoo_ls_server` directly (stdio transport, no `initializationOptions` needed) — that binary is the real payoff of `ide.languageServer.enable`.
+
+### Outgoing mail catch-all
+
+With `mailcatch.enable` (the default), **every** outgoing email is redirected to Mailpit — nothing can reach a real recipient from a dev environment. Open the catcher at [http://localhost:8025](http://localhost:8025).
+
+Setting `smtp_server` in `odoo.conf` is _not_ enough on its own: Odoo only falls back to it when no `ir.mail_server` record matches, so a single row in that table — or a `mail.mail` carrying an explicit `mail_server_id` — sends for real. So odoo-nix ships an addon, `addons/dev_mailcatch`, that patches `ir.mail_server.connect` and `ir.mail_server._find_mail_server` to always dial the catcher.
+
+It is loaded as a **server-wide module**, not installed into any database:
+
+```ini
+[options]
+server_wide_modules = base,web,dev_mailcatch
+
+[dev_mailcatch]
+enabled = True
+host = 127.0.0.1
+port = 1025
+```
+
+Odoo runs the manifest's `post_load` hook at server start, so the redirection covers every database on the server — including ones created later — with no `-i` step, and applies to the HTTP server, `odoo shell`, and `--stop-after-init` runs (`-i`/`-u`) alike. The addon is served directly from the Nix store; it is never copied or symlinked into your workspace, so it stays out of `custom/`, `modules.txt`, and your git tree. A startup log line names the target:
+
+```
+WARNING dev_mailcatch ACTIVE — ALL outgoing email is redirected to 127.0.0.1:1025.
+```
+
+`ODOO_MAILCATCH_ENABLED` / `_HOST` / `_PORT` override `odoo.conf` for one-off runs. The catch-all is **dev-shell only** — `services.odoo-nix` and the container builder never load it.
+
+### The `odoo` CLI
+
+Everything — dev shell, `services.odoo-nix`, and containers — shares one `odoo` binary. `db`/`module`/`project`/`shell`/`test` are odoo-nix's own subcommands; anything else (`server` — the default with no subcommand —, `scaffold`, `populate`, `cloc`, `deploy`, `neutralize`, …) passes straight through to the real `odoo-bin`, so nothing from Odoo core is lost. `-c/--config`, `-d/--database` and `--db-host`/`--db-port`/`--db-user`/`--db-password` are accepted before the subcommand name, the same way `odoo-bin`'s own flags are.
+
+| Command | Action |
+| --- | --- |
+| `odoo db list` | list databases, with version compatibility |
+| `odoo db create <db> [--demo] [--lang]` | create an empty database (no modules installed) |
+| `odoo db provision [db]` | create + install everything in modules.txt (new database), or migrate it (existing) — idempotent |
+| `odoo db upgrade <m[,m2]> [db\|--all]` | upgrade module(s) (-u), with a live progress bar and a per-module summary table |
+| `odoo db migrate [db\|--all] [--full] [--if-needed] [--also m,…] [--snapshot zip\|dump\|none] [--keep N] [--rollback] [--provision-if-empty]` | update the modules whose code or version changed (see [Migrations](#migrations)) — run after pulling new code; snapshots first (`zip` by default), `--rollback` restores it on failure, `--full` is `-u all` |
+| `odoo db duplicate <src> <dest> [--neutralize]` | duplicate a database (schema + filestore) |
+| `odoo db rename <old> <new>` | rename a database (and its filestore) |
+| `odoo db drop <db> [--yes]` | drop a database and its filestore |
+| `odoo db backup [db\|--all] [--path DIR] [--format zip\|dump] [--keep-days N]` | dump database(s) to `<data_dir>/backups/<db>/` by default; `zip` = schema + filestore (Odoo's own Database Manager format, the default), `dump` = plain `pg_dump` custom format, no filestore |
+| `odoo db restore <db> <backup-path> [--force] [--neutralize]` | restore a backup into `<db>`, with numbered progress |
+| `odoo module add [module …]` | pick more OCA modules → resolve + add repos → record in modules.txt → re-lock |
+| `odoo module add <git-url\|owner/repo> [branch] [path]` | add any third-party git repo as a submodule → record its module(s) → re-lock |
+| `odoo module add-bundle [name …]` | add a curated bundle of OCA modules (from data/oca-bundles.json) |
+| `odoo project update [--no-migrate]` | pull submodules, re-aggregate OCA Python deps, uv lock — then migrate every database, unless `--no-migrate` |
+| `odoo project backup [--format zip\|dump] [--path DIR] [--keep-days N]` | back up *every* database matching `dbfilter` in one call — no db argument needed, unlike `db backup` |
+| `odoo project restore --restore DB PATH [--restore DB2 PATH2 …] [--force] [--neutralize]` | restore one or more explicit database=backup pairs in a single batch (no "latest backup" auto-discovery — name each file) |
+| `odoo shell [db]` | Odoo Python REPL |
+| `odoo test <m[,m2]> [db]` | run module tests; refuses to run if a skipped browser tour would silently read as a pass |
+
+After `odoo module add` / `odoo module add-bundle`, run `direnv reload` so the Nix engine re-derives `addons_path` and rebuilds the Python env.
+
+`db upgrade`/`db migrate`/`db provision`'s progress comes from Odoo's own module-loading log records (read directly, not reimplemented) rendered as a live `rich` progress bar on a terminal, or narrated lines under a non-interactive stream (journald, CI) — either way ending in a summary table of what was touched, how long each module took, and which migration scripts ran. Odoo commits each module's upgrade as it completes, so a mid-migration failure is reported as "N modules already committed, module X failed" rather than implying an all-or-nothing rollback Odoo itself does not have.
+
+Backup naming and layout match the OCA [`auto_backup`](https://github.com/OCA/server-tools/tree/18.0/auto_backup) module's own convention exactly — `<data_dir>/backups/<db>/<timestamp>.dump.zip` (or `.dump` for `--format dump`), timestamp `YYYY_MM_DD_HH_MM_SS`, no db name in the filename since the folder already carries it — so backups produced by this CLI and by an installed `auto_backup` module are interchangeable in the same folder. `--keep-days` prunes the same way `auto_backup`'s own retention does: any backup file whose name sorts lexicographically before "now minus N days" (formatted the same way) is deleted, no `stat()` calls needed since the zero-padded timestamp sorts correctly as a string. `project backup` writes each database into its own `<path>/<db>/` subfolder rather than one flat directory, since two databases backed up in the same second would otherwise collide on that db-name-free filename.
+
+#### Migrations
+
+`odoo db migrate` updates what changed, not everything. Two signals put a module in the update set:
+
+- **its content checksum** differs from the one stored the last time a migration of this database succeeded — Odoo only creates columns, reloads views and data, and runs migration scripts for modules being updated, so changed code without `-u` leaves the schema silently behind it;
+- **version drift**: `ir_module_module.latest_version` is behind the manifest on disk — a database restored from somewhere its modules were never updated.
+
+The checksums use OCA [`module_auto_update`](https://github.com/OCA/server-tools/tree/18.0/module_auto_update)'s algorithm and storage (`module_auto_update.installed_checksums`, honouring `module_auto_update.exclude_patterns`), so it, `click-odoo-update` and this CLI agree on what changed and can share a database. A database with no stored checksums is updated in full once, as a baseline; `db provision` records the baseline for a fresh install. The plan is printed before anything runs: `3 module(s) to update: queue_job (18.0.3.4.1 → 18.0.4.0.0), sale_x (code changed), …`.
+
+Production builds also record which build migrated the database (`odoo_nix.migrated_build`), and `--if-needed` exits after one query when it matches — the no-op path every start of `services.odoo-nix` takes. The marker lives in the database, not on disk, so restoring a dump from elsewhere is itself what triggers the next migration.
+
+The safety net: an advisory lock (a manual migration and a deploy cannot run at once); a snapshot verified readable before anything relies on it, in `<data_dir>/backups/<db>/premigrate/` so `--keep N` never prunes a backup somebody took on purpose (and never prunes after a failure); and `--rollback`, which drops and recreates the database with the same encoding and collation and loads the snapshot. The filestore is left alone — attachments are content-addressed and only ever added — which is also why rollback does not use Odoo's own `exp_drop` (it deletes the filestore) or `restore_db` (it loads the new code against the restored old schema). An uninitialised database is skipped with exit 0, or provisioned with `--provision-if-empty`.
+
+Production (`services.odoo-nix`) and the container image get the same binary and the same `db` subcommands, plus `project backup`/`project restore` (pure `odoo.service.db` wrappers, no workspace needed) — `docker exec`/`ssh` in and run `odoo db backup mydb`, `odoo project backup`, `odoo db migrate mydb`, etc. `module add[-bundle]`/`project update` are dev-shell only (no git checkout, no modules.txt, in an assembled `/nix/store` deployment) and fail with a clear message rather than a bare traceback if invoked there.
+
+### Adding a third-party module repo
+
+`odoo module add` isn't limited to the OCA catalog — give it a git URL (or `owner/repo` GitHub shorthand) and it adds that repo as a submodule under `modules/` the same way it adds an OCA repo, then scans the clone for `__manifest__.py` and records whichever module(s) you pick in `modules.txt`. It works with any git host, not just GitHub.
+
+```sh
+odoo module add                                   # interactive: choose "OCA catalog" or "Git URL"
+odoo module add https://gitlab.com/foo/bar.git    # any git host, full URL
+odoo module add foo/bar                           # GitHub shorthand -> https://github.com/foo/bar.git
+odoo module add foo/bar 17.0 my-bar               # explicit branch + submodule folder name
+```
+
+Branch defaults to the project's `odooSeries` (matching OCA convention); if the repo has no such branch, its detected default branch is offered as an editable prompt (or used directly when run non-interactively). The submodule path defaults to a slug derived from the repo name, under `layout.externalDir`. A repo with more than one module prompts with a multi-select (nothing pre-selected) so you choose which to install; a single-module repo needs no prompt.
+
+### Bundles
+
+`odoo module add-bundle` adds a named set of OCA "must-have" modules in one step — it expands the bundle to its module list and runs the same resolve → add-repos → record → re-lock flow as `odoo module add`. Bundles are defined in the hand-maintained `data/oca-bundles.json`:
+
+```json
+{
+  "base":  { "label": "Base — OCA must-have foundation modules", "modules": ["queue_job", "…"] },
+  "sales": { "label": "Sales — OCA sales workflow",              "modules": ["sale_cancel_reason", "…"] }
+}
+```
+
+```sh
+odoo module add-bundle                    # interactive picker (name — label — module count)
+odoo module add-bundle base sales         # by name; modules are unioned across bundles
+```
+
+Add or edit a bundle by editing `oca-bundles.json` — no code changes needed.
+
+The same picker and expansion are available at scaffold time (`--bundles`, or the first interactive prompt) — both callers share the `oca_pick_bundles` / `oca_expand_bundles` helpers in `lib/oca-lib.sh`. Bundles are series-blind lists, so expansion is scoped to the project's series: a member with no in-series catalog record is reported and dropped rather than recorded in `modules.txt` and left to fail at `odoo db provision`.
+
+## Python environment
+
+The project's `pyproject.toml` + `uv.lock` are the single Python manifest, built reproducibly by **uv2nix** (no pip, no `.venv`). Dependency resolution is **fully declarative — uv does all of it**, with no custom aggregation:
+
+-   OCA modules are modern **[whool](https://github.com/sbidoul/whool)** packages (`odoo-addon-<module>`). Each module's build metadata declares its full dependency graph from `__manifest__.py`: `odoo-addon-<dep>` for OCA depends, `odoo` for core depends, and `external_dependencies.python` as real PyPI requirements.
+-   **OCB itself** resolves as an `odoo` path dependency — its `setup.py` carries Odoo's own requirements, so uv resolves those too (replacing any `requirements.txt` translation).
+
+`lib/oca_sources.py` generates two managed blocks (regenerated by `odoo module add` / `odoo module add-bundle` / `odoo project update`):
+
+-   `[project].dependencies` — `odoo` + the modules from `modules.txt` as `odoo-addon-<name>` (the install roots);
+-   `[tool.uv.sources]` — `odoo` (the OCB submodule) + **every** local module as an editable path source. uv then resolves the transitive closure of the roots against these local sources and pulls only the genuine external deps from PyPI.
+
+This is a pure enumeration of available local modules — no dependency _logic_. uv resolves the graph; adding a module or changing its manifest deps is picked up automatically.
+
+The dev environment installs the modules **editable** (live source) and `odoo` as a wheel (its vendored `pep517_odoo` backend needs `setup/` on `PYTHONPATH` during the build, handled in `lib/python.nix`); Odoo is still **run from source** via `odoo-bin` + `addons_path`, so module loading and OCB edits work exactly as before — the editable installs just feed uv's resolution. `lib/overrides.nix` supplies native-build overrides (psycopg2, python-ldap) and a `[tool.uv.extra-build-dependencies]` block grants `setuptools` to sdist-only legacy deps. For a genuine version conflict, use `[tool.uv] override-dependencies`.
+
+When a module pulls a C-extension dep that needs system headers (e.g. `pycups` → `cups/http.h`), expose the library declaratively rather than writing an override — the `pythonLibraries` option maps a Python package to nixpkgs libraries whose `.dev` headers + pkg-config are added to its build:
+
+```nix
+odoo-nix.pythonLibraries = {
+  python-snappy = [ pkgs.snappy ];   # pycups is built in
+};
+```
+
+## OCB as a flake input
+
+An application project keeps OCB as the `odoo/` git submodule: it is the thing being deployed, and
+`self.submodules = true` puts it into the flake source. A repository that is itself *consumed as an
+addons path* — a library of modules other odoo-nix projects mount under `modules/` — should not:
+every consumer with `self.submodules = true` would recurse into that gitlink and fetch a second copy
+of OCB, and a shallow `git submodule add` of the library would drag it in too. Such a repository
+needs OCB only for its own dev shell and test checks, so it takes it as a plain source input:
+
+```nix
+{
+  inputs = {
+    odoo-nix.url = "github:Avunu/odoo-nix";
+    nixpkgs.follows = "odoo-nix/nixpkgs";
+    ocb = {
+      url = "github:OCA/OCB/18.0";
+      flake = false;
+    };
+  };
+
+  outputs = { self, odoo-nix, ... }@inputs:
+    odoo-nix.lib.mkFlake { inherit inputs; } ({ inputs, ... }: {
+      imports = [ odoo-nix.flakeModules.default ];
+      systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
+      perSystem = { pkgs, ... }: {
+        odoo-nix = {
+          enable = true;
+          projectName = "my-addons";
+          workspaceRoot = ./.;
+          coreSource = inputs.ocb;      # no self.submodules, no odoo/ submodule
+          layout.customDir = ".";       # the repo root is the addons directory
+        };
+      };
+    });
+}
+```
+
+With `coreSource` set:
+
+-   the dev shell keeps `<coreSrc>` (`./odoo`) as a **symlink** to the store path — add `/odoo` to
+    `.gitignore` — so `odoo-bin`, the scripts and the editor mirror all see OCB where the submodule
+    layout has it, and `pyproject.toml`/`uv.lock` are unchanged (`odoo` stays the path source
+    `odoo/`). `uv lock` (via `odoo project update` / `odoo module add`) is the one thing that cannot go
+    through the link directly — setuptools writes `odoo.egg-info` into the project root, and the
+    store is read-only — so for the duration of a lock the scripts point it at a throwaway
+    writable shadow of the tree (`lib/core-shadow.sh`) and restore it afterwards;
+-   the Python environment builds the `odoo` wheel from the store path (uv2nix would otherwise
+    look for `odoo/` in the flake's copy of the workspace, where the gitignored symlink does not
+    exist);
+-   `addons_path` — the dev `odoo.conf`, `lib.addons`' `addonsPathFor` used by checks, and
+    `builtOdoo` — carries the two core roots as absolute store paths, and `builtOdoo` links the
+    tree instead of copying 2 GB.
+
+Bump the pin with `nix flake update ocb`; `odoo project update` leaves it alone (it only pulls git
+submodules). A repository laid out this way can be mounted by consumers straight from its default
+branch.
+
+## `addons_path` synthesis
+
+`lib/addons.nix` enumerates `modules/*`, keeps only directories that actually contain an Odoo module (an immediate child with `__manifest__.py`), prepends the two core OCB addon dirs, and appends `custom/` — emitting an ordered, relative `addons_path` that is regenerated on every evaluation. Adding or removing a submodule changes the path automatically; there is no hand-maintained list to drift.
+
+Entries stay workspace-relative so the file is identical across machines and containers. Absolute roots (`extraAddonsAbs`) are appended last, verbatim — that is how odoo-nix's own store-resident addons, such as `dev_mailcatch`, join the path without being vendored into the consumer's tree.
+
+## `odoo.conf` synthesis
+
+`lib/odoo-conf.nix` renders the `[options]` block from your declarative `odooConf.*` settings plus the derived `addons_path` (via `pkgs.formats.ini`) to a read-only `/nix/store` file. The dev shell symlinks it to `./odoo.conf`; `--dev` stays a CLI flag so the same file is prod-usable.
+
+Beside `[options]` it can emit arbitrary extra sections (`extraSections`) for modules that read their own INI section — through 18.0 out of `odoo.tools.config.misc`, where Odoo's parser keeps unknown sections verbatim; 19.0 dropped `misc`, so a module re-reads the loaded file (`config['config']`) itself, as `dev_mailcatch` does. OCA modules like `queue_job` follow the same convention.
+
+## Production — `services.odoo-nix`
+
+A standalone NixOS module (imported separately from the flake-parts module). One Odoo instance per deployment; multi-tenancy via `dbfilter`. A base `odoo.conf` (no secrets) is written to the store; an `odoo-init` oneshot copies it to a `0600` runtime file and **appends** `db_password` / `admin_passwd` from secret files — so secret _values_ never enter `/nix/store`.
+
+```nix
+# In a nixosConfiguration:
+{
+  imports = [ odoo-nix.nixosModules.default ];
+  services.odoo-nix = {
+    enable = true;
+    package = projectFlake.packages.x86_64-linux.default;  # the odoo CLI wrapper
+    dbName = "acme";
+    database.createLocally = true;                          # local PG, socket peer auth
+    adminPasswordFile = "/run/secrets/odoo-admin";
+    workers = 4;
+    nginx = { enable = true; domain = "erp.example.com"; }; # proxy_mode + /websocket → 8072
+  };
+}
+```
+
+Key options: `package` (the CLI package — `packages.default` — which `migrate` requires), `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port,user,passwordFile,extensions,ensureExtensions}`, `adminPasswordFile`, `settings` (extra `[options]`), `migrate.{enable,full,snapshot,rollbackOnFailure,snapshotRetention,timeout}` (below), `update` (modules to update on every deploy even when unchanged), `autoInit` (install `base` + `<stateDir>/modules.txt` into an empty database), `nginx.{enable,domain}`, `logging.{level,handlers,db,dbLevel,journald,accessLog,slowQueryMs}` ([Logging](#logging), below), `logging.{file,rotate}` (a log file instead of the journal; `rotate` wires up `services.logrotate` against it, and Odoo's own `WatchedFileHandler` picks up the rotated file automatically, no reload needed).
+
+### Migrations on deploy
+
+The schema follows the code by itself. `odoo-migrate.service` runs `odoo db migrate <dbName> --if-needed --snapshot dump --keep <snapshotRetention> --rollback` (see [Migrations](#migrations)) before **every** start of `odoo.service`: it is a oneshot without `RemainAfterExit`, and `odoo.service` both `Requires` and orders `After` it. So:
+
+- **a deploy** (switch-to-configuration stops `odoo.service` when its unit changes and starts it again) updates exactly the modules whose code or version changed, with Odoo stopped — no worker, cron or `queue_job` runner touches the database mid-update;
+- **a restart of the same build** — a reboot, `systemctl restart odoo`, a crash — costs one query;
+- **a restored dump** carries another build's marker (or none), so the next start migrates it: no manual `-u` after a restore;
+- **a failed migration** is rolled back to its snapshot and `odoo.service` **does not start**. New code on a schema it was not migrated to fails in ways nothing reports — `queue_job`'s runner quietly pauses itself (`database schema is outdated, -u queue_job required`) while every job sits in `pending` — so Odoo stays down and the failure is the unit's, where monitoring sees it. Recover with a fixed deploy or a rollback of the system generation.
+
+The first start on a database with no stored checksums updates every module once to establish the baseline; on a large database that takes minutes, hence `migrate.timeout` defaulting to no limit. `autoInit` provisions an empty database here too (`--provision-if-empty`); without it an empty database is skipped and Odoo starts, so a dump can be restored into it. `migrate.enable = false` restores the old behaviour (`autoInit`'s `-i base` and `update`'s `odoo db upgrade` in `ExecStartPre`, no detection, no snapshot).
+
+### Logging
+
+Everything goes to the journal — no log files — in a shape a shipper reading it (Vector → Loki, `journalctl -p warning`) can filter without parsing text:
+
+- **Fields.** Every unit the module defines or turns on carries `APP_SERVICE` and `APP_SITE` (systemd `LogExtraFields`, so they are on everything journald attributes to the unit — its output, syslog messages, systemd's own lines about it). `APP_SERVICE` is the role: `web` (`odoo.service`), `migrate` (`odoo-migrate`), `init` (`odoo-init`), `db` (`postgresql`/`postgresql-setup`, with `database.createLocally`), `nginx` (with `nginx.enable`). `APP_SITE` is `dbName`; with no pinned `dbName` (several databases behind `dbFilter`) it is left out. The Odoo units also have a fixed `SyslogIdentifier` — `odoo`, `odoo-migrate`, `odoo-init`. The same contract as frappe-nix and wordpress-nix, so one query spans all three.
+- **Priorities** — `logging.journald`, on by default. Odoo's stderr format is made for a terminal (`2026-01-01 12:00:00,000 1234 INFO acme odoo.http: …`) and lands in the journal at priority 6 whatever its level. Instead each record is written as `<N>acme odoo.http: …`: journald reads `<N>` as the syslog priority (DEBUG 7, INFO 6, WARNING 4, ERROR 3, CRITICAL 2) and strips it; asctime and pid, which the journal records anyway, and colour codes are dropped. journald splits on newlines, so **every** line of a record carries its `<N>` — a traceback stays at the priority of the error it belongs to. `odoo-migrate`'s own progress output stays plain lines (priority 6); Odoo's warnings and errors during a migration get their priorities too. It needs the CLI package (`packages.default`), which applies it before handing over to `odoo-bin`, and only acts when stderr really is the journal stream (`$JOURNAL_STREAM`), so running the same package from a shell keeps Odoo's own format.
+- **Requests** — `logging.accessLog`, on by default. nginx logs one JSON object per request to the journal (`SYSLOG_IDENTIFIER=nginx_access`): `time`, `site` (the Host), `method`, `uri`, `status`, `bytes`, `request_time`, `upstream_time`, `remote_addr` (the real client, in socket mode too), `user_agent`, `referer`. `false` turns the access log off. nginx's error log stays on stderr, same unit.
+- **PostgreSQL** (with `createLocally`) prefixes each line with database and role (`log_line_prefix = "%d %u "`, a `mkDefault`); `logging.slowQueryMs = 500;` logs every statement that runs that long (`log_min_duration_statement`).
+
+```sh
+journalctl APP_SITE=acme -p warning           # everything wrong with one site
+journalctl APP_SERVICE=migrate APP_SITE=acme  # its deploy-time migrations
+journalctl SYSLOG_IDENTIFIER=nginx_access -o cat | jq 'select(.status >= 500)'
+```
+
+`logging.file` still works, but Odoo's file and stderr handlers are mutually exclusive: with a file set, the journal only sees what is printed before Odoo's logging starts, so the module warns. Leave it null under systemd — the journal already timestamps, rotates and ships — or set `logging.journald = false` to keep the file without the warning. `settings.syslog` is left alone too (it is not stderr).
+
+PostGIS (OCA `base_geoengine`): `database.extensions = ps: [ ps.postgis ];` builds it into the local server and `database.ensureExtensions = [ "postgis" "postgis_topology" ];` creates both in `dbName` as the `postgres` superuser. The module's `pre_init_hook` tries to create them itself, which only works for a superuser — the dev shell's role is one, the production role is not.
+
+## Production — OCI containers
+
+Set `odoo-nix.containers.enable = true` to get `packages.<sys>.container-odoo`, an all-in-one image (`dockerTools.buildLayeredImage`) running `odoo-bin` with HTTP workers + gevent + cron. The entrypoint synthesizes `/etc/odoo/odoo.conf` from env-var defaults and merges secrets from mounted files:
+
+-   `/var/lib/odoo/data` — persistent filestore (volume),
+-   `/secrets/db_password`, `/secrets/admin_passwd`, `/secrets/*.conf` — secrets,
+-   PostgreSQL is external.
+
+## Library
+
+### `lib.mkFlake`
+
+Wraps `flake-parts.lib.mkFlake`, merging odoo-nix's own inputs (devenv, uv2nix, …) so the consumer only declares `odoo-nix` + `nixpkgs.follows`.
+
+### `lib.overrides`
+
+Composable `final: prev:` Python overlays for packages needing system libraries (`psycopg2`, `python-ldap`, `lxml`, `libsass`). psycopg2 + python-ldap are wired by default; pass more via `pythonOverrides`.
+
+### `lib.addons`
+
+The `addons_path` synthesis used internally; importable for `nix eval` testing — and tested that way: see `tests/eval.nix`.
+
+## Testing
+
+`nix flake check -L` runs everything. odoo-nix is a library, so its checks do what a consumer does: build a **real** Odoo from a pinned OCB tree — `ocb-18` / `ocb-19`, `flake = false` inputs in the shape [OCB as a flake input](#ocb-as-a-flake-input) prescribes — through `coreSource`, with the same library calls the flake-parts module makes. Checks are one derivation per assertion, so the failure names itself:
+
+| check | what |
+| --- | --- |
+| `eval-addons-*`, `eval-odoo-conf-*`, `odoo-conf-render` | pure tests of `lib/addons.nix` on a synthetic tree (`tests/fixtures/addons-tree`) and of `lib/odoo-conf.nix` rendering |
+| `eval-*-<18\|19>` | per-series eval assertions: the fixture's `requires-python` matches `lib/odoo-presets.json`; `builtOdoo`'s `passthru.addonsPath` / `odooVersion` contract |
+| `lock-fresh-<18\|19>` | `tests/fixtures/<series>/uv.lock` still matches the pinned `ocb-*` input (series + `install_requires`) |
+| `builtOdoo-<18\|19>` | the assembled package builds — including the non-editable `odoo` wheel; `bin/odoo --version` runs on the production env |
+| `odoo-init-<18\|19>` | `-i base` against an in-sandbox PostgreSQL (`postgresqlTestHook`, unix socket); `web` installed proves the second core root, the `dev_mailcatch` banner proves `extraAddonsAbs` |
+| `odoo-test-<18\|19>` | installs the fixture addon `tests/fixtures/<series>/custom/odoo_nix_fixture` and runs its Odoo tests (ORM round-trip + the `dev_mailcatch` redirection), asserting the stats line shows they ran |
+| `cli-lifecycle-<18\|19>` | the `odoo` CLI end to end against an in-sandbox PostgreSQL: passthrough (`--help`/`--version`), then `db provision` → `db provision` again (idempotent migrate path) → `db backup` → `db drop` → `db restore`, on a database distinct from the one the other checks use |
+| `cli-migrate-<18\|19>` | `odoo db migrate` from build to build, the way `odoo-migrate.service` runs it: provision records the baseline; the same build is a one-query no-op; v2 of the fixture (`tests/fixtures/migrate`) updates **only** the fixture — new column, post-migrate script, new build recorded; version drift with unchanged checksums is still migrated; v3's migration commits a change and then fails, and the database is back exactly as v2 left it; `--keep` prunes only after a success; an uninitialised database is skipped |
+| `journald-formatter` | the CLI's journald output without Odoo (`tests/test_journald.py`, on each series' interpreter): level → `<N>`, every line of a traceback prefixed, and the full `odoo` → sitecustomize → patched `init_logger` path against a stand-in `odoo.netsvc` |
+| `eval-module-*` | `services.odoo-nix` evaluated, nothing built (`tests/module-eval.nix`): `APP_SERVICE`/`APP_SITE` and `SyslogIdentifier` on every unit, `APP_SITE` left out without `dbName`, the journald switch and the `logging.file` warning, PostgreSQL's log settings, nginx's access log |
+| `module-nginx` | `services.odoo-nix`'s nginx/socket contract, with a stub Odoo that echoes headers; the journal fields on what the units log and nginx's JSON access log in the journal (needs KVM) |
+| `module-odoo-<18\|19>` | `services.odoo-nix` with the real CLI package: `odoo-migrate` provisions the empty database before `odoo.service` starts, `/web/login` via nginx and directly, `version_info`; a restart migrates nothing; deploying v2 (a specialisation) migrates the changed module; deploying v3 fails the migration, rolls it back and leaves `odoo.service` **down**; redeploying v2 recovers; Odoo's records in the journal at their priority with no asctime/pid (workers and the gevent process included), a traceback at the error's priority on every line (needs KVM) |
+
+Everything that runs Odoo or a VM is Linux-only; eval checks and `lock-fresh` run on every system. `nix develop` gives a shell for working on odoo-nix itself (`uv`, `nixfmt`, `odoo-nix-relock`); consumers get their devenv shell from the flake-parts module instead.
+
+The fixtures are the smallest consumer-shaped workspace: a hand-written `pyproject.toml` (`dependencies = ["odoo"]`, OCB as the path source `odoo/` exactly as `oca_sources.py` emits it, `freezegun` + `websocket-client` in the dev group), a committed `uv.lock`, and one custom addon. There is no `odoo/` in the tree — the Nix build gets it from the `ocb-*` input through `coreSource`, and the test run uses `testPythonEnv` (`packages.odooTestEnv` in a consumer): the production wheels plus the dev group, non-editable, so it runs in the sandbox.
+
+### Re-locking
+
+The weekly dependabot PR bumps `ocb-18` / `ocb-19` (their own group, separate from nixpkgs & co). `uv.lock` does not record OCB's revision, only what uv derived from it, so a bump is only *stale* when OCB's `setup.py` `install_requires` (or its series) changed — then `lock-fresh-<major>` fails and prints the fix:
+
+```sh
+nix run .#relock            # or: nix run .#relock -- --upgrade
+git add tests/fixtures/*/uv.lock tests/fixtures/*/pyproject.toml
+```
+
+It runs `uv lock` in each fixture with the series' interpreter from `lib/odoo-presets.json`, then syncs the sdist build-dep block with `lib/uv_build_deps.py` — the tail of what `odoo project update` runs in a consumer, including the lock-time shadow of the store path (`lib/core-shadow.sh`) that `coreSource` needs; `tests/fixtures/<series>/odoo` (gitignored) is left pointing at the pinned tree afterwards.
+
+odoo-ls's own weekly dependabot PR (`odoo-ls-src` / `odoo-ls-typeshed`, their own group) is different: odoo-ls does not commit a `Cargo.lock` upstream, so odoo-nix vendors one at `lib/odoo-ls-Cargo.lock`. A bump needs it refreshed, or `nix build .#odoo-ls` fails outright (the lighter-weight equivalent of `lock-fresh-<major>` for this input):
+
+```sh
+nix run .#relock-odoo-ls
+git add lib/odoo-ls-Cargo.lock
+```
+
+## The OCA catalog
+
+`data/oca-modules.json` is the bundled catalog (every OCA module across the cloned repos, with `repo`, `version`, `application`, `installable`, `depends`, `summary`, …) that powers the picker and dependency resolver. It covers **19.0 and 18.0** — one record per (repo, module, series).
+
+Refreshing it is two commands. `sync-oca-repos.sh` keeps one bare mirror per OCA repo under the gitignored `data/.cache/`, fetching each series as a shallow branch (repos without that branch are skipped); `extract_manifests.py` then reads the manifests straight out of the git objects — no working trees:
+
+```sh
+data/sync-oca-repos.sh              # or: data/sync-oca-repos.sh 19.0
+data/extract_manifests.py           # rewrites data/oca-modules.json
+```
+
+Both default to the series list in `lib/odoo-presets.json`; keep the three in sync when a series is added or dropped. A manifest whose `version` disagrees with the branch it was read from is skipped, since every consumer filters on the version prefix.
+
+`data/oca-bundles.json` is a separate, **hand-maintained** file defining the named module bundles used by `odoo module add-bundle` (see [Bundles](#bundles)).
+
+The catalog only powers the OCA-browsing path — `odoo module add <git-url>` (see [Adding a third-party module repo](#adding-a-third-party-module-repo)) bypasses it entirely, deriving everything (branch, module names) from the repo itself.
+
+## Repository layout
+
+```
+flake.nix                    # inputs; flakeModules / nixosModules / lib / packages
+modules/
+  flake-module.nix           # imports devenv.flakeModule + devenv.nix + containers.nix
+  devenv.nix                 # perSystem.odoo-nix options + dev shell
+  containers.nix             # dockerTools OCI image
+  nixos.nix                  # services.odoo-nix
+addons/
+  dev_mailcatch/             # server-wide outgoing-mail catch-all (dev shell only)
+lib/
+  addons.nix                 # addons_path synthesis (the keystone)
+  odoo-conf.nix              # odoo.conf INI synthesis
+  python.nix                 # uv2nix Python env
+  odoo.nix                   # builtOdoo assembly
+  cli.nix                    # wraps builtOdoo (or the live dev checkout) with the odoo CLI
+  cli-scripts.nix            # bash helpers `odoo module add[-bundle]`/`project update` delegate to
+  odoo_nix_cli/               # the odoo CLI itself (Python: click + rich)
+  odoo-ls.nix                # odoo-ls (language server) package builder
+  odoo-ls-Cargo.lock         # vendored lockfile (odoo-ls does not commit one upstream)
+  overrides.nix              # native-build Python overlays
+  core-shadow.sh             # writable lock-time shadow of a store-resident OCB (coreSource)
+  oca-lib.sh                 # OCA repo resolver + module picker (shell)
+  oca_sources.py             # generate uv path-sources (deps + sources blocks)
+  uv_build_deps.py           # sdist build-dep sync
+  init.nix / odoo-init.sh    # the scaffolder
+  odoo-presets.json          # series → python / branch
+data/
+  oca-modules.json           # vendored OCA catalog (+ sync/extract scripts)
+  oca-bundles.json           # hand-maintained "must-have" module bundles
+templates/project/           # scaffolder template (thin flake + pyproject + README)
+tests/
+  eval.nix                   # pure assertions over lib/addons.nix + lib/odoo-conf.nix
+  series.nix                 # per-series real-Odoo checks (builtOdoo, odoo-init, odoo-test, cli-lifecycle, cli-migrate, module-odoo)
+  module-eval.nix            # evaluation assertions over services.odoo-nix (journal fields, log settings)
+  module-nginx.nix           # NixOS VM test: nginx/socket contract (stub Odoo)
+  module-odoo.nix            # NixOS VM test: services.odoo-nix with the real builtOdoo
+  test_journald.py           # the CLI's journald formatter + init_logger patch, without Odoo
+  lock_fresh.py              # uv.lock ↔ pinned OCB consistency
+  relock.nix                 # `nix run .#relock`
+  relock-odoo-ls.nix         # `nix run .#relock-odoo-ls`
+  fixtures/<series>/         # pyproject.toml + uv.lock + custom/odoo_nix_fixture
+  fixtures/addons-tree*/     # synthetic trees for eval.nix
+```
+
+## License
+
+MIT, see [LICENSE](LICENSE).
+
+The `dev_mailcatch` addon (`addons/`) and the test fixture addons (`tests/fixtures/`) are Odoo modules and declare `LGPL-3` in their own `__manifest__.py`.
