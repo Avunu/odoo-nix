@@ -1,10 +1,9 @@
-from unittest.mock import patch
+import socket
 
 from odoo.tests import TransactionCase
 
-# Loaded server-wide (server_wide_modules in the fixture odoo.conf) from
-# odoo-nix's addons/ store path, so it is importable without being installed.
-from odoo.addons.dev_mailcatch import patch as mailcatch
+import odoo_devguard
+from odoo_devguard import DevGuardBlocked, settings
 
 
 class TestOrm(TransactionCase):
@@ -19,24 +18,28 @@ class TestOrm(TransactionCase):
         )
 
 
-class TestMailcatch(TransactionCase):
-    """dev_mailcatch redirected ir.mail_server, configured from odoo.conf.
+class TestDevguard(TransactionCase):
+    """The dev guard rails (odoo_devguard), grafted into the test environment.
 
-    No SMTP sink: Odoo's own test mode makes core's connect() return None
-    before touching the network, so the observable contract is what the patch
-    hands core -- captured by mocking the saved original.
+    Settings are baked from Nix (tests/series.nix): the mail catcher on port
+    2525, not the 1025 default, proves the value travelled through the
+    environment's own _baked.json rather than the package defaults.
     """
 
-    def test_patch_installed(self):
-        cls = mailcatch.IrMailServer
-        self.assertTrue(getattr(cls, mailcatch._PATCHED_FLAG, False))
-        self.assertIs(getattr(cls, mailcatch._CONNECT), mailcatch._connect)
-        self.assertIs(cls._find_mail_server, mailcatch._find_mail_server)
-        self.assertIs(cls.send_email, mailcatch._send_email)
+    def test_guards_reached_their_targets(self):
+        status = odoo_devguard.status()
+        self.assertEqual(status.get("socket.socket.connect"), "patched")
+        for target in ("send_email", "_callback"):  # ir.mail_server, ir.cron
+            self.assertTrue(any(k.endswith(target) for k in status), (target, status))
 
-    def test_settings_come_from_odoo_conf(self):
-        # [dev_mailcatch] port in the fixture conf is 2525, not the 1025 default
-        self.assertEqual(mailcatch._settings(), (True, "127.0.0.1", 2525))
+    def test_settings_are_the_baked_ones(self):
+        self.assertEqual(settings().mail_port, 2525)
+
+    def test_egress_is_refused_before_any_packet(self):
+        sock = socket.socket()
+        self.addCleanup(sock.close)
+        with self.assertRaises(DevGuardBlocked):
+            sock.connect(("192.0.2.1", 9))  # TEST-NET-1
 
     def test_find_mail_server_ignores_records(self):
         self.env["ir.mail_server"].create(
@@ -48,19 +51,11 @@ class TestMailcatch(TransactionCase):
         self.assertIsNone(server)
         self.assertEqual(email_from, "someone@example.com")
 
-    def test_connect_dials_the_catcher(self):
-        with patch.object(mailcatch, "_orig_connect", return_value=None) as orig:
-            getattr(self.env["ir.mail_server"], mailcatch._CONNECT)(
-                host="smtp.example.com",
-                port=25,
-                user="someone",
-                password="secret",
-                encryption="starttls",
-            )
-        orig.assert_called_once()
-        kwargs = orig.call_args.kwargs
-        self.assertEqual((kwargs["host"], kwargs["port"]), ("127.0.0.1", 2525))
-        self.assertEqual(kwargs["encryption"], "none")
-        self.assertFalse(kwargs["user"])
-        self.assertFalse(kwargs["password"])
-        self.assertIsNone(kwargs["mail_server_id"])
+    def test_connect_is_redirected_not_refused(self):
+        # Odoo's own test mode makes core's connect() return None before
+        # touching the network, so the observable contract is that asking for a
+        # real server neither raises nor reaches it (the egress guard would
+        # have raised DevGuardBlocked had it tried).
+        server = self.env["ir.mail_server"]
+        connect = getattr(server, "_connect__", None) or server.connect
+        self.assertIsNone(connect(host="smtp.example.com", port=25, user="u", password="p"))

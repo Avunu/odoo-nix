@@ -33,6 +33,10 @@
   # `odoo` wheel is built from this tree instead of the workspace's `odoo/`
   # path source, which then need not exist in the flake's copy of the repo.
   coreSource ? null,
+  # lib/devguard.nix: the dev-environment guard rails, grafted into the DEV and
+  # TEST virtualenvs only -- never odooPythonEnv, which is what builtOdoo,
+  # services.odoo-nix and the container image run. null = none.
+  devguard ? null,
 }:
 
 let
@@ -183,6 +187,31 @@ let
   # there, since the package declares no extras.
   withLxmlHtmlClean = deps: deps // { lxml_html_clean = deps.lxml_html_clean or [ ]; };
 
+  # Graft odoo_devguard into a virtualenv's site-packages with a `.pth`
+  # bootstrap, so any interpreter started from the environment runs it at
+  # startup -- below Odoo, without a server-wide module, an odoo.conf edit or an
+  # install into any database. Grafted rather than put on PYTHONPATH because the
+  # modules reach sys.path through uv2nix's editable `.pth` files inside the same
+  # venv: an interpreter started outside the devenv shell (an editor terminal,
+  # `nix run`, a stray `sudo -u`) still imports Odoo, and would otherwise run
+  # unpatched. `zzz-` orders it after them; install() is called from the `.pth`
+  # line so that importing a single submodule cannot re-enter a partially
+  # initialised package.
+  withDevguard =
+    env:
+    if devguard == null then
+      env
+    else
+      # postInstall, not postBuild: mkVirtualEnv sets dontBuild and creates the
+      # tree from pyprojectMakeVenvHook's installPhase.
+      env.overrideAttrs (old: {
+        postInstall = (old.postInstall or "") + ''
+          cp -r ${devguard}/odoo_devguard "$out/${python.sitePackages}/"
+          printf 'import odoo_devguard; odoo_devguard.install()\n' \
+            > "$out/${python.sitePackages}/zzz-odoo-devguard.pth"
+        '';
+      });
+
   # Production: real wheels for odoo + all modules — self-contained (no
   # $REPO_ROOT), for builtOdoo / containers / NixOS.
   odooPythonEnv = pythonSet.mkVirtualEnv "${projectName}-odoo-env" (
@@ -190,17 +219,22 @@ let
   );
 
   # Development: modules installed editable (+ dev-group tools), live source.
-  devPythonEnv = editableSet.mkVirtualEnv "${projectName}-odoo-dev-env" (
-    withLxmlHtmlClean (workspace.deps.default // workspace.deps.groups)
+  devPythonEnv = withDevguard (
+    editableSet.mkVirtualEnv "${projectName}-odoo-dev-env" (
+      withLxmlHtmlClean (workspace.deps.default // workspace.deps.groups)
+    )
   );
 
   # Test: the production wheels of odooPythonEnv plus the dev group. Odoo's
   # test runner imports freezegun unconditionally (odoo/tests/common.py) and
   # websocket-client for browser tours, and neither is an install_requires of
   # OCB (they are its tests_require, which uv never installs). Non-editable,
-  # so it needs no $REPO_ROOT: for sandboxed `nix flake check`-style runs.
-  testPythonEnv = pythonSet.mkVirtualEnv "${projectName}-odoo-test-env" (
-    withLxmlHtmlClean (workspace.deps.default // workspace.deps.groups)
+  # so it needs no $REPO_ROOT: for sandboxed `nix flake check`-style runs. Like
+  # the dev env it carries the devguard, so those runs exercise the guard rails.
+  testPythonEnv = withDevguard (
+    pythonSet.mkVirtualEnv "${projectName}-odoo-test-env" (
+      withLxmlHtmlClean (workspace.deps.default // workspace.deps.groups)
+    )
   );
 in
 {

@@ -56,6 +56,12 @@ let
       logging.file = "/var/log/odoo/odoo.log";
     };
   };
+  withEnvFiles = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      environmentFiles = [ "/run/agenix/odoo-backup" ];
+    };
+  };
   tuned = eval {
     services.odoo-nix = {
       dbName = "acme";
@@ -135,6 +141,21 @@ in
       toFile = toFile.systemd.services.odoo.environment.ODOO_NIX_JOURNALD or null;
       toFileWarns = lib.any (lib.hasInfix "logging.file is set") toFile.warnings;
       defaultWarns = lib.any (lib.hasInfix "services.odoo-nix") pinned.warnings;
+    };
+  };
+
+  # services.odoo-nix.environmentFiles reaches the units that run Odoo (the
+  # auto_backup cron lives in the odoo process), and is empty by default.
+  module-environment-files = {
+    expected = {
+      odoo = [ "/run/agenix/odoo-backup" ];
+      odoo-migrate = [ "/run/agenix/odoo-backup" ];
+      default = [ ];
+    };
+    actual = {
+      odoo = withEnvFiles.systemd.services.odoo.serviceConfig.EnvironmentFile;
+      odoo-migrate = withEnvFiles.systemd.services.odoo-migrate.serviceConfig.EnvironmentFile;
+      default = pinned.systemd.services.odoo.serviceConfig.EnvironmentFile;
     };
   };
 

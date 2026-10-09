@@ -4,6 +4,8 @@
 {
   imports = [
     inputs.devenv.flakeModule
+    inputs.agenix-shell.flakeModules.default
+    ./secrets.nix
     ./devenv.nix
     ./containers.nix
   ];

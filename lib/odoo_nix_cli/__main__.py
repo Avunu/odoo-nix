@@ -69,6 +69,24 @@ def _setup_journald() -> None:
     journald.install_root_handler()
 
 
+def _install_devguard() -> None:
+    """The dev environment's guard rails (odoo_devguard), for this process.
+
+    The raw odoo-bin path is covered by the .pth the dev virtualenv carries;
+    this interpreter is a separate one (rich + click) with the dev environment
+    only on PYTHONPATH, where .pth files are not processed -- so `odoo db ...`,
+    which imports Odoo in-process, installs the guard itself.
+
+    Absent from the production environment by construction (lib/python.nix), so
+    there the import fails and this does nothing.
+    """
+    try:
+        import odoo_devguard
+    except ImportError:
+        return
+    odoo_devguard.install()
+
+
 def main() -> None:
     argv = sys.argv[1:]
     _setup_journald()
@@ -77,6 +95,7 @@ def main() -> None:
         os.execv(raw, [raw, *argv])
         return  # unreachable
 
+    _install_devguard()
     from .commands import cli
 
     cli(args=argv)

@@ -139,9 +139,13 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | layout.externalDir | "modules" | directory holding OCA module-repo submodules |
 | layout.customDir | "custom" | directory holding your own modules |
 | layout.extraAddons | [ ] | extra addons_path entries appended verbatim |
-| mailcatch.enable | true | redirect all outgoing email to the local Mailpit catcher |
-| mailcatch.host / mailcatch.port | "127.0.0.1" / 1025 | catcher SMTP endpoint (drives Mailpit and Odoo) |
-| mailcatch.httpPort | 8025 | Mailpit web UI port |
+| devguard.enable | true | install the [dev guard rails](#dev-guard-rails) into the dev virtualenv — turning it off also makes `odoo db restore` refuse to run |
+| devguard.egress.enable / devguard.egress.allowHosts | true / [ ] | refuse every non-loopback connection from Odoo's Python; hostnames (`*.example.com`), IPs or CIDRs to let through |
+| devguard.mail.enable | true | redirect ALL outgoing email to the local Mailpit catcher; block IMAP/POP3 (was `mailcatch.enable`) |
+| devguard.mail.host / devguard.mail.port | "127.0.0.1" / 1025 | catcher SMTP endpoint (drives Mailpit and Odoo; was `mailcatch.host`/`port`) |
+| devguard.mail.httpPort | 8025 | Mailpit web UI port (was `mailcatch.httpPort`) |
+| devguard.crons.enable / devguard.crons.extraBlocked | true / [ ] | skip denylisted crons (auto_backup, currency rates, bank-statement pulls, EDI send, fetchmail, …); more external ids to skip |
+| devguard.objectstore.enable / backups.enable / webhooks.enable / iap.enable | true | refuse remote `fs.storage`; skip remote `auto_backup` jobs; no-op webhook actions; fail IAP calls readably |
 | odooConf.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
 | odooConf.dataDir | "./.devenv/state/odoo" | Odoo filestore (gitignored under .devenv) |
 | odooConf.adminPasswd | "admin" | DB-manager master password (dev) |
@@ -161,6 +165,10 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | ide.vscodeSettings | true | seed .vscode/settings.json when absent (never overwrites) |
 | ide.languageServer.enable | true | run odoo-ls: `odoo_ls_server` on PATH + symlinked `./odools.toml` — see [Odoo language server](#odoo-language-server-odoo-ls) |
 | ide.languageServer.package | odoo-ls pinned to `odoo-ls-src`/`odoo-ls-typeshed` | the odoo_ls_server package to use |
+| restore.enable | `secrets.backupAccess.enable` | decrypt the backup-access secret for remote restores; offer `setup-backup-access` |
+| restore.sourceDatabase / restore.prefix | "" / "" | database folder to restore from (default: the target's name); bucket prefix when the secret has no `BACKUPS_PREFIX` |
+| restore.attachments | "none" | `"mirror"` also downloads object-store attachments (`fs_attachment`); either way the restored copy's remote `fs.storage` records are pointed at local disk |
+| restore.neutralize | true | neutralize databases restored from the remote store |
 | extraDevPackages / extraLibraryPaths / extraScripts / extraEnv | [] / [] / {} / {} | dev-shell extras |
 | containers.enable / containers.registry | false / "" | build the OCI image |
 
@@ -231,31 +239,36 @@ For a non-VS Code editor, point your language server at the same two paths — e
 
 Every **other** editor's LSP client can be pointed at `odoo_ls_server` directly (stdio transport, no `initializationOptions` needed) — that binary is the real payoff of `ide.languageServer.enable`.
 
-### Outgoing mail catch-all
+### Dev guard-rails
 
-With `mailcatch.enable` (the default), **every** outgoing email is redirected to Mailpit — nothing can reach a real recipient from a dev environment. Open the catcher at [http://localhost:8025](http://localhost:8025).
+A database restored from production carries working production credentials: SMTP and IMAP logins, S3 keys, API tokens, webhook URLs, an SFTP backup target. Left alone it will mail real customers, push a dev-mutated database over the production backup rotation, delete production files and call every integration it has a key for. Odoo's neutralization covers what Odoo and a few addons remember to cover (mail servers, crons, webhook URLs, OAuth, IAP, payment providers); `odoo_devguard` closes the rest, and holds when neutralization was skipped or an addon ships no `neutralize.sql` (most don't).
 
-Setting `smtp_server` in `odoo.conf` is _not_ enough on its own: Odoo only falls back to it when no `ir.mail_server` record matches, so a single row in that table — or a `mail.mail` carrying an explicit `mail_server_id` — sends for real. So odoo-nix ships an addon, `addons/dev_mailcatch`, that patches `ir.mail_server.connect` and `ir.mail_server._find_mail_server` to always dial the catcher.
+It is a small Python package, **grafted into the dev and test virtualenvs with a `.pth` file** — never the production one, so `services.odoo-nix` and the container image cannot contain it. Every interpreter started from that environment is covered at startup, below Odoo: the server, `odoo shell`, `odoo db ...`, an editor terminal, an ad-hoc script — with no module to install into any database and no odoo.conf edit. Two layers:
 
-It is loaded as a **server-wide module**, not installed into any database:
+| Guard | What it does | Settings |
+| --- | --- | --- |
+| `egress` | **the catch-all.** Refuses every `connect()` the process makes to a non-loopback address — requests, httpx (openai, ollama), aiohttp (s3fs), urllib3 (plaid), urllib (currency rates), paramiko (SFTP), smtplib, whatever the next addon imports. Unix sockets, loopback (Mailpit, the longpolling worker, queue_job calling back into itself) and the mail catcher always pass; PostgreSQL does too, because libpq connects in C | `egress.allowHosts` |
+| `mail` | every SMTP connection lands on Mailpit whatever `ir.mail_server` record, from-filter or API transport (mail_cloudflare) a mail names; TLS/auth faked; IMAP/POP3 refused | `mail.{host,port,httpPort}` |
+| `crons` | skips denylisted scheduled actions by exact external id, even if switched back on | `crons.extraBlocked` |
+| `objectstore` | `fs.storage` records can only be local (`file`/`odoofs`/`memory`); an S3/SFTP storage cannot be opened, so attachments and backups can't reach a production bucket | |
+| `backups` | `auto_backup` jobs to SFTP/FS Storage are skipped, and so is their retention pass (which would delete production's backups) | |
+| `webhooks`, `iap` | outbound webhook actions do nothing; IAP calls fail with a readable error | |
 
-```ini
-[options]
-server_wide_modules = base,web,dev_mailcatch
+Only `egress` and the mail transport are *transport-level* (they know nothing about Odoo, so they hold across upgrades and unknown addons); the rest patch Odoo and addon APIs so failures read as "blocked by odoo-devguard" instead of a socket error, and are therefore one refactor away from being bypassed. A patch target that has moved fails the import loudly rather than leaving an inert guard (`DevGuardPatchError`). It is "a large reduction in blast radius plus an egress firewall for the Odoo process" — not an airgap for the machine.
 
-[dev_mailcatch]
-enabled = True
-host = 127.0.0.1
-port = 1025
+Each guard says so on first use — `WARNING odoo_devguard[egress] ACTIVE -- outbound connections from this process are blocked ...` — and names what it blocked. To let one thing through:
+
+```sh
+ODOO_DEVGUARD_EGRESS_ALLOW_HOSTS=api.example.com,10.0.0.0/8 odoo shell   # one command
+ODOO_DEVGUARD_DISABLE=crons odoo db migrate                              # named guard(s) off
+ODOO_DEVGUARD_ENABLED=0 odoo ...                                         # everything off (stock behaviour)
 ```
 
-Odoo runs the manifest's `post_load` hook at server start, so the redirection covers every database on the server — including ones created later — with no `-i` step, and applies to the HTTP server, `odoo shell`, and `--stop-after-init` runs (`-i`/`-u`) alike. The addon is served directly from the Nix store; it is never copied or symlinked into your workspace, so it stays out of `custom/`, `modules.txt`, and your git tree. A startup log line names the target:
+or permanently with `devguard.egress.allowHosts`. Settings are baked into the environment from Nix and read at run time; `ODOO_DEVGUARD_<GUARD>_<KEY>` environment variables win.
 
-```
-WARNING dev_mailcatch ACTIVE — ALL outgoing email is redirected to 127.0.0.1:1025.
-```
+**Restore interlock.** `devguard.enable = false` is a persistent decision about the whole project, not a per-command one, so `odoo db restore` and `odoo project restore` refuse to run while it is off (`ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` overrides). In the dev shell a file restore is neutralized and its remote `fs.storage` records are pointed at local disk exactly like a remote restore (see [Backups & restore](#backups--restore)).
 
-`ODOO_MAILCATCH_ENABLED` / `_HOST` / `_PORT` override `odoo.conf` for one-off runs. The catch-all is **dev-shell only** — `services.odoo-nix` and the container builder never load it.
+Open the mail catcher at [http://localhost:8025](http://localhost:8025). **Migrating from `mailcatch.*`:** the options are renamed to `devguard.mail.*` (the old names still work with a deprecation warning); remove `dev_mailcatch` from any `server_wide_modules` you set by hand — the addon is now a no-op stub that logs a warning, kept for one release so an old conf still starts. `ODOO_MAILCATCH_*` and the `[dev_mailcatch]` section are gone.
 
 ### The `odoo` CLI
 
@@ -272,13 +285,13 @@ Everything — dev shell, `services.odoo-nix`, and containers — shares one `od
 | `odoo db rename <old> <new>` | rename a database (and its filestore) |
 | `odoo db drop <db> [--yes]` | drop a database and its filestore |
 | `odoo db backup [db\|--all] [--path DIR] [--format zip\|dump] [--keep-days N]` | dump database(s) to `<data_dir>/backups/<db>/` by default; `zip` = schema + filestore (Odoo's own Database Manager format, the default), `dump` = plain `pg_dump` custom format, no filestore |
-| `odoo db restore <db> <backup-path> [--force] [--neutralize]` | restore a backup into `<db>`, with numbered progress |
+| `odoo db restore <db> [<backup-path>] [--force] [--neutralize]` | restore a backup into `<db>`, with numbered progress. With no path, restores the newest backup from the remote (S3) store — see [Backups & restore](#backups--restore) (`--from`, `--at`, `--list`, `--attachments`) |
 | `odoo module add [module …]` | pick more OCA modules → resolve + add repos → record in modules.txt → re-lock |
 | `odoo module add <git-url\|owner/repo> [branch] [path]` | add any third-party git repo as a submodule → record its module(s) → re-lock |
 | `odoo module add-bundle [name …]` | add a curated bundle of OCA modules (from data/oca-bundles.json) |
 | `odoo project update [--no-migrate]` | pull submodules, re-aggregate OCA Python deps, uv lock — then migrate every database, unless `--no-migrate` |
 | `odoo project backup [--format zip\|dump] [--path DIR] [--keep-days N]` | back up *every* database matching `dbfilter` in one call — no db argument needed, unlike `db backup` |
-| `odoo project restore --restore DB PATH [--restore DB2 PATH2 …] [--force] [--neutralize]` | restore one or more explicit database=backup pairs in a single batch (no "latest backup" auto-discovery — name each file) |
+| `odoo project restore [--restore DB PATH …] [--force] [--neutralize]` | restore one or more explicit database=backup pairs in a single batch; with no `--restore`, restore the project database (`odooConf.dbName`) from the remote store — see [Backups & restore](#backups--restore) |
 | `odoo shell [db]` | Odoo Python REPL |
 | `odoo test <m[,m2]> [db]` | run module tests; refuses to run if a skipped browser tour would silently read as a pass |
 
@@ -302,6 +315,54 @@ Production builds also record which build migrated the database (`odoo_nix.migra
 The safety net: an advisory lock (a manual migration and a deploy cannot run at once); a snapshot verified readable before anything relies on it, in `<data_dir>/backups/<db>/premigrate/` so `--keep N` never prunes a backup somebody took on purpose (and never prunes after a failure); and `--rollback`, which drops and recreates the database with the same encoding and collation and loads the snapshot. The filestore is left alone — attachments are content-addressed and only ever added — which is also why rollback does not use Odoo's own `exp_drop` (it deletes the filestore) or `restore_db` (it loads the new code against the restored old schema). An uninitialised database is skipped with exit 0, or provisioned with `--provision-if-empty`.
 
 Production (`services.odoo-nix`) and the container image get the same binary and the same `db` subcommands, plus `project backup`/`project restore` (pure `odoo.service.db` wrappers, no workspace needed) — `docker exec`/`ssh` in and run `odoo db backup mydb`, `odoo project backup`, `odoo db migrate mydb`, etc. `module add[-bundle]`/`project update` are dev-shell only (no git checkout, no modules.txt, in an assembled `/nix/store` deployment) and fail with a clear message rather than a bare traceback if invoked there.
+
+### Backups & restore
+
+Production pushes database backups to S3-compatible storage; any developer whose SSH key is a declared recipient restores one locally with a single command:
+
+```sh
+odoo project restore --force        # the project database (odooConf.dbName), newest backup
+odoo db restore acme_dev --from acme --at 2026-10-01 --force
+odoo db restore acme_dev --from acme --list
+```
+
+Three pieces make this work, and they share one set of variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `BACKUPS_URL` | S3 endpoint |
+| `BACKUPS_ACCESS_KEY`, `BACKUPS_SECRET_KEY` | credentials |
+| `BACKUPS_BUCKET` | bucket |
+| `BACKUPS_PREFIX` | optional path prefix |
+
+Backups live at `s3://$BACKUPS_BUCKET/$BACKUPS_PREFIX/<database>/<YYYY_MM_DD_HH_MM_SS>.dump[.zip]` — the `auto_backup` naming `odoo db backup` also uses.
+
+**1. The credentials, in agenix.** Declare who may read them in the project flake (the machinery is [frappe-nix's](https://github.com/Avunu/frappe-nix), ported):
+
+```nix
+odoo-nix.secrets = {
+  dir = ./secrets;
+  recipients.you = "ssh-ed25519 AAAA… you@host";
+  hostRecipients.myserver = "ssh-ed25519 AAAA… root@myserver";  # the production host
+};
+```
+
+Then, in the dev shell, `setup-backup-access` prompts for the five values, tests them against the bucket, and writes `secrets/backup-access.age` (commit it). The other commands are `edit-secret <name>`, `rekey-secrets` (after changing recipients) and `check-secrets`; the rules file is generated from `recipients`, so there is no `secrets.nix` to maintain, and `check-secrets` verifies every `.age` file is encrypted to exactly those keys. Secrets are decrypted **per command**, never at shell entry: `odoo db restore` re-runs itself under a wrapper that decrypts the file (one key prompt), so credentials are not in your shell's environment. Needs `--no-pure-eval` (`use flake . --no-pure-eval` in `.envrc`), like any agenix-shell use.
+
+**2. The server side.** Add the OCA `auto_backup` and `fs_storage` modules plus [`auto_backup_fs_storage`](https://github.com/Avunu/avunu-odoo-addons) (a thin bridge: an *FS Storage* method on `auto_backup`) and decrypt the same ciphertext on the host:
+
+```nix
+age.secrets.odoo-backup.file = inputs.myproject.lib.odooSecrets.files.odoo_backup_access;
+services.odoo-nix.environmentFiles = [ config.age.secrets.odoo-backup.path ];
+```
+
+Installing the bridge module creates an `odoo_backup` `fs.storage` whose options are `$BACKUPS_*` references (resolved from the process environment by `fs_storage`'s `eval_options_from_env` — no credentials in the database) and a daily `dump`-format job with 30-day retention. To give the server its own write-capable key and keep developers read-only, set `odoo-nix.secrets.backupAccess.hosts = false` and declare the server's file under `odoo-nix.secrets.extra`.
+
+**3. Restoring.** `odoo db restore` with no file lists `<prefix>/<database>/`, takes the newest backup (or the newest at/before `--at`), downloads it to `.devenv/state/odoo-nix/restore/` (size-checked, the newest two kept), then restores it **neutralized** (no outgoing mail, crons off; `--no-neutralize` to opt out). `--from` names the production database folder when it differs from the local name (`restore.sourceDatabase`). Needs `--force` to replace an existing database.
+
+*Attachments in object storage.* If production runs `fs_attachment` with an S3 storage, the database dump holds only `<storage>://<path>` pointers and a restored copy would otherwise carry production's bucket credentials and write new attachments into the production bucket. So after every remote restore, each non-local `fs.storage` row is rewritten to a local directory (`.devenv/state/odoo-nix/attachments/<code>`; protocol `file`, options cleared, `eval_options_from_env` off). With `restore.attachments = "mirror"` (or `--attachments`) the bucket contents are mirrored there first — repeat runs copy only what changed — using the backup-access credentials, which then need read access to the attachment bucket. Without it, attachments are simply missing locally. Restoring never writes to any bucket.
+
+Format: with attachments in object storage, `dump` (database only) is the complete backup — the `zip` format's filestore would not contain them. `ODOO_NIX_BACKUP_SOURCE=<dir>` points the restore at a directory laid out like the bucket instead of S3 (used by the tests).
 
 ### Adding a third-party module repo
 
@@ -449,7 +510,7 @@ A standalone NixOS module (imported separately from the flake-parts module). One
 }
 ```
 
-Key options: `package` (the CLI package — `packages.default` — which `migrate` requires), `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port,user,passwordFile,extensions,ensureExtensions}`, `adminPasswordFile`, `settings` (extra `[options]`), `migrate.{enable,full,snapshot,rollbackOnFailure,snapshotRetention,timeout}` (below), `update` (modules to update on every deploy even when unchanged), `autoInit` (install `base` + `<stateDir>/modules.txt` into an empty database), `nginx.{enable,domain}`, `logging.{level,handlers,db,dbLevel,journald,accessLog,slowQueryMs}` ([Logging](#logging), below), `logging.{file,rotate}` (a log file instead of the journal; `rotate` wires up `services.logrotate` against it, and Odoo's own `WatchedFileHandler` picks up the rotated file automatically, no reload needed).
+Key options: `environmentFiles` (systemd `EnvironmentFile=`s for the `odoo`/`odoo-migrate` units — agenix secrets such as the backup credentials, see [Backups & restore](#backups--restore)), `package` (the CLI package — `packages.default` — which `migrate` requires), `stateDir`, `http.{port,longpollingPort,interface}`, `workers`, `maxCronThreads`, `dbName`/`dbFilter`/`listDb`/`withoutDemo`, `database.{createLocally,host,port,user,passwordFile,extensions,ensureExtensions}`, `adminPasswordFile`, `settings` (extra `[options]`), `migrate.{enable,full,snapshot,rollbackOnFailure,snapshotRetention,timeout}` (below), `update` (modules to update on every deploy even when unchanged), `autoInit` (install `base` + `<stateDir>/modules.txt` into an empty database), `nginx.{enable,domain}`, `logging.{level,handlers,db,dbLevel,journald,accessLog,slowQueryMs}` ([Logging](#logging), below), `logging.{file,rotate}` (a log file instead of the journal; `rotate` wires up `services.logrotate` against it, and Odoo's own `WatchedFileHandler` picks up the rotated file automatically, no reload needed).
 
 ### Migrations on deploy
 
@@ -513,12 +574,18 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `eval-*-<18\|19>` | per-series eval assertions: the fixture's `requires-python` matches `lib/odoo-presets.json`; `builtOdoo`'s `passthru.addonsPath` / `odooVersion` contract |
 | `lock-fresh-<18\|19>` | `tests/fixtures/<series>/uv.lock` still matches the pinned `ocb-*` input (series + `install_requires`) |
 | `builtOdoo-<18\|19>` | the assembled package builds — including the non-editable `odoo` wheel; `bin/odoo --version` runs on the production env |
-| `odoo-init-<18\|19>` | `-i base` against an in-sandbox PostgreSQL (`postgresqlTestHook`, unix socket); `web` installed proves the second core root, the `dev_mailcatch` banner proves `extraAddonsAbs` |
-| `odoo-test-<18\|19>` | installs the fixture addon `tests/fixtures/<series>/custom/odoo_nix_fixture` and runs its Odoo tests (ORM round-trip + the `dev_mailcatch` redirection), asserting the stats line shows they ran |
+| `odoo-init-<18\|19>` | `-i base` against an in-sandbox PostgreSQL (`postgresqlTestHook`, unix socket); `web` installed proves the second core root; and, since this is the production wrapper and environment, the dev guard rails are absent from it (no `odoo_devguard` on disk or in the log) |
+| `odoo-test-<18\|19>` | installs the fixture addon `tests/fixtures/<series>/custom/odoo_nix_fixture` and runs its Odoo tests (ORM round-trip + the dev guard rails: a mail redirected with the Nix-baked port, egress refused before a packet, the guards reached their targets), asserting the stats line shows they ran |
 | `cli-lifecycle-<18\|19>` | the `odoo` CLI end to end against an in-sandbox PostgreSQL: passthrough (`--help`/`--version`), then `db provision` → `db provision` again (idempotent migrate path) → `db backup` → `db drop` → `db restore`, on a database distinct from the one the other checks use |
 | `cli-migrate-<18\|19>` | `odoo db migrate` from build to build, the way `odoo-migrate.service` runs it: provision records the baseline; the same build is a one-query no-op; v2 of the fixture (`tests/fixtures/migrate`) updates **only** the fixture — new column, post-migrate script, new build recorded; version drift with unchanged checksums is still migrated; v3's migration commits a change and then fails, and the database is back exactly as v2 left it; `--keep` prunes only after a success; an uninitialised database is skipped |
+| `devguard` | the dev guard rails without Odoo or a network (`tests/test_devguard.py`): settings precedence and per-command disable, the post-import hook and its fail-closed behaviour, the egress guard against real sockets (loopback and Unix pass; everything else — urllib, asyncio, `create_connection` — is refused before any packet), the mail transport against a stub SMTP server, and the Odoo-facing guards against stand-in modules |
+| `devguard-baked` | the package `lib/devguard.nix` builds: Nix-baked settings actually reach the guard |
+| `remote-store` | the remote backup store (`lib/odoo_nix_cli/remote.py`, `tests/test_remote.py`) without Odoo or a network: only real backups are listed, newest/`--at` selection, cache + keep-two, the fail-safe download, the throwaway `mc` config |
+| `secrets-cli` | `edit-secret` / `rekey-secrets` / `check-secrets` against a real ragenix and committed fixture keys: the file lands in the repo (not the store), is encrypted to the declared recipients, is `git add`ed, and a rekey to a longer list lets the new key decrypt (Linux) |
+| `eval-secrets-schema-*` | the secret list, generated rules and agenix-shell set: a declared secret with no `.age` file yet is reported but does not break evaluation |
+| `cli-remote-restore-<18\|19>` | `odoo db restore` from a directory store: `--list`, newest backup restored neutralized, refuses to overwrite without `--force`, `--no-neutralize`, a non-matching `--at` fails |
 | `journald-formatter` | the CLI's journald output without Odoo (`tests/test_journald.py`, on each series' interpreter): level → `<N>`, every line of a traceback prefixed, and the full `odoo` → sitecustomize → patched `init_logger` path against a stand-in `odoo.netsvc` |
-| `eval-module-*` | `services.odoo-nix` evaluated, nothing built (`tests/module-eval.nix`): `APP_SERVICE`/`APP_SITE` and `SyslogIdentifier` on every unit, `APP_SITE` left out without `dbName`, the journald switch and the `logging.file` warning, PostgreSQL's log settings, nginx's access log |
+| `eval-module-*` | `services.odoo-nix` evaluated, nothing built (`tests/module-eval.nix`; includes `environmentFiles` reaching the units): `APP_SERVICE`/`APP_SITE` and `SyslogIdentifier` on every unit, `APP_SITE` left out without `dbName`, the journald switch and the `logging.file` warning, PostgreSQL's log settings, nginx's access log |
 | `module-nginx` | `services.odoo-nix`'s nginx/socket contract, with a stub Odoo that echoes headers; the journal fields on what the units log and nginx's JSON access log in the journal (needs KVM) |
 | `module-odoo-<18\|19>` | `services.odoo-nix` with the real CLI package: `odoo-migrate` provisions the empty database before `odoo.service` starts, `/web/login` via nginx and directly, `version_info`; a restart migrates nothing; deploying v2 (a specialisation) migrates the changed module; deploying v3 fails the migration, rolls it back and leaves `odoo.service` **down**; redeploying v2 recovers; Odoo's records in the journal at their priority with no asctime/pid (workers and the gevent process included), a traceback at the error's priority on every line (needs KVM) |
 
@@ -570,8 +637,9 @@ modules/
   devenv.nix                 # perSystem.odoo-nix options + dev shell
   containers.nix             # dockerTools OCI image
   nixos.nix                  # services.odoo-nix
+  secrets.nix                # odoo-nix.secrets: agenix + agenix-shell (top-level flake-parts module)
 addons/
-  dev_mailcatch/             # server-wide outgoing-mail catch-all (dev shell only)
+  dev_mailcatch/             # deprecated no-op stub (the catch-all is odoo_devguard's `mail` guard now)
 lib/
   addons.nix                 # addons_path synthesis (the keystone)
   odoo-conf.nix              # odoo.conf INI synthesis
@@ -580,6 +648,13 @@ lib/
   cli.nix                    # wraps builtOdoo (or the live dev checkout) with the odoo CLI
   cli-scripts.nix            # bash helpers `odoo module add[-bundle]`/`project update` delegate to
   odoo_nix_cli/               # the odoo CLI itself (Python: click + rich)
+  devguard/odoo_devguard/    # dev guard rails (egress, mail, crons, objectstore, backups, webhooks, iap); dev virtualenv only
+  devguard.nix               # builds that package with a project's settings baked in (_baked.json)
+  secrets-schema.nix         # the one derivation of the secret set (paths, rules, shell vars)
+  secrets-tools.nix          # generated agenix rules, on-demand decryption, setup-backup-access
+  secret-scripts.nix         # edit-secret / rekey-secrets / check-secrets / setup-backup-access
+  agecheck.py                # verify .age files are encrypted to their declared recipients
+  sh/backup-access.sh        # setup-backup-access
   odoo-ls.nix                # odoo-ls (language server) package builder
   odoo-ls-Cargo.lock         # vendored lockfile (odoo-ls does not commit one upstream)
   overrides.nix              # native-build Python overlays
@@ -600,15 +675,19 @@ tests/
   module-nginx.nix           # NixOS VM test: nginx/socket contract (stub Odoo)
   module-odoo.nix            # NixOS VM test: services.odoo-nix with the real builtOdoo
   test_journald.py           # the CLI's journald formatter + init_logger patch, without Odoo
+  test_remote.py             # the remote backup store, without Odoo or a network
+  test_devguard.py           # the dev guard rails, without Odoo or a network
+  secrets-cli.{nix,sh}       # edit-secret / rekey-secrets against a real ragenix
   lock_fresh.py              # uv.lock ↔ pinned OCB consistency
   relock.nix                 # `nix run .#relock`
   relock-odoo-ls.nix         # `nix run .#relock-odoo-ls`
   fixtures/<series>/         # pyproject.toml + uv.lock + custom/odoo_nix_fixture
   fixtures/addons-tree*/     # synthetic trees for eval.nix
+  fixtures/{keys,secrets}/   # committed age keypairs + a ciphertext for the secrets tests
 ```
 
 ## License
 
 MIT, see [LICENSE](LICENSE).
 
-The `dev_mailcatch` addon (`addons/`) and the test fixture addons (`tests/fixtures/`) are Odoo modules and declare `LGPL-3` in their own `__manifest__.py`.
+The `dev_mailcatch` stub (`addons/`) and the test fixture addons (`tests/fixtures/`) are Odoo modules and declare `LGPL-3` in their own `__manifest__.py`.

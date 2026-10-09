@@ -1,32 +1,17 @@
 {
-    "name": "Dev Mail Catch-All",
-    "summary": "Redirect every outgoing email to a local catcher (Mailpit). Dev only.",
+    "name": "Dev Mail Catch-All (deprecated)",
+    "summary": "Deprecated stub: the mail catch-all is odoo-nix's devguard now.",
     "description": """
-Catch-all outgoing mail redirection for local development.
+Deprecated. Outgoing-mail redirection moved into odoo-nix's dev guard rails
+(``odoo_devguard``, installed into the dev virtualenv; see the README's "Dev
+guard-rails"), configured with ``odoo-nix.devguard.mail.*`` and overridable with
+``ODOO_DEVGUARD_MAIL_HOST`` / ``ODOO_DEVGUARD_MAIL_PORT``.
 
-Loaded as a *server-wide* module (``server_wide_modules`` in odoo.conf), so the
-redirection applies to every database on the server without installing anything
-into any of them. The manifest's ``post_load`` hook patches
-``ir.mail_server``'s connect, ``_find_mail_server`` and ``send_email`` methods so
-that SMTP sessions always land on the configured catcher, no matter which
-``ir.mail_server`` record (or explicit ``mail_server_id``) the caller picked —
-including servers whose transport is an HTTP API rather than SMTP (their
-non-SMTP session is discarded at ``send_email`` and the catcher dialled instead).
-
-Configure via odoo.conf::
-
-    [options]
-    server_wide_modules = base,web,dev_mailcatch
-
-    [dev_mailcatch]
-    enabled = True
-    host = 127.0.0.1
-    port = 1025
-
-Environment overrides (win over odoo.conf): ``ODOO_MAILCATCH_ENABLED``,
-``ODOO_MAILCATCH_HOST``, ``ODOO_MAILCATCH_PORT``.
+This module remains for one release as a no-op that logs a warning, so a
+``server_wide_modules`` line naming it does not stop the server from starting.
+Remove it from ``server_wide_modules``.
 """,
-    "version": "1.0.0",
+    "version": "2.0.0",
     "category": "Technical",
     "author": "odoo-nix",
     "license": "LGPL-3",

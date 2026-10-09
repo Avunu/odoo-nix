@@ -5,6 +5,16 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     devenv.url = "github:cachix/devenv";
+    # Decrypts age secrets into a dev shell. Imported by
+    # modules/flake-module.nix, so consumers do not declare it themselves.
+    # The agenix *CLI* is deliberately not an input (ryantm/agenix drags
+    # darwin + home-manager into every consumer's lock); `pkgs.ragenix` is a
+    # drop-in with the same RULES / -e / -r interface.
+    agenix-shell = {
+      url = "github:aciceri/agenix-shell";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+    };
     nix2container = {
       url = "github:nlewo/nix2container";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -261,6 +271,43 @@
           # What shell entry does about the project's submodules: checks out a
           # fresh clone's once, and past that touches nothing. Git only, with
           # file:// remotes standing in for GitHub.
+          # The dev guard rails (lib/devguard/odoo_devguard) without Odoo or a
+          # network: settings precedence, the post-import hook and its
+          # fail-closed behaviour, the egress guard against real sockets, the
+          # mail transport against a stub SMTP server, and the Odoo-facing
+          # guards against stand-in modules.
+          devguard = mkCheck pkgs "devguard" { } ''
+            ${pkgs.python3}/bin/python3 ${./tests/test_devguard.py} ${./lib/devguard}
+          '';
+
+          # ...and the package lib/devguard.nix builds, with Nix-baked settings
+          # actually reaching the guard (the unit test above reads the source tree).
+          devguard-baked =
+            let
+              pkg = import ./lib/devguard.nix {
+                inherit pkgs lib;
+                settings.guards = {
+                  mail.port = 2525;
+                  egress.allow_hosts = [ "api.example.com" ];
+                };
+              };
+            in
+            mkCheck pkgs "devguard-baked" { } ''
+              PYTHONPATH=${pkg} ${pkgs.python3}/bin/python3 - <<'PY'
+              import odoo_devguard as g
+              st = g.settings()
+              assert st.mail_port == 2525, st.mail_port
+              assert st.items("egress", "allow_hosts") == ["api.example.com"], st.items("egress", "allow_hosts")
+              assert st.mail_host == "127.0.0.1"  # untouched keys keep their defaults
+              PY
+            '';
+
+          # lib/odoo_nix_cli/remote.py (backup discovery, selection, cache, the
+          # fail-safe download) without Odoo or a network.
+          remote-store = mkCheck pkgs "remote-store" { } ''
+            ${pkgs.python3}/bin/python3 ${./tests/test_remote.py} ${./lib}
+          '';
+
           submodules-init =
             mkCheck pkgs "submodules-init"
               {
@@ -283,6 +330,7 @@
             }
           )
         )
+        // lib.optionalAttrs isLinux (import ./tests/secrets-cli.nix { inherit pkgs; })
         // lib.optionalAttrs isLinux {
           # The nginx/socket contract test, against a stub Odoo (see the file
           # header). Real-Odoo module tests are module-odoo-<major>.
