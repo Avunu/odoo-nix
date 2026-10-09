@@ -109,7 +109,7 @@ def project_backup(ctx, fmt, out_dir, keep_days):
     "Omit to restore the project database from the remote backup store.",
 )
 @click.option("--force", is_flag=True, help="Overwrite a database if it already exists.")
-@click.option("--neutralize", is_flag=True, help="Disable outgoing mail/cron on each restored copy (explicit pairs only).")
+@click.option("--neutralize", is_flag=True, help="Disable outgoing mail/cron on each restored copy (default in the dev shell: restore.neutralize).")
 @click.option("--at", default=None, help="Remote restore: backup at or before this timestamp prefix.")
 @click.option(
     "--attachments/--no-attachments",
@@ -140,6 +140,8 @@ def project_restore(ctx, pairs, force, neutralize, at, attachments):
             False,
         )
         return
+    if not neutralize:
+        neutralize = _env_flag("ODOO_NIX_RESTORE_NEUTRALIZE", False)
     _run_multi(
         list(pairs),
         lambda pair: _restore_one(pair[0], pair[1], force, neutralize),

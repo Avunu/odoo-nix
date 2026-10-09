@@ -139,9 +139,13 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | layout.externalDir | "modules" | directory holding OCA module-repo submodules |
 | layout.customDir | "custom" | directory holding your own modules |
 | layout.extraAddons | [ ] | extra addons_path entries appended verbatim |
-| mailcatch.enable | true | redirect all outgoing email to the local Mailpit catcher |
-| mailcatch.host / mailcatch.port | "127.0.0.1" / 1025 | catcher SMTP endpoint (drives Mailpit and Odoo) |
-| mailcatch.httpPort | 8025 | Mailpit web UI port |
+| devguard.enable | true | install the [dev guard rails](#dev-guard-rails) into the dev virtualenv — turning it off also makes `odoo db restore` refuse to run |
+| devguard.egress.enable / devguard.egress.allowHosts | true / [ ] | refuse every non-loopback connection from Odoo's Python; hostnames (`*.example.com`), IPs or CIDRs to let through |
+| devguard.mail.enable | true | redirect ALL outgoing email to the local Mailpit catcher; block IMAP/POP3 (was `mailcatch.enable`) |
+| devguard.mail.host / devguard.mail.port | "127.0.0.1" / 1025 | catcher SMTP endpoint (drives Mailpit and Odoo; was `mailcatch.host`/`port`) |
+| devguard.mail.httpPort | 8025 | Mailpit web UI port (was `mailcatch.httpPort`) |
+| devguard.crons.enable / devguard.crons.extraBlocked | true / [ ] | skip denylisted crons (auto_backup, currency rates, bank-statement pulls, EDI send, fetchmail, …); more external ids to skip |
+| devguard.objectstore.enable / backups.enable / webhooks.enable / iap.enable | true | refuse remote `fs.storage`; skip remote `auto_backup` jobs; no-op webhook actions; fail IAP calls readably |
 | odooConf.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
 | odooConf.dataDir | "./.devenv/state/odoo" | Odoo filestore (gitignored under .devenv) |
 | odooConf.adminPasswd | "admin" | DB-manager master password (dev) |
@@ -235,31 +239,36 @@ For a non-VS Code editor, point your language server at the same two paths — e
 
 Every **other** editor's LSP client can be pointed at `odoo_ls_server` directly (stdio transport, no `initializationOptions` needed) — that binary is the real payoff of `ide.languageServer.enable`.
 
-### Outgoing mail catch-all
+### Dev guard-rails
 
-With `mailcatch.enable` (the default), **every** outgoing email is redirected to Mailpit — nothing can reach a real recipient from a dev environment. Open the catcher at [http://localhost:8025](http://localhost:8025).
+A database restored from production carries working production credentials: SMTP and IMAP logins, S3 keys, API tokens, webhook URLs, an SFTP backup target. Left alone it will mail real customers, push a dev-mutated database over the production backup rotation, delete production files and call every integration it has a key for. Odoo's neutralization covers what Odoo and a few addons remember to cover (mail servers, crons, webhook URLs, OAuth, IAP, payment providers); `odoo_devguard` closes the rest, and holds when neutralization was skipped or an addon ships no `neutralize.sql` (most don't).
 
-Setting `smtp_server` in `odoo.conf` is _not_ enough on its own: Odoo only falls back to it when no `ir.mail_server` record matches, so a single row in that table — or a `mail.mail` carrying an explicit `mail_server_id` — sends for real. So odoo-nix ships an addon, `addons/dev_mailcatch`, that patches `ir.mail_server.connect` and `ir.mail_server._find_mail_server` to always dial the catcher.
+It is a small Python package, **grafted into the dev and test virtualenvs with a `.pth` file** — never the production one, so `services.odoo-nix` and the container image cannot contain it. Every interpreter started from that environment is covered at startup, below Odoo: the server, `odoo shell`, `odoo db ...`, an editor terminal, an ad-hoc script — with no module to install into any database and no odoo.conf edit. Two layers:
 
-It is loaded as a **server-wide module**, not installed into any database:
+| Guard | What it does | Settings |
+| --- | --- | --- |
+| `egress` | **the catch-all.** Refuses every `connect()` the process makes to a non-loopback address — requests, httpx (openai, ollama), aiohttp (s3fs), urllib3 (plaid), urllib (currency rates), paramiko (SFTP), smtplib, whatever the next addon imports. Unix sockets, loopback (Mailpit, the longpolling worker, queue_job calling back into itself) and the mail catcher always pass; PostgreSQL does too, because libpq connects in C | `egress.allowHosts` |
+| `mail` | every SMTP connection lands on Mailpit whatever `ir.mail_server` record, from-filter or API transport (mail_cloudflare) a mail names; TLS/auth faked; IMAP/POP3 refused | `mail.{host,port,httpPort}` |
+| `crons` | skips denylisted scheduled actions by exact external id, even if switched back on | `crons.extraBlocked` |
+| `objectstore` | `fs.storage` records can only be local (`file`/`odoofs`/`memory`); an S3/SFTP storage cannot be opened, so attachments and backups can't reach a production bucket | |
+| `backups` | `auto_backup` jobs to SFTP/FS Storage are skipped, and so is their retention pass (which would delete production's backups) | |
+| `webhooks`, `iap` | outbound webhook actions do nothing; IAP calls fail with a readable error | |
 
-```ini
-[options]
-server_wide_modules = base,web,dev_mailcatch
+Only `egress` and the mail transport are *transport-level* (they know nothing about Odoo, so they hold across upgrades and unknown addons); the rest patch Odoo and addon APIs so failures read as "blocked by odoo-devguard" instead of a socket error, and are therefore one refactor away from being bypassed. A patch target that has moved fails the import loudly rather than leaving an inert guard (`DevGuardPatchError`). It is "a large reduction in blast radius plus an egress firewall for the Odoo process" — not an airgap for the machine.
 
-[dev_mailcatch]
-enabled = True
-host = 127.0.0.1
-port = 1025
+Each guard says so on first use — `WARNING odoo_devguard[egress] ACTIVE -- outbound connections from this process are blocked ...` — and names what it blocked. To let one thing through:
+
+```sh
+ODOO_DEVGUARD_EGRESS_ALLOW_HOSTS=api.example.com,10.0.0.0/8 odoo shell   # one command
+ODOO_DEVGUARD_DISABLE=crons odoo db migrate                              # named guard(s) off
+ODOO_DEVGUARD_ENABLED=0 odoo ...                                         # everything off (stock behaviour)
 ```
 
-Odoo runs the manifest's `post_load` hook at server start, so the redirection covers every database on the server — including ones created later — with no `-i` step, and applies to the HTTP server, `odoo shell`, and `--stop-after-init` runs (`-i`/`-u`) alike. The addon is served directly from the Nix store; it is never copied or symlinked into your workspace, so it stays out of `custom/`, `modules.txt`, and your git tree. A startup log line names the target:
+or permanently with `devguard.egress.allowHosts`. Settings are baked into the environment from Nix and read at run time; `ODOO_DEVGUARD_<GUARD>_<KEY>` environment variables win.
 
-```
-WARNING dev_mailcatch ACTIVE — ALL outgoing email is redirected to 127.0.0.1:1025.
-```
+**Restore interlock.** `devguard.enable = false` is a persistent decision about the whole project, not a per-command one, so `odoo db restore` and `odoo project restore` refuse to run while it is off (`ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` overrides). In the dev shell a file restore is neutralized and its remote `fs.storage` records are pointed at local disk exactly like a remote restore (see [Backups & restore](#backups--restore)).
 
-`ODOO_MAILCATCH_ENABLED` / `_HOST` / `_PORT` override `odoo.conf` for one-off runs. The catch-all is **dev-shell only** — `services.odoo-nix` and the container builder never load it.
+Open the mail catcher at [http://localhost:8025](http://localhost:8025). **Migrating from `mailcatch.*`:** the options are renamed to `devguard.mail.*` (the old names still work with a deprecation warning); remove `dev_mailcatch` from any `server_wide_modules` you set by hand — the addon is now a no-op stub that logs a warning, kept for one release so an old conf still starts. `ODOO_MAILCATCH_*` and the `[dev_mailcatch]` section are gone.
 
 ### The `odoo` CLI
 
@@ -565,10 +574,12 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `eval-*-<18\|19>` | per-series eval assertions: the fixture's `requires-python` matches `lib/odoo-presets.json`; `builtOdoo`'s `passthru.addonsPath` / `odooVersion` contract |
 | `lock-fresh-<18\|19>` | `tests/fixtures/<series>/uv.lock` still matches the pinned `ocb-*` input (series + `install_requires`) |
 | `builtOdoo-<18\|19>` | the assembled package builds — including the non-editable `odoo` wheel; `bin/odoo --version` runs on the production env |
-| `odoo-init-<18\|19>` | `-i base` against an in-sandbox PostgreSQL (`postgresqlTestHook`, unix socket); `web` installed proves the second core root, the `dev_mailcatch` banner proves `extraAddonsAbs` |
-| `odoo-test-<18\|19>` | installs the fixture addon `tests/fixtures/<series>/custom/odoo_nix_fixture` and runs its Odoo tests (ORM round-trip + the `dev_mailcatch` redirection), asserting the stats line shows they ran |
+| `odoo-init-<18\|19>` | `-i base` against an in-sandbox PostgreSQL (`postgresqlTestHook`, unix socket); `web` installed proves the second core root; and, since this is the production wrapper and environment, the dev guard rails are absent from it (no `odoo_devguard` on disk or in the log) |
+| `odoo-test-<18\|19>` | installs the fixture addon `tests/fixtures/<series>/custom/odoo_nix_fixture` and runs its Odoo tests (ORM round-trip + the dev guard rails: a mail redirected with the Nix-baked port, egress refused before a packet, the guards reached their targets), asserting the stats line shows they ran |
 | `cli-lifecycle-<18\|19>` | the `odoo` CLI end to end against an in-sandbox PostgreSQL: passthrough (`--help`/`--version`), then `db provision` → `db provision` again (idempotent migrate path) → `db backup` → `db drop` → `db restore`, on a database distinct from the one the other checks use |
 | `cli-migrate-<18\|19>` | `odoo db migrate` from build to build, the way `odoo-migrate.service` runs it: provision records the baseline; the same build is a one-query no-op; v2 of the fixture (`tests/fixtures/migrate`) updates **only** the fixture — new column, post-migrate script, new build recorded; version drift with unchanged checksums is still migrated; v3's migration commits a change and then fails, and the database is back exactly as v2 left it; `--keep` prunes only after a success; an uninitialised database is skipped |
+| `devguard` | the dev guard rails without Odoo or a network (`tests/test_devguard.py`): settings precedence and per-command disable, the post-import hook and its fail-closed behaviour, the egress guard against real sockets (loopback and Unix pass; everything else — urllib, asyncio, `create_connection` — is refused before any packet), the mail transport against a stub SMTP server, and the Odoo-facing guards against stand-in modules |
+| `devguard-baked` | the package `lib/devguard.nix` builds: Nix-baked settings actually reach the guard |
 | `remote-store` | the remote backup store (`lib/odoo_nix_cli/remote.py`, `tests/test_remote.py`) without Odoo or a network: only real backups are listed, newest/`--at` selection, cache + keep-two, the fail-safe download, the throwaway `mc` config |
 | `secrets-cli` | `edit-secret` / `rekey-secrets` / `check-secrets` against a real ragenix and committed fixture keys: the file lands in the repo (not the store), is encrypted to the declared recipients, is `git add`ed, and a rekey to a longer list lets the new key decrypt (Linux) |
 | `eval-secrets-schema-*` | the secret list, generated rules and agenix-shell set: a declared secret with no `.age` file yet is reported but does not break evaluation |
@@ -628,7 +639,7 @@ modules/
   nixos.nix                  # services.odoo-nix
   secrets.nix                # odoo-nix.secrets: agenix + agenix-shell (top-level flake-parts module)
 addons/
-  dev_mailcatch/             # server-wide outgoing-mail catch-all (dev shell only)
+  dev_mailcatch/             # deprecated no-op stub (the catch-all is odoo_devguard's `mail` guard now)
 lib/
   addons.nix                 # addons_path synthesis (the keystone)
   odoo-conf.nix              # odoo.conf INI synthesis
@@ -637,6 +648,8 @@ lib/
   cli.nix                    # wraps builtOdoo (or the live dev checkout) with the odoo CLI
   cli-scripts.nix            # bash helpers `odoo module add[-bundle]`/`project update` delegate to
   odoo_nix_cli/               # the odoo CLI itself (Python: click + rich)
+  devguard/odoo_devguard/    # dev guard rails (egress, mail, crons, objectstore, backups, webhooks, iap); dev virtualenv only
+  devguard.nix               # builds that package with a project's settings baked in (_baked.json)
   secrets-schema.nix         # the one derivation of the secret set (paths, rules, shell vars)
   secrets-tools.nix          # generated agenix rules, on-demand decryption, setup-backup-access
   secret-scripts.nix         # edit-secret / rekey-secrets / check-secrets / setup-backup-access
@@ -663,6 +676,7 @@ tests/
   module-odoo.nix            # NixOS VM test: services.odoo-nix with the real builtOdoo
   test_journald.py           # the CLI's journald formatter + init_logger patch, without Odoo
   test_remote.py             # the remote backup store, without Odoo or a network
+  test_devguard.py           # the dev guard rails, without Odoo or a network
   secrets-cli.{nix,sh}       # edit-secret / rekey-secrets against a real ragenix
   lock_fresh.py              # uv.lock ↔ pinned OCB consistency
   relock.nix                 # `nix run .#relock`
@@ -676,4 +690,4 @@ tests/
 
 MIT, see [LICENSE](LICENSE).
 
-The `dev_mailcatch` addon (`addons/`) and the test fixture addons (`tests/fixtures/`) are Odoo modules and declare `LGPL-3` in their own `__manifest__.py`.
+The `dev_mailcatch` stub (`addons/`) and the test fixture addons (`tests/fixtures/`) are Odoo modules and declare `LGPL-3` in their own `__manifest__.py`.

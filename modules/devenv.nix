@@ -16,6 +16,19 @@ in
   options.perSystem = mkPerSystemOption (
     { config, pkgs, ... }:
     {
+      imports = [
+        (lib.mkRenamedOptionModule
+          [ "odoo-nix" "mailcatch" "enable" ]
+          [ "odoo-nix" "devguard" "mail" "enable" ]
+        )
+        (lib.mkRenamedOptionModule [ "odoo-nix" "mailcatch" "host" ] [ "odoo-nix" "devguard" "mail" "host" ])
+        (lib.mkRenamedOptionModule [ "odoo-nix" "mailcatch" "port" ] [ "odoo-nix" "devguard" "mail" "port" ])
+        (lib.mkRenamedOptionModule
+          [ "odoo-nix" "mailcatch" "httpPort" ]
+          [ "odoo-nix" "devguard" "mail" "httpPort" ]
+        )
+      ];
+
       options.odoo-nix = {
         enable = mkEnableOption "Odoo + OCA devenv shell";
 
@@ -276,35 +289,130 @@ in
           };
         };
 
-        mailcatch = {
+        # Guard rails for the development environment: stop a database restored
+        # from production (with its live credentials) from reaching the outside
+        # world. Implemented by lib/devguard/odoo_devguard, grafted into the dev
+        # virtualenv only -- never the production one, see lib/python.nix.
+        devguard = {
           enable = mkOption {
             type = types.bool;
             default = true;
             description = ''
-              Redirect ALL outgoing email to the local Mailpit catcher.
+              Install the dev guard rails: every interpreter started from the dev
+              environment (server, `odoo shell`, `odoo db ...`, scripts) refuses
+              to reach beyond this machine, sends all mail to Mailpit, skips
+              denylisted crons, and refuses to open remote `fs.storage` records.
+              See the README's "Dev guard-rails".
 
-              Ships odoo-nix's `dev_mailcatch` addon from the Nix store and
-              loads it as a server-wide module, so the redirection covers
-              every database on the dev server without installing anything
-              into any of them — and cannot be defeated by an
-              `ir.mail_server` record. Dev-shell only: the NixOS module and
-              container builder never load it.
+              Turning it off is a persistent decision about the whole project, not
+              a per-command one (`ODOO_DEVGUARD_ENABLED=0` is that): `odoo db
+              restore` refuses to run while it is off unless
+              `ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1`.
             '';
           };
-          host = mkOption {
-            type = types.str;
-            default = "127.0.0.1";
-            description = "Host the catcher's SMTP listener is bound to.";
+
+          egress = {
+            enable = mkOption {
+              type = types.bool;
+              default = true;
+              description = ''
+                Refuse every non-loopback `connect()` made by Odoo's Python
+                (requests, httpx, aiohttp/s3fs, paramiko, urllib, smtplib, ...).
+                The catch-all: the other guards exist for readable errors, this
+                one for completeness. PostgreSQL (libpq, in C) is not affected.
+              '';
+            };
+            allowHosts = mkOption {
+              type = types.listOf types.str;
+              default = [ ];
+              example = [
+                "api.stripe.com"
+                "*.example.com"
+                "10.0.0.0/8"
+              ];
+              description = ''
+                Destinations the guard lets through: hostnames (`*.` for a
+                subdomain wildcard), IP literals or CIDRs. Loopback, Unix sockets
+                and the mail catcher are always allowed.
+                `ODOO_DEVGUARD_EGRESS_ALLOW_HOSTS=a,b` allows more for one command.
+              '';
+            };
           };
-          port = mkOption {
-            type = types.port;
-            default = 1025;
-            description = "Catcher SMTP port — drives both Mailpit and Odoo.";
+
+          mail = {
+            enable = mkOption {
+              type = types.bool;
+              default = true;
+              description = ''
+                Redirect ALL outgoing email to the local Mailpit catcher, whatever
+                `ir.mail_server` record or from-filter a mail names, and block
+                IMAP/POP3. Replaces the former `mailcatch` option and the
+                `dev_mailcatch` server-wide addon.
+              '';
+            };
+            host = mkOption {
+              type = types.str;
+              default = "127.0.0.1";
+              description = "Host the catcher's SMTP listener is bound to.";
+            };
+            port = mkOption {
+              type = types.port;
+              default = 1025;
+              description = "Catcher SMTP port — drives both Mailpit and Odoo.";
+            };
+            httpPort = mkOption {
+              type = types.port;
+              default = 8025;
+              description = "Mailpit web UI port.";
+            };
           };
-          httpPort = mkOption {
-            type = types.port;
-            default = 8025;
-            description = "Mailpit web UI port.";
+
+          crons = {
+            enable = mkOption {
+              type = types.bool;
+              default = true;
+              description = ''
+                Skip scheduled actions on the denylist (auto_backup, currency-rate
+                providers, bank-statement pulls, EDI output sync, fetchmail,
+                publisher warranty, web push) even if something switched them
+                back on. Neutralization already deactivates every cron.
+              '';
+            };
+            extraBlocked = mkOption {
+              type = types.listOf types.str;
+              default = [ ];
+              example = [ "my_module.ir_cron_sync_erp" ];
+              description = "More cron external ids (`<module>.<name>`) to skip, exact match.";
+            };
+          };
+
+          objectstore.enable = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Refuse to open an `fs.storage` that is not a local filesystem
+              (S3, SFTP, ...), so attachments and backups cannot reach a
+              production bucket. `odoo db restore` points restored storages at
+              local disk.
+            '';
+          };
+
+          backups.enable = mkOption {
+            type = types.bool;
+            default = true;
+            description = "Skip `auto_backup` jobs that write to a remote destination, and their retention pass.";
+          };
+
+          webhooks.enable = mkOption {
+            type = types.bool;
+            default = true;
+            description = "Make outbound webhook server actions do nothing.";
+          };
+
+          iap.enable = mkOption {
+            type = types.bool;
+            default = true;
+            description = "Make Odoo IAP calls (SMS, partner autocomplete, ...) fail with a readable error.";
           };
         };
 
@@ -543,6 +651,37 @@ in
           pycups = [ pkgs.cups ];
         };
 
+        # The guard rails, with this project's settings baked in. Only the dev and
+        # test environments get it (lib/python.nix), never the production one.
+        # Settings are read at run time with `ODOO_DEVGUARD_*` winning, so the
+        # shell's environment can re-point or disable a guard for one command.
+        dg = cfg.devguard;
+        devguardPkg = import ../lib/devguard.nix {
+          inherit pkgs lib;
+          settings = {
+            enabled = dg.enable;
+            guards = {
+              egress = {
+                enable = dg.egress.enable;
+                allow_hosts = dg.egress.allowHosts;
+              };
+              mail = {
+                enable = dg.mail.enable;
+                inherit (dg.mail) host port;
+                http_port = dg.mail.httpPort;
+              };
+              crons = {
+                enable = dg.crons.enable;
+                extra_blocked_crons = dg.crons.extraBlocked;
+              };
+              objectstore.enable = dg.objectstore.enable;
+              backups.enable = dg.backups.enable;
+              webhooks.enable = dg.webhooks.enable;
+              iap.enable = dg.iap.enable;
+            };
+          };
+        };
+
         pythonEnvs = import ../lib/python.nix {
           inherit pkgs lib;
           inherit (cfg)
@@ -551,6 +690,7 @@ in
             projectName
             coreSource
             ;
+          devguard = if dg.enable then devguardPkg else null;
           pyproject-nix = inputs.pyproject-nix;
           pyproject-build-systems = inputs.pyproject-build-systems;
           uv2nix = inputs.uv2nix;
@@ -581,7 +721,7 @@ in
         addons = import ../lib/addons.nix {
           inherit lib;
           inherit (cfg) workspaceRoot layout coreSource;
-          extraAddonsAbs = lib.optional cfg.mailcatch.enable odooNixAddons;
+          extraAddonsAbs = lib.optional cfg.devguard.enable odooNixAddons;
         };
 
         confSynth = import ../lib/odoo-conf.nix {
@@ -596,14 +736,7 @@ in
             "base"
           ]
           ++ lib.optional (lib.versionAtLeast cfg.odooSeries "19.0") "rpc"
-          ++ [ "web" ]
-          ++ lib.optional cfg.mailcatch.enable "dev_mailcatch";
-          extraSections = lib.optionalAttrs cfg.mailcatch.enable {
-            dev_mailcatch = {
-              enabled = true;
-              inherit (cfg.mailcatch) host port;
-            };
-          };
+          ++ [ "web" ];
         };
 
         # Secrets + remote restore (see modules/secrets.nix).
@@ -952,12 +1085,17 @@ in
 
               ODOO_HTTP_PORT = toString cfg.odooConf.httpPort;
               ODOO_GEVENT_PORT = toString cfg.odooConf.geventPort;
-              # Single source of truth: the same values are baked into
-              # odoo.conf's [dev_mailcatch] section, so Odoo and Mailpit can
+              # Single source of truth: the same values are baked into the
+              # devguard's settings (lib/devguard.nix), so Odoo and Mailpit can
               # never drift apart.
-              MAILPIT_SMTP_HOST = cfg.mailcatch.host;
-              MAILPIT_SMTP_PORT = toString cfg.mailcatch.port;
-              MAILPIT_HTTP_PORT = toString cfg.mailcatch.httpPort;
+              MAILPIT_SMTP_HOST = cfg.devguard.mail.host;
+              MAILPIT_SMTP_PORT = toString cfg.devguard.mail.port;
+              MAILPIT_HTTP_PORT = toString cfg.devguard.mail.httpPort;
+
+              # The Nix-time devguard switch, read by `odoo db restore`: unlike
+              # $ODOO_DEVGUARD_ENABLED (per command) this is a property of the
+              # project, and its mere presence says "this is a dev shell".
+              ODOO_NIX_DEVGUARD = if cfg.devguard.enable then "1" else "0";
 
               UV_PROJECT_ENVIRONMENT = config.env.DEVENV_STATE + "/uv-env";
               LD_LIBRARY_PATH = libraryPath;
@@ -1046,7 +1184,7 @@ in
             processes.odoo.after = [
               "devenv:processes:postgres@started"
             ]
-            ++ lib.optional cfg.mailcatch.enable "devenv:processes:mailpit@started";
+            ++ lib.optional (cfg.devguard.enable && cfg.devguard.mail.enable) "devenv:processes:mailpit@started";
 
             enterShell = ''
               ${lib.optionalString (cfg.coreSource != null) ''
@@ -1116,7 +1254,10 @@ in
               ${richPython}/bin/python ${../lib/banner.py} \
                 "${cfg.projectName}" "${cfg.odooSeries}" \
                 "${toString (builtins.length addons.addonsPathList)}" "${toString cfg.odooConf.httpPort}" \
-                "${if cfg.mailcatch.enable then "1" else "0"}" "${toString cfg.mailcatch.httpPort}"
+                "${if cfg.devguard.enable then "1" else "0"}" "${toString cfg.devguard.mail.httpPort}" \
+                "${lib.concatStringsSep "," cfg.devguard.egress.allowHosts}" \
+                "${if cfg.devguard.enable && cfg.devguard.mail.enable then "1" else "0"}" \
+                "${if cfg.devguard.enable && cfg.devguard.egress.enable then "1" else "0"}"
             '';
 
             # odoo-nix's own site-maintenance commands are the `odoo` CLI

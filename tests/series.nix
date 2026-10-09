@@ -26,8 +26,8 @@ let
   workspaceRoot = ./fixtures + "/${series}";
   projectName = "odoo-nix-fixture-${major}";
   fixtureAddon = "odoo_nix_fixture";
-  # Deliberately not dev_mailcatch's DEFAULT_PORT (1025): the fixture test
-  # asserts the value came from the [dev_mailcatch] section of odoo.conf.
+  # Deliberately not the devguard's default mail port (1025): the fixture test
+  # asserts the value came from the Nix-baked settings, not the package defaults.
   mailcatchPort = 2525;
   presets = builtins.fromJSON (builtins.readFile ../lib/odoo-presets.json);
 
@@ -40,6 +40,13 @@ let
 
   overrides = import ../lib/overrides.nix;
 
+  # The dev guard rails, as a project would bake them: only the test env gets
+  # them (lib/python.nix); odooPythonEnv -- what builtOdoo runs -- must not.
+  devguard = import ../lib/devguard.nix {
+    inherit pkgs lib;
+    settings.guards.mail.port = mailcatchPort;
+  };
+
   pythonEnvs = import ../lib/python.nix {
     inherit
       pkgs
@@ -47,6 +54,7 @@ let
       python
       workspaceRoot
       projectName
+      devguard
       ;
     coreSource = ocb;
     pyproject-nix = inputs.pyproject-nix;
@@ -91,8 +99,8 @@ let
   odooCli = mkCli "${projectName}-cli" builtOdoo;
 
   # addons_path for the sandboxed runs: the assembled package's roots, plus
-  # odoo-nix's own addons so dev_mailcatch is loadable server-wide -- the dev
-  # shell's shape (devenv.nix, extraAddonsAbs), re-rooted on the store copy.
+  # odoo-nix's own addons -- the dev shell's shape (devenv.nix, extraAddonsAbs),
+  # re-rooted on the store copy.
   addons = import ../lib/addons.nix {
     inherit lib workspaceRoot layout;
     coreSource = ocb;
@@ -137,15 +145,7 @@ let
         "base"
       ]
       ++ lib.optional is19 "rpc"
-      ++ [
-        "web"
-        "dev_mailcatch"
-      ];
-      extraSections.dev_mailcatch = {
-        enabled = true;
-        host = "127.0.0.1";
-        port = mailcatchPort;
-      };
+      ++ [ "web" ];
     }).odooConfFile;
   conf = mkConf builtOdoo;
 
@@ -267,13 +267,20 @@ in
 
     # `-i base` through the production wrapper. `web` is auto_install with
     # base and lives under <ocb>/addons, so its presence proves the second
-    # core root; the dev_mailcatch banner proves extraAddonsAbs + [dev_mailcatch].
+    # core root. This is the production wrapper and the production env, so the
+    # dev guard rails must be absent from it: no odoo_devguard on disk, no
+    # banner in the log.
     odoo-init = mkCheck "odoo-init-${major}" pg ''
       ${builtOdoo}/bin/odoo ${odooArgs} -i base 2>&1 | tee odoo.log
       ${noErrors}
       ${installed "base"}
       ${installed "web"}
-      grep -q 'dev_mailcatch ACTIVE' odoo.log
+      if grep -q 'odoo_devguard' odoo.log; then
+        echo "the production environment ran the dev guard rails" >&2
+        exit 1
+      fi
+      test ! -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/odoo_devguard
+      test ! -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/zzz-odoo-devguard.pth
     '';
 
     # The fixture addon's Odoo tests, with the test env (prod wheels + dev
@@ -285,7 +292,7 @@ in
       ${noErrors}
       grep -E '${fixtureAddon}: [1-9][0-9]* tests' odoo.log
       grep -E ' 0 failed, 0 error\(s\) of [1-9][0-9]* tests' odoo.log
-      grep -q 'dev_mailcatch ACTIVE .* 127.0.0.1:${toString mailcatchPort}' odoo.log
+      grep -q 'odoo_devguard\[mail\] ACTIVE -- ALL outgoing email is redirected to 127.0.0.1:${toString mailcatchPort}' odoo.log
       ${installed fixtureAddon}
     '';
 
@@ -371,6 +378,16 @@ in
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --force --no-neutralize 2>&1 | tee force.log
       grep -q "restored '$DSTDB'" force.log
       psql -d "$DSTDB" -tAc "select count(*) from ir_mail_server where name = 'neutralization - disable emails'" | grep -qx 0
+
+      # devguard.enable = false in a dev shell (ODOO_NIX_DEVGUARD=0) refuses to
+      # restore a production database, unless explicitly overridden
+      if ODOO_NIX_DEVGUARD=0 ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --force >unguarded.log 2>&1; then
+        echo "restore ran with the devguard off" >&2
+        exit 1
+      fi
+      grep -q 'devguard' unguarded.log
+      ODOO_NIX_DEVGUARD=0 ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1 ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --force 2>&1 | tee override.log
+      grep -q "restored '$DSTDB'" override.log
 
       # a timestamp nothing matches fails with a message, not a restore
       if ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --at 2001 --force >at.log 2>&1; then

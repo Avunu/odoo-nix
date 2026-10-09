@@ -630,9 +630,40 @@ def db_backup(ctx, database, all_dbs, out_dir, fmt, keep_days):
         _backup_one(name, out_dir, fmt, keep_days)
 
 
-def _restore_one(db_name: str, backup_path: str, force: bool, neutralize: bool) -> None:
+def _dev_shell() -> bool:
+    """True inside an odoo-nix dev shell (the only place Nix sets
+    $ODOO_NIX_DEVGUARD, to 1/0 for devguard.enable), False on a server."""
+    return os.environ.get("ODOO_NIX_DEVGUARD") is not None
+
+
+def _require_devguard() -> None:
+    """Refuse to put a production database on a machine where nothing stops it
+    reaching production, unless explicitly told otherwise.
+
+    Nix-time, not $ODOO_DEVGUARD_ENABLED: `devguard.enable = false` is a
+    persistent property of the project, so every later `devenv up` is unguarded
+    too. A per-command disable is scoped to that command and is nobody's
+    problem.
+    """
+    if os.environ.get("ODOO_NIX_DEVGUARD") == "0" and os.environ.get("ODOO_NIX_RESTORE_ALLOW_UNGUARDED") != "1":
+        raise click.ClickException(
+            "refusing to restore: odoo-nix.devguard.enable is false in this project, so nothing stops the "
+            "restored database from mailing customers, writing to production storage or running its crons. "
+            "Enable the devguard, or set ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1 to restore anyway."
+        )
+
+
+def _attachments_root() -> Path:
+    return Path(
+        os.environ.get("ODOO_NIX_ATTACHMENTS_DIR")
+        or odooenv.repo_root() / ".devenv" / "state" / "odoo-nix" / "attachments"
+    )
+
+
+def _restore_one(db_name: str, backup_path: str, force: bool, neutralize: bool, localize: bool = True) -> None:
     from odoo.service import db as odoo_db
 
+    _require_devguard()
     path = Path(backup_path)
     console.print("[cyan][1/3][/] located backup file")
     console.print(f"      {path}  ({_human_size(path.stat().st_size)})")
@@ -647,6 +678,11 @@ def _restore_one(db_name: str, backup_path: str, force: bool, neutralize: bool) 
     odoo_db.restore_db(db_name, str(path), neutralize_database=neutralize)
     console.print("[cyan][3/3][/] done")
     console.print(f"[green]✓[/] restored '{db_name}' from {path}")
+    if localize and _dev_shell():
+        # Whatever the dump's storage records say, a development copy never
+        # keeps a remote store (devguard's objectstore guard would refuse to
+        # open it anyway). The remote restore does this itself, after mirroring.
+        _localize_storages(db_name, _remote_storages(db_name), _attachments_root())
 
 
 #: Storages the localize step must leave alone: already local, or the backup
@@ -728,10 +764,10 @@ def _restore_remote(db_name, source_db, at, force, neutralize, use_cache, attach
                 return
             console.print(f"[cyan]fetching[/] newest backup of '{source_db}'" if not at else f"[cyan]fetching[/] '{source_db}' @ {at}")
             path = remote.fetch(base, source_db, _restore_cache_dir(), at, use_cache)
-            _restore_one(db_name, str(path), force, neutralize)
+            _restore_one(db_name, str(path), force, neutralize, localize=False)
 
             storages = _remote_storages(db_name)
-            root = Path(os.environ.get("ODOO_NIX_ATTACHMENTS_DIR") or odooenv.repo_root() / ".devenv" / "state" / "odoo-nix" / "attachments")
+            root = _attachments_root()
             for st in storages:
                 src = (st["directory_path"] or "").format(db_name=source_db)
                 if attachments == "mirror" and src and "$" not in src and not remote.is_local():
@@ -751,7 +787,7 @@ def _restore_remote(db_name, source_db, at, force, neutralize, use_cache, attach
 @click.option(
     "--neutralize/--no-neutralize",
     default=None,
-    help="Disable outgoing mail/cron on the restored copy. Default: off for a BACKUP_PATH, on for a remote restore.",
+    help="Disable outgoing mail/cron on the restored copy. Default: on in the dev shell (restore.neutralize), off on a server.",
 )
 @click.option("--from", "source_db", default=None, help="Remote restore: source database folder (default: DB_NAME).")
 @click.option("--at", default=None, help="Remote restore: newest backup at or before this timestamp prefix (YYYY_MM_DD_HH_MM_SS).")
@@ -768,7 +804,11 @@ def db_restore(ctx, db_name, backup_path, force, neutralize, source_db, at, list
     from the remote store (S3 credentials from the backup-access secret)."""
     if backup_path:
         _load(ctx)
-        _restore_one(db_name, backup_path, force, bool(neutralize))
+        if neutralize is None:
+            # Off on a server (the variable is only set in the dev shell), on
+            # in the dev shell: a dump you were handed is as live as one you fetched.
+            neutralize = _env_flag("ODOO_NIX_RESTORE_NEUTRALIZE", False)
+        _restore_one(db_name, backup_path, force, neutralize)
         return
     source_db = source_db or os.environ.get("ODOO_NIX_RESTORE_SOURCE_DB") or db_name
     if neutralize is None:
