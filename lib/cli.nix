@@ -54,6 +54,11 @@
   # null: `odoo module add` and `odoo project update` then fail with a clear
   # message instead of being wired to scripts that assume a git checkout.
   cliScripts ? null,
+  # Remote restore (lib/odoo_nix_cli/remote.py): the minio-client binary, and
+  # the wrapper that runs a command with the backup-access secret decrypted.
+  # Dev shell only; null elsewhere.
+  mcBin ? null,
+  withSecrets ? null,
 }:
 
 let
@@ -85,6 +90,12 @@ let
       ''--set ODOO_NIX_MODULE_ADD "${cliScripts.moduleAdd}"''
       ''--set ODOO_NIX_MODULE_ADD_BUNDLE "${cliScripts.moduleAddBundle}"''
       ''--set ODOO_NIX_PROJECT_UPDATE "${cliScripts.projectUpdate}"''
+    ]
+    ++ lib.optionals (mcBin != null) [
+      ''--set ODOO_NIX_MC "${mcBin}"''
+    ]
+    ++ lib.optionals (withSecrets != null) [
+      ''--set ODOO_NIX_WITH_SECRETS "${withSecrets}"''
     ]
     ++ [
       ''--prefix PYTHONPATH : "${targetPythonEnv}/${python.sitePackages}"''

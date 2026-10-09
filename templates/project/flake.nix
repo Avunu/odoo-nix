@@ -32,6 +32,16 @@
       {
         imports = [ odoo-nix.flakeModules.default ];
 
+        # Backup credentials (S3) for `odoo db restore`, encrypted with agenix.
+        # Declare who may read them, then run `setup-backup-access` in the dev
+        # shell. See "Backups & restore" in the odoo-nix README.
+        # odoo-nix.secrets = {
+        #   dir = ./secrets;
+        #   recipients.you = "ssh-ed25519 AAAA… you@host";
+        #   # The production host decrypts the same file (services.odoo-nix.environmentFiles):
+        #   # hostRecipients.myserver = "ssh-ed25519 AAAA… root@myserver";
+        # };
+
         systems = [
           "aarch64-darwin"
           "aarch64-linux"
@@ -49,6 +59,12 @@
               python = pkgs.@PYTHON@;
 
               odooConf.dbName = "@DB_NAME@";
+
+              # `odoo db restore` / `odoo project restore` from the S3 backups:
+              # restore = {
+              #   sourceDatabase = "production_db";  # folder the server backs up into
+              #   attachments = "mirror";            # also download object-store attachments
+              # };
 
               # Build production OCI images with `nix build .#builtOdoo` and the
               # container outputs once enabled:

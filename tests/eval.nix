@@ -22,6 +22,23 @@ let
   fakeCore = "/nix/store/00000000000000000000000000000000-ocb";
   fakeExtra = "/nix/store/00000000000000000000000000000000-odoo-nix-addons";
 
+  secrets = import ../lib/secrets-schema.nix { inherit lib; };
+  secretsCfg = {
+    dir = ./fixtures/secrets;
+    relDir = "secrets";
+    recipients.tim = "ssh-ed25519 AAAA";
+    hostRecipients.prod = "ssh-ed25519 BBBB";
+    backupAccess = {
+      enable = true;
+      hosts = true;
+    };
+    extra.s3-writer = {
+      format = "env";
+      var = "odoo_s3_writer";
+      hosts = false;
+    };
+  };
+
   submodule = addons {
     inherit lib layout;
     workspaceRoot = tree;
@@ -261,6 +278,46 @@ in
         (minimal.optionsBlock ? log_handler)
         (minimal.optionsBlock ? db_name)
       ];
+    };
+
+    # ── secrets (lib/secrets-schema.nix) ───────────────────────────────────
+    # A secret whose .age file does not exist yet is declared (check-secrets
+    # reports it) but left out of agenix-shell, so declaring one and then
+    # running `edit-secret` to create it works on a fresh clone.
+    secrets-schema-declared-vs-shell = {
+      expected = {
+        declared = [
+          "secrets/backup-access.age"
+          "secrets/s3-writer.age"
+        ];
+        shell = [ "odoo_backup_access" ];
+      };
+      actual = {
+        declared = map (x: x.relPath) (secrets.secretList secretsCfg);
+        shell = lib.attrNames (secrets.agenixShellSecrets secretsCfg);
+      };
+    };
+    secrets-schema-recipients = {
+      expected = {
+        # developers on the project secret; developers + hosts where hosts = true
+        backup = [
+          "ssh-ed25519 AAAA tim"
+          "ssh-ed25519 BBBB prod"
+        ];
+        writer = [ "ssh-ed25519 AAAA tim" ];
+      };
+      actual =
+        let
+          rules = builtins.fromJSON (secrets.rulesJSON secretsCfg);
+        in
+        {
+          backup = rules."secrets/backup-access.age";
+          writer = rules."secrets/s3-writer.age";
+        };
+    };
+    secrets-schema-extra-var = {
+      expected = "odoo_s3_writer";
+      actual = (lib.findFirst (x: x.role == "s3-writer") null (secrets.secretList secretsCfg)).var;
     };
   };
 }

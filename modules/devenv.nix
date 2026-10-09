@@ -2,7 +2,7 @@
 # Defines the perSystem.odoo-nix option namespace and wires the dev shell:
 # PostgreSQL + a single odoo-bin process + mailpit, a Nix-synthesized odoo.conf
 # symlinked into place, and the OCA management scripts.
-{
+topLevel@{
   lib,
   flake-parts-lib,
   inputs,
@@ -436,6 +436,62 @@ in
           description = "Additional packages added to LD_LIBRARY_PATH.";
         };
 
+        # `odoo db restore` / `odoo project restore` from the remote backup
+        # store. The credentials are the backup-access secret
+        # (odoo-nix.secrets, modules/secrets.nix), decrypted per command.
+        restore = {
+          enable = mkOption {
+            type = types.bool;
+            default = topLevel.config.odoo-nix.secrets.backupAccess.enable;
+            defaultText = lib.literalExpression "odoo-nix.secrets.backupAccess.enable";
+            description = ''
+              Offer `setup-backup-access` and let the `odoo` CLI decrypt the
+              backup-access secret for remote restores.
+            '';
+          };
+
+          prefix = mkOption {
+            type = types.str;
+            default = "";
+            description = ''
+              Path prefix inside the bucket, used when the secret's
+              `BACKUPS_PREFIX` is unset.
+            '';
+          };
+
+          sourceDatabase = mkOption {
+            type = types.str;
+            default = "";
+            description = ''
+              Database folder to restore from (production's database name).
+              Defaults to the name of the database being restored.
+            '';
+          };
+
+          attachments = mkOption {
+            type = types.enum [
+              "none"
+              "mirror"
+            ];
+            default = "none";
+            description = ''
+              What to do with attachments held in an object store
+              (`fs_attachment`). Either way the restored database's remote
+              `fs.storage` records are pointed at a local directory, so the
+              copy can never write to production.
+
+              `mirror` also downloads the bucket contents there (the
+              backup-access credentials need read access to that bucket).
+            '';
+          };
+
+          neutralize = mkOption {
+            type = types.bool;
+            default = true;
+            description = "Neutralize (no outgoing mail, crons off) databases restored from the remote store.";
+          };
+        };
+
         extraScripts = mkOption {
           type = types.attrsOf types.anything;
           default = { };
@@ -550,6 +606,35 @@ in
           };
         };
 
+        # Secrets + remote restore (see modules/secrets.nix).
+        secretsCfg = topLevel.config.odoo-nix.secrets;
+        secretsTools = import ../lib/secrets-tools.nix {
+          inherit lib pkgs;
+          cfg = secretsCfg;
+          schema = import ../lib/secrets-schema.nix { inherit lib; };
+        };
+
+        mcBin = "${pkgs.minio-client}/bin/mc";
+
+        # remote.py as a standalone command (stdlib only): used by
+        # `setup-backup-access` to test credentials before encrypting them.
+        remoteTool = pkgs.writeShellScript "odoo-nix-remote" ''
+          export ODOO_NIX_MC=${mcBin}
+          exec ${pkgs.python3}/bin/python ${../lib/odoo_nix_cli/remote.py} "$@"
+        '';
+
+        # Run a command with the backup-access secret in its environment. The
+        # `odoo` CLI re-executes itself through this when the credentials are
+        # absent: decryption happens per command, never at shell entry (see
+        # lib/secrets-tools.nix for why).
+        withBackupAccess = pkgs.writeShellScript "odoo-nix-with-backup-access" ''
+          ${secretsTools.loadSecrets config.agenix-shell.installationScript}
+          export ODOO_NIX_SECRETS_LOADED=1
+          exec "$@"
+        '';
+
+        restoreEnabled = cfg.restore.enable && secretsTools.enabled;
+
         cliScripts = import ../lib/cli-scripts.nix {
           inherit lib pkgs;
           submodulesInitBin = "${submodulesInit}/bin/odoo-nix-submodules-init";
@@ -595,6 +680,8 @@ in
           name = "${cfg.projectName}-odoo-cli-dev";
           rawOdooBin = devRawOdooBin;
           targetPythonEnv = pythonEnvs.devPythonEnv;
+          inherit mcBin;
+          withSecrets = if restoreEnabled then withBackupAccess else null;
         };
 
         odooCliProd = import ../lib/cli.nix {
@@ -850,6 +937,8 @@ in
               ]
               ++ lib.optional (cfg.testBrowser != null) cfg.testBrowser
               ++ lib.optional (cfg.ide.enable && cfg.ide.languageServer.enable) cfg.ide.languageServer.package
+              ++ secretsTools.packages
+              ++ lib.optional restoreEnabled pkgs.minio-client
               ++ cfg.extraDevPackages;
 
             env = {
@@ -874,6 +963,12 @@ in
               LD_LIBRARY_PATH = libraryPath;
             }
             // blasThreadCaps
+            // {
+              ODOO_NIX_RESTORE_PREFIX = cfg.restore.prefix;
+              ODOO_NIX_RESTORE_SOURCE_DB = cfg.restore.sourceDatabase;
+              ODOO_NIX_RESTORE_ATTACHMENTS = cfg.restore.attachments;
+              ODOO_NIX_RESTORE_NEUTRALIZE = if cfg.restore.neutralize then "1" else "0";
+            }
             // cfg.extraEnv;
 
             # Both of these fail silently in Odoo -- a disabled watcher is one
@@ -1028,7 +1123,14 @@ in
             # package above now (db/module/project subcommands), not devenv
             # scripts -- this option remains solely for a consumer's own
             # custom scripts.
-            scripts = cfg.extraScripts;
+            scripts =
+              import ../lib/secret-scripts.nix {
+                inherit lib;
+                secrets = secretsTools;
+                fetch = remoteTool;
+                withSetup = cfg.restore.enable;
+              }
+              // cfg.extraScripts;
           };
       };
   };

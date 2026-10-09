@@ -338,6 +338,48 @@ in
       psql -d "$CLIDB" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
     '';
 
+    # `odoo db restore` with no backup file: the newest (or --at) backup from
+    # the remote store -- here a directory laid out like the bucket
+    # (<root>/<db>/<ts>.dump), the same code path the S3 store takes after
+    # listing. Restored neutralized by default; refuses to overwrite without
+    # --force; --list and --at select; a missing timestamp fails.
+    cli-remote-restore = mkCheck "cli-remote-restore-${major}" pg ''
+      DBFLAGS="--db-host $PGHOST --db-user $PGUSER"
+      SRCDB="odoo_nix_rsrc_${major}"
+      DSTDB="odoo_nix_rdst_${major}"
+      export ODOO_NIX_BACKUP_SOURCE="$PWD/bucket"
+
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$SRCDB" 2>&1 | tee provision.log
+      ! grep -qE ' (ERROR|CRITICAL) ' provision.log
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db backup "$SRCDB" --format dump --path "$ODOO_NIX_BACKUP_SOURCE/$SRCDB" 2>&1 | tee backup.log
+
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --list | tee list.log
+      grep -qE '^[0-9]{4}(_[0-9]{2}){5}\.dump ' list.log
+
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" 2>&1 | tee restore.log
+      grep -q "restored '$DSTDB'" restore.log
+      psql -d "$DSTDB" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
+      # neutralized by default: the dummy outgoing-mail server is in place
+      psql -d "$DSTDB" -tAc "select count(*) from ir_mail_server where name = 'neutralization - disable emails'" | grep -qx 1
+
+      # no silent overwrite, and --force really does it
+      if ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" >refuse.log 2>&1; then
+        echo "restore overwrote an existing database without --force" >&2
+        exit 1
+      fi
+      grep -q -- '--force' refuse.log
+      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --force --no-neutralize 2>&1 | tee force.log
+      grep -q "restored '$DSTDB'" force.log
+      psql -d "$DSTDB" -tAc "select count(*) from ir_mail_server where name = 'neutralization - disable emails'" | grep -qx 0
+
+      # a timestamp nothing matches fails with a message, not a restore
+      if ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --at 2001 --force >at.log 2>&1; then
+        echo "restore succeeded for a timestamp nothing matches" >&2
+        exit 1
+      fi
+      grep -q 'no backup matching' at.log
+    '';
+
     # `odoo db backup --format dump` (no filestore), `--keep-days` pruning,
     # and the project-scoped `odoo project backup`/`odoo project restore`
     # (every database matching dbfilter by default; explicit --restore DB

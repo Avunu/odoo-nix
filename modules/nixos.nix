@@ -594,6 +594,29 @@ in
       type = types.attrsOf types.str;
       default = { };
     };
+
+    environmentFiles = mkOption {
+      type = types.listOf types.path;
+      default = [ ];
+      example = lib.literalExpression "[ config.age.secrets.odoo-backup.path ]";
+      description = ''
+        Files of `KEY=value` lines handed to the `odoo` and `odoo-migrate`
+        units as systemd `EnvironmentFile=`s, so secrets never enter the Nix
+        store. This is how an `fs.storage` configured with
+        `eval_options_from_env` (e.g. the `auto_backup_fs_storage` module's
+        `odoo_backup` storage) gets its `BACKUPS_URL`, `BACKUPS_ACCESS_KEY`,
+        `BACKUPS_SECRET_KEY`, `BACKUPS_BUCKET` and `BACKUPS_PREFIX`.
+
+        With agenix, point it at the same ciphertext the developers decrypt for
+        `odoo db restore`, exported by the project flake:
+
+            age.secrets.odoo-backup.file =
+              inputs.myproject.lib.odooSecrets.files.odoo_backup_access;
+            services.odoo-nix.environmentFiles = [ config.age.secrets.odoo-backup.path ];
+
+        (The host's key must be in the project's `odoo-nix.secrets.hostRecipients`.)
+      '';
+    };
   };
 
   config = mkIf cfg.enable {
@@ -718,6 +741,7 @@ in
         Group = cfg.group;
         WorkingDirectory = cfg.stateDir;
         TimeoutStartSec = mg.timeout;
+        EnvironmentFile = cfg.environmentFiles;
         ExecStart = "${cfg.package}/bin/odoo ${migrateArgs}";
         SyslogIdentifier = "odoo-migrate";
         LogExtraFields = logFields "migrate";
@@ -756,6 +780,7 @@ in
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = cfg.stateDir;
+        EnvironmentFile = cfg.environmentFiles;
         # Only with migrate disabled: odoo-migrate handles both autoInit
         # (--provision-if-empty) and update (--also) otherwise. The legacy
         # path runs `-i base` once (stamp file) and `odoo db upgrade` on every
