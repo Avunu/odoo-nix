@@ -409,6 +409,8 @@ The project's `pyproject.toml` + `uv.lock` are the single Python manifest, built
 -   `[project].dependencies` — `odoo` + the modules from `modules.txt` as `odoo-addon-<name>` (the install roots);
 -   `[tool.uv.sources]` — `odoo` (the OCB submodule) + **every** local module as an editable path source. uv then resolves the transitive closure of the roots against these local sources and pulls only the genuine external deps from PyPI.
 
+Modules that aren't packaged (a plain addons repo with no per-module `pyproject.toml`/`setup.py`, as Odoo itself allows) can't be uv sources. They stay on `addons_path` only, and are folded into the install set instead: walking from the roots, their `external_dependencies.python` become direct requirements and their packaged `depends` become `odoo-addon-<dep>` roots.
+
 This is a pure enumeration of available local modules — no dependency _logic_. uv resolves the graph; adding a module or changing its manifest deps is picked up automatically.
 
 The dev environment installs the modules **editable** (live source) and `odoo` as a wheel (its vendored `pep517_odoo` backend needs `setup/` on `PYTHONPATH` during the build, handled in `lib/python.nix`); Odoo is still **run from source** via `odoo-bin` + `addons_path`, so module loading and OCB edits work exactly as before — the editable installs just feed uv's resolution. `lib/overrides.nix` supplies native-build overrides (psycopg2, python-ldap) and a `[tool.uv.extra-build-dependencies]` block grants `setuptools` to sdist-only legacy deps. For a genuine version conflict, use `[tool.uv] override-dependencies`.
