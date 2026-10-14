@@ -131,14 +131,19 @@ let
         # attrset merge, no rebuild) rather than overrideAttrs. Its only
         # runtime dependency is lxml itself, already resolved in the set.
         pyprojectMeta = {
-          dependencies = { lxml = [ ]; };
+          dependencies = {
+            lxml = [ ];
+          };
           optional-dependencies = { };
         };
       in
       {
-        lxml_html_clean = base // pyprojectMeta // {
-          passthru = (base.passthru or { }) // pyprojectMeta;
-        };
+        lxml_html_clean =
+          base
+          // pyprojectMeta
+          // {
+            passthru = (base.passthru or { }) // pyprojectMeta;
+          };
       }
     );
 
@@ -167,13 +172,17 @@ let
   # add the libs' headers (their `.dev` output) + pkg-config to that package's
   # build, and the libs to its buildInputs. Lets a C-extension dep (e.g. pycups
   # -> cups, python-snappy -> snappy) build without a bespoke override.
-  pythonLibsOverlay = final: prev:
+  pythonLibsOverlay =
+    final: prev:
     builtins.mapAttrs (
       name: libs:
       prev.${name}.overrideAttrs (old: {
         nativeBuildInputs =
           (old.nativeBuildInputs or [ ])
-          ++ [ final.setuptools pkgs.pkg-config ]
+          ++ [
+            final.setuptools
+            pkgs.pkg-config
+          ]
           ++ lib.concatMap (l: lib.optional (l ? dev) l.dev) libs;
         buildInputs = (old.buildInputs or [ ]) ++ libs;
       })

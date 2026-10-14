@@ -79,13 +79,11 @@
 
   # libsass bundles its own sources; it only needs a C++ toolchain, supplied by
   # stdenv. Provided for completeness / forced source builds.
-  libsass =
-    _:
-    final: prev: {
-      libsass = prev.libsass.overrideAttrs (old: {
-        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
-          final.setuptools
-        ];
-      });
-    };
+  libsass = _: final: prev: {
+    libsass = prev.libsass.overrideAttrs (old: {
+      nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
+        final.setuptools
+      ];
+    });
+  };
 }

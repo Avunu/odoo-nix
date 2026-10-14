@@ -192,7 +192,9 @@ let
     fi
     export PATH=${lib.makeBinPath runtimePath}:$PATH
     ${lib.concatStringsSep "
-" (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}") serviceEnv)}
+" (
+      lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}") serviceEnv
+    )}
     exec ${cfg.package}/bin/odoo "$@"
   '';
 

@@ -21,8 +21,14 @@ in
           [ "odoo-nix" "mailcatch" "enable" ]
           [ "odoo-nix" "devguard" "mail" "enable" ]
         )
-        (lib.mkRenamedOptionModule [ "odoo-nix" "mailcatch" "host" ] [ "odoo-nix" "devguard" "mail" "host" ])
-        (lib.mkRenamedOptionModule [ "odoo-nix" "mailcatch" "port" ] [ "odoo-nix" "devguard" "mail" "port" ])
+        (lib.mkRenamedOptionModule
+          [ "odoo-nix" "mailcatch" "host" ]
+          [ "odoo-nix" "devguard" "mail" "host" ]
+        )
+        (lib.mkRenamedOptionModule
+          [ "odoo-nix" "mailcatch" "port" ]
+          [ "odoo-nix" "devguard" "mail" "port" ]
+        )
         (lib.mkRenamedOptionModule
           [ "odoo-nix" "mailcatch" "httpPort" ]
           [ "odoo-nix" "devguard" "mail" "httpPort" ]
@@ -1206,7 +1212,9 @@ in
             processes.odoo.after = [
               "devenv:processes:postgres@started"
             ]
-            ++ lib.optional (cfg.devguard.enable && cfg.devguard.mail.enable) "devenv:processes:mailpit@started";
+            ++ lib.optional (
+              cfg.devguard.enable && cfg.devguard.mail.enable
+            ) "devenv:processes:mailpit@started";
 
             enterShell = ''
               ${lib.optionalString (cfg.postgres.noCow && pkgs.stdenv.hostPlatform.isLinux) ''

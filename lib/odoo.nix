@@ -30,7 +30,14 @@
 }:
 
 let
-  addons = import ./addons.nix { inherit lib workspaceRoot layout coreSource; };
+  addons = import ./addons.nix {
+    inherit
+      lib
+      workspaceRoot
+      layout
+      coreSource
+      ;
+  };
 
   # Where the OCB tree is read from: the workspace submodule, or the store path.
   coreRoot = if coreSource != null then toString coreSource else "${workspaceRoot}/${layout.coreSrc}";
@@ -43,41 +50,44 @@ let
     fi
   '';
 
-  builtOdoo = pkgs.runCommandLocal "${projectName}-odoo" {
-    passthru = {
-      pythonEnv = odooPythonEnv;
-      inherit (addons) externalRepos addonsPathList;
-      # root -> absolute comma-separated addons_path against an assembled tree.
-      addonsPath = addons.addonsPathFor;
-      odooVersion = odooSeries;
-    };
-    meta.description = "Assembled Odoo (OCB + OCA + custom) for ${projectName}";
-  } ''
-    mkdir -p $out/bin
+  builtOdoo =
+    pkgs.runCommandLocal "${projectName}-odoo"
+      {
+        passthru = {
+          pythonEnv = odooPythonEnv;
+          inherit (addons) externalRepos addonsPathList;
+          # root -> absolute comma-separated addons_path against an assembled tree.
+          addonsPath = addons.addonsPathFor;
+          odooVersion = odooSeries;
+        };
+        meta.description = "Assembled Odoo (OCB + OCA + custom) for ${projectName}";
+      }
+      ''
+        mkdir -p $out/bin
 
-    # Assemble the tree into the SAME relative layout the project uses, so the
-    # package's addonsPath (addons.addonsPathFor "$out") resolves against it.
-    ${
-      if coreSource != null then
-        # Already in the store: link rather than duplicate a 2 GB tree.
-        ''ln -s "${coreRoot}" "$out/${layout.coreSrc}"''
-      else
-        copyDir coreRoot "$out/${layout.coreSrc}"
-    }
-    ${lib.concatMapStringsSep "\n" (
-      repo: copyDir "${workspaceRoot}/${layout.externalDir}/${repo}" "$out/${layout.externalDir}/${repo}"
-    ) addons.externalRepos}
-    ${copyDir "${workspaceRoot}/${layout.customDir}" "$out/${layout.customDir}"}
+        # Assemble the tree into the SAME relative layout the project uses, so the
+        # package's addonsPath (addons.addonsPathFor "$out") resolves against it.
+        ${
+          if coreSource != null then
+            # Already in the store: link rather than duplicate a 2 GB tree.
+            ''ln -s "${coreRoot}" "$out/${layout.coreSrc}"''
+          else
+            copyDir coreRoot "$out/${layout.coreSrc}"
+        }
+        ${lib.concatMapStringsSep "\n" (
+          repo: copyDir "${workspaceRoot}/${layout.externalDir}/${repo}" "$out/${layout.externalDir}/${repo}"
+        ) addons.externalRepos}
+        ${copyDir "${workspaceRoot}/${layout.customDir}" "$out/${layout.customDir}"}
 
-    # Drop any vendored VCS metadata to keep the closure lean.
-    find $out -name .git -prune -exec rm -rf {} + 2>/dev/null || true
+        # Drop any vendored VCS metadata to keep the closure lean.
+        find $out -name .git -prune -exec rm -rf {} + 2>/dev/null || true
 
-    # Wrapper: run odoo-bin from the assembled OCB source with the Nix env python.
-    cat > $out/bin/odoo <<EOF
-    #!${pkgs.runtimeShell}
-    exec ${odooPythonEnv}/bin/python $out/${layout.coreSrc}/odoo-bin "\$@"
-    EOF
-    chmod +x $out/bin/odoo
-  '';
+        # Wrapper: run odoo-bin from the assembled OCB source with the Nix env python.
+        cat > $out/bin/odoo <<EOF
+        #!${pkgs.runtimeShell}
+        exec ${odooPythonEnv}/bin/python $out/${layout.coreSrc}/odoo-bin "\$@"
+        EOF
+        chmod +x $out/bin/odoo
+      '';
 in
 builtOdoo
