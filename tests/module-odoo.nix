@@ -13,6 +13,7 @@
 #   - a deploy of v3, whose migration fails after committing: rolled back,
 #     and odoo.service stays DOWN rather than serving v3 on v2's schema;
 #   - redeploying v2 recovers;
+#   - root's `odoo` (adminCli) runs as the service user, with its PATH;
 #   - logs: Odoo's records reach the journal with their syslog priority on
 #     every line (tracebacks too), no asctime/pid, and the journal fields.
 #
@@ -184,6 +185,12 @@ pkgs.testers.runNixOSTest {
         assert access["site"] == "odoo.example.com" and access["uri"] == "/web/login", access
         assert access["status"] == 200, access
         assert entry["APP_SERVICE"] == "nginx" and entry["APP_SITE"] == "acme", entry
+
+    with subtest("root's odoo runs as the service, with its tools and config"):
+        # pg_dump is on no root PATH here: the wrapper brings the service's.
+        machine.succeed("odoo db backup acme --format dump --path /var/lib/odoo/admin-backups")
+        owners = machine.succeed("find /var/lib/odoo/admin-backups -name '*.dump' -printf '%u\\n'").split()
+        assert owners and set(owners) == {"odoo"}, owners
 
     with subtest("a restart of the same build migrates nothing"):
         machine.succeed("systemctl restart odoo.service")

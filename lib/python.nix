@@ -142,6 +142,27 @@ let
       }
     );
 
+  # python-magic (pulled in by OCA modules, and used by Odoo's own
+  # guess_mimetype when importable) finds libmagic with ctypes.util.
+  # find_library, which on NixOS finds nothing: it only worked in the dev
+  # shell, whose LD_LIBRARY_PATH carries `file`'s lib, and fell back or failed
+  # under services.odoo-nix and in the container. Point it at nixpkgs'
+  # libmagic first, as nixpkgs' own python-magic does; the stock lookup stays
+  # behind it.
+  pythonMagicOverlay =
+    _final: prev:
+    lib.optionalAttrs (prev ? python-magic) {
+      python-magic = prev.python-magic.overrideAttrs (old: {
+        postInstall = (old.postInstall or "") + ''
+          for f in $(find "$out" -path '*/magic/loader.py'); do
+            substituteInPlace "$f" --replace-fail \
+              'for lib in _lib_candidates():' \
+              'for lib in ["${pkgs.file}/lib/libmagic${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}", *_lib_candidates()]:'
+          done
+        '';
+      });
+    };
+
   # Declarative native-library exposure: for each `<python package> = [ libs ]`,
   # add the libs' headers (their `.dev` output) + pkg-config to that package's
   # build, and the libs to its buildInputs. Lets a C-extension dep (e.g. pycups
@@ -169,6 +190,7 @@ let
           odooBackendOverlay
           pythonLibsOverlay
           lxmlHtmlCleanOverlay
+          pythonMagicOverlay
           extraOverrides
         ]
       );
