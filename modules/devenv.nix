@@ -263,6 +263,26 @@ in
               back — the server ships only what it is built with.
             '';
           };
+
+          noCow = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              On btrfs, keep the datadir off copy-on-write (`chattr +C`).
+
+              PostgreSQL rewrites pages in place; copy-on-write turns every
+              such write into a new extent — compressed first, on the
+              compressed mounts btrfs desktops usually have — and every fsync
+              into a filesystem transaction that other programs' saves wait
+              behind. See lib/db-nocow.nix.
+
+              The attribute only reaches files created after it is set, so
+              shell entry arranges it for a datadir that does not exist yet.
+              One that already holds a cluster is reported, not touched: stop
+              `devenv up` and run `odoo-nix-db-nocow migrate "$PGDATA"` to
+              copy it across once. A no-op on any other filesystem.
+            '';
+          };
         };
 
         dev = {
@@ -834,6 +854,9 @@ in
         # awareness) compared to a real renderer.
         submodulesInit = import ../lib/submodules-init.nix { inherit pkgs; };
 
+        # lib/db-nocow.nix and the postgres.noCow option.
+        dbNocow = import ../lib/db-nocow.nix { inherit pkgs; };
+
         richPython = import ../lib/rich-python.nix {
           inherit pkgs;
           inherit (cfg) python;
@@ -1072,6 +1095,8 @@ in
               ++ lib.optional (cfg.ide.enable && cfg.ide.languageServer.enable) cfg.ide.languageServer.package
               ++ secretsTools.packages
               ++ lib.optional restoreEnabled pkgs.minio-client
+              # For the one-off `odoo-nix-db-nocow migrate` shell entry asks for.
+              ++ lib.optional (cfg.postgres.noCow && pkgs.stdenv.hostPlatform.isLinux) dbNocow
               ++ cfg.extraDevPackages;
 
             env = {
@@ -1187,6 +1212,11 @@ in
             ++ lib.optional (cfg.devguard.enable && cfg.devguard.mail.enable) "devenv:processes:mailpit@started";
 
             enterShell = ''
+              ${lib.optionalString (cfg.postgres.noCow && pkgs.stdenv.hostPlatform.isLinux) ''
+                # Before `devenv up` runs initdb: the btrfs NOCOW attribute only
+                # reaches files created after it is set. See lib/db-nocow.nix.
+                ${dbNocow}/bin/odoo-nix-db-nocow prepare "''${PGDATA:-$DEVENV_STATE/postgres}" || true
+              ''}
               ${lib.optionalString (cfg.coreSource != null) ''
                 # OCB comes from a flake input: keep <coreSrc> a symlink to it so
                 # odoo-bin, the scripts and the IDE mirror all find it where the
