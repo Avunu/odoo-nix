@@ -71,7 +71,14 @@ def shell_cmd(ctx, database):
     if not target:
         raise click.UsageError("no database given, and none configured (db_name / $ODOO_DB).")
     raw = odooenv.require_env("ODOO_NIX_RAW_ODOO")
-    os.execv(raw, [raw, "shell", "-c", str(conf_path), "-d", target, *db_args])
+    # A REPL serves nothing: no workers and no HTTP. Under a server conf with
+    # workers > 0, `odoo-bin shell` otherwise starts the prefork server, which
+    # binds http_port -- taken by the running service, so the shell dies with
+    # "Address already in use".
+    os.execv(
+        raw,
+        [raw, "shell", "-c", str(conf_path), "-d", target, "--workers=0", "--no-http", *db_args],
+    )
 
 
 @cli.command("test")

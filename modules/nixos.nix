@@ -163,6 +163,36 @@ let
   // lib.optionalAttrs journaldActive { ODOO_NIX_JOURNALD = "1"; }
   // cfg.extraEnv;
 
+  # The `odoo` an operator runs from a root shell (`odoo db backup`, `odoo db
+  # migrate`, `odoo shell`). Run straight from the package it would have
+  # neither the service's tools (pg_dump, psql, wkhtmltopdf are not on a root
+  # shell's PATH) nor its secrets, and would write the filestore and backups
+  # as root. So, as root, it runs as a transient unit with the service's
+  # user, working directory, PATH, environment and EnvironmentFile= --
+  # systemd parses those files, exactly as for odoo.service. Anyone else
+  # (the service user itself, say) gets the PATH and environment in place.
+  adminCli = pkgs.writeShellScriptBin "odoo" ''
+    set -euo pipefail
+    if [ "$(id -u)" = 0 ] && [ ${lib.escapeShellArg cfg.user} != root ]; then
+      if [ -t 0 ] && [ -t 1 ]; then io=--pty; else io=--pipe; fi
+      exec ${config.systemd.package}/bin/systemd-run --quiet --wait --collect "$io" \
+        --uid=${lib.escapeShellArg cfg.user} --gid=${lib.escapeShellArg cfg.group} \
+        --working-directory=${lib.escapeShellArg cfg.stateDir} \
+        --setenv=PATH=${lib.makeBinPath runtimePath} \
+        ${
+          lib.concatStringsSep " " (
+            lib.mapAttrsToList (k: v: "--setenv=${lib.escapeShellArg "${k}=${v}"}") serviceEnv
+            ++ map (f: "--property=${lib.escapeShellArg "EnvironmentFile=${f}"}") cfg.environmentFiles
+          )
+        } \
+        -- ${cfg.package}/bin/odoo "$@"
+    fi
+    export PATH=${lib.makeBinPath runtimePath}:$PATH
+    ${lib.concatStringsSep "
+" (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}") serviceEnv)}
+    exec ${cfg.package}/bin/odoo "$@"
+  '';
+
   mkInitScript = pkgs.writeShellScript "odoo-nix-init" ''
     set -euo pipefail
     umask 077
@@ -233,6 +263,17 @@ in
       type = types.package;
       description = "The assembled Odoo package (builtOdoo) from the project flake.";
       example = lib.literalExpression "projectFlake.packages.x86_64-linux.default";
+    };
+
+    adminCli = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Install an `odoo` command for operators. From a root shell it runs as
+        the service user with the service's PATH, environment and
+        `environmentFiles`, so `odoo db backup|restore|migrate` behave as
+        they do under odoo.service.
+      '';
     };
 
     user = mkOption {
@@ -620,6 +661,8 @@ in
   };
 
   config = mkIf cfg.enable {
+    environment.systemPackages = lib.optional cfg.adminCli adminCli;
+
     # A warning, not an assertion: logging.file predates logging.journald and
     # a configuration that sets it must keep evaluating.
     warnings = lib.optional (cfg.logging.journald && cfg.logging.file != null) ''

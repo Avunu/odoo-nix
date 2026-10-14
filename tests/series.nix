@@ -263,6 +263,11 @@ in
       # shell was fine and production crash-looped.
       ${builtOdoo}/bin/odoo gevent --version | tee gevent-version.txt
       grep -qx 'Odoo Server ${series}' gevent-version.txt
+      # python-magic finds libmagic with no LD_LIBRARY_PATH -- this sandbox
+      # has none, and neither has services.odoo-nix. Only the dev shell sets
+      # one, which is how it once worked there and nowhere else.
+      ${pythonEnvs.odooPythonEnv}/bin/python -c \
+        'import magic; t = magic.from_buffer(b"%PDF-1.4\n", mime=True); assert t == "application/pdf", t'
     '';
 
     # `-i base` through the production wrapper. `web` is auto_install with
