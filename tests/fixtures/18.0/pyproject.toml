@@ -12,7 +12,8 @@ name = "odoo-nix-fixture-18"
 version = "0.1.0"
 description = "odoo-nix test fixture for Odoo 18.0"
 requires-python = ">=3.11"
-dependencies = ["odoo"]
+# python-magic: what OCA modules pull in; lib/python.nix points it at libmagic.
+dependencies = ["odoo", "python-magic"]
 
 [dependency-groups]
 # What odoo.tests needs beyond OCB's install_requires (its tests_require, which
