@@ -28,13 +28,47 @@
 #     offline, and a checkout downloads only the files it needs. OCB (--core)
 #     is the exception: its folder history alone is enormous, so its branch
 #     comes as commits only too, folders and files downloaded as needed;
-#   - every other branch is fetched as commits only (tree:0, which then stays
-#     the clone's filter), so `git switch <any branch>` works and downloads
-#     that branch's folders and files when it is switched to.
+#   - every other branch is fetched the same way (OCB's as commits only), so
+#     `git switch <any branch>` works and downloads only the files it needs.
+#
+# Not commits-only (tree:0) for an OCA repo's other branches, which is what
+# this once did. A treeless clone has no folders for any commit, so everything
+# that walks history — `git log -p` or `git log -- <path>` in an editor's
+# history view, `git blame`, `git diff` across a range — fetches them one
+# commit at a time, each as a pack of its own with the folders the last one
+# already had repeated in it (frappe-nix measured 345 packs holding 1.9x the
+# objects there were). OCB stays treeless all the same: its folder history is
+# the bigger cost there, and a history walk in it is the rarer thing.
+#
+# Two more things keep a partial clone from growing without bound, because
+# git does neither:
+#
+#   - the pinned commit is fetched, the ordinary way, before anything can ask
+#     git for a commit the clone lacks (prefetch_pin). `git submodule update`
+#     to a pin the clone has not got first asks the clone for it, and a
+#     partial clone answers with a lazy fetch that negotiates nothing — no
+#     "have" lines — so the remote sends the commit's whole history over
+#     again: a clone's worth of data per pin bump, where with the pin fetched
+#     first it is the handful of new commits;
+#   - the clone's packs are merged where they are alike in size (tidy_packs).
+#     Every lazy fetch is a pack, and the `git maintenance run --auto` that a
+#     fetch starts does not merge them in a partial clone. Not `git gc
+#     --auto`, which counts packs and not bytes, and so leaves a few giant
+#     duplicates alone until there are fifty.
+#
+# Every one of these clones is set never to recurse into submodules on fetch
+# (no_submodule_fetch). A repo with submodules of its own otherwise has git
+# diff each commit a fetch brings in, looking for a moved gitlink, and in a
+# treeless clone each of those trees is a lazy fetch from the remote: one
+# round trip per commit on any other branch.
 #
 # A submodule already checked out shallow, or following a single branch —
 # every clone made before this — is brought to the same shape in place, once:
-# the checkout does not move, only history is fetched. See needs_history.
+# the checkout does not move, only history is fetched. See needs_history. An
+# OCA clone an earlier odoo-nix made treeless keeps the commits it has without
+# their folders, and gets folders for the ones it fetches from now on (see
+# stop_treeless); `git fetch --refetch` in it fills in the rest, at the price
+# of downloading its history again.
 #
 #   odoo-nix-submodules-init [--core <path>] [<project root>]
 { pkgs }:
@@ -94,15 +128,85 @@ pkgs.writeShellApplication {
       [ "$(git -C "$1" rev-parse --is-shallow-repository 2>/dev/null)" = true ]
     }
 
-    # Every branch, commits only, from here on. The refspec goes into the
-    # config only once the fetch has worked, so a clone the fetch failed on
-    # still reads as needing it (see needs_history) and the next entry retries.
+    # A partial clone's own fetches (yours, an editor's autofetch, the next
+    # one here) skip the on-demand submodule check — see the header. In the
+    # clone's config, and only where it says nothing of its own, so a value
+    # someone set there by hand stands.
+    no_submodule_fetch() { # <path>
+      git -C "$1" config --local --get fetch.recurseSubmodules > /dev/null 2>&1 \
+        || git -C "$1" config fetch.recurseSubmodules false
+    }
+
+    # Every branch, as the paired one is kept (filter_of), from here on. The
+    # refspec goes into the config only once the fetch has worked, so a clone
+    # the fetch failed on still reads as needing it (see needs_history) and
+    # the next entry retries.
     track_all_branches() { # <path>
-      local args=(--filter=tree:0)
+      local filter args
+      filter="$(filter_of "$1")"
+      args=(--filter="$filter" --no-recurse-submodules)
       if is_shallow "$1"; then args+=(--unshallow); fi
       git -C "$1" fetch -q "''${args[@]}" origin '+refs/heads/*:refs/remotes/origin/*' < /dev/null || return 1
       git -C "$1" config --replace-all remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
-      git -C "$1" config remote.origin.partialclonefilter tree:0
+      git -C "$1" config remote.origin.partialclonefilter "$filter"
+      no_submodule_fetch "$1"
+    }
+
+    is_partial() { # <path>
+      [ "$(git -C "$1" config --get remote.origin.promisor 2>/dev/null)" = true ]
+    }
+
+    # An OCA clone an earlier odoo-nix made treeless fetches folders along
+    # with commits from now on (see the header). Config only: nothing is
+    # downloaded here, and the commits it already has stay as they are. OCB
+    # stays treeless, and a filter someone set by hand to anything but tree:0
+    # stands.
+    stop_treeless() { # <path>
+      [ "$(filter_of "$1")" = blob:none ] || return 0
+      [ "$(git -C "$1" config --get remote.origin.partialclonefilter 2>/dev/null)" = tree:0 ] || return 0
+      git -C "$1" config remote.origin.partialclonefilter blob:none
+    }
+
+    # The commit the project records for a submodule.
+    pinned_commit() { # <path>
+      git ls-files -s -- "$1" 2>/dev/null \
+        | awk -v p="$1" '$1 == "160000" && $4 == p { print $2 }'
+    }
+
+    # Whether a commit is on disk, without the lazy fetch a partial clone would
+    # make to answer the question — which is the whole reason to ask.
+    have_commit() { # <path> <commit>
+      GIT_NO_LAZY_FETCH=1 git -C "$1" cat-file -e "$2^{commit}" 2> /dev/null
+    }
+
+    # Fetch the commit the project records, the ordinary way, when the clone
+    # lacks it; see the header for what asking a partial clone for it costs
+    # otherwise. An ordinary fetch negotiates, so what comes down is the
+    # commits since the clone's last one. Asked on every entry, because a pin
+    # moves under a clone with a `git pull` of the project, which changes
+    # nothing the shell watches; the next entry is the first chance to fetch
+    # it before `git submodule update` is run. A fetch that fails (offline, a
+    # pin the remote no longer has) is reported and leaves the clone as it was.
+    prefetch_pin() { # <path>
+      local pin
+      pin="$(pinned_commit "$1")"
+      [ -n "$pin" ] || return 0
+      have_commit "$1" "$pin" && return 0
+      timeout 300 git -C "$1" fetch -q --no-recurse-submodules origin "$pin" < /dev/null > /dev/null 2>&1 \
+        || echo "odoo-nix: could not fetch ''${1}'s pinned commit ''${pin:0:12} -- 'git submodule update' on it will download its whole history again" >&2
+    }
+
+    # Merge a partial clone's packs where they are alike in size. git's own
+    # background maintenance does not (see the header). A geometric repack
+    # keeps each pack at least twice the size of the next smaller, so packs of
+    # one size — what a repeated download is — are merged, and the objects
+    # they share are stored once; when they already are in that shape it does
+    # nothing, so asking on every entry costs a directory listing.
+    tidy_packs() { # <path>
+      local packs
+      packs="$(find "$(git -C "$1" rev-parse --git-path objects/pack)" -name '*.pack' 2> /dev/null | wc -l)"
+      [ "$packs" -gt 1 ] || return 0
+      git -C "$1" maintenance run --quiet --task=geometric-repack < /dev/null > /dev/null 2>&1 || true
     }
 
     # The clone the first entry makes (see the header), at the pinned commit.
@@ -125,6 +229,9 @@ pkgs.writeShellApplication {
         git clone -q --no-checkout --filter="$filter" --single-branch -- "$url" "$1" < /dev/null || return 1
       fi
       git submodule absorbgitdirs -- "$1" > /dev/null || return 1
+      # The pin is usually on another branch than the one just cloned, and
+      # `submodule update` asks the clone for it before it fetches anything.
+      prefetch_pin "$1"
       git submodule update --force --recursive -- "$1" < /dev/null || return 1
       track_all_branches "$1" || echo "odoo-nix: $1 is checked out, but its other branches could not be fetched; the next shell entry tries again" >&2
     }
@@ -160,16 +267,17 @@ pkgs.writeShellApplication {
     }
 
     # needs_history's submodule, in place, to first_checkout's shape: the
-    # paired branch's history, every branch's commits. HEAD, the checkout and
-    # any local branch stay exactly where they are; this only fetches.
+    # paired branch's history, and every other branch's the same way. HEAD,
+    # the checkout and any local branch stay exactly where they are; this only
+    # fetches.
     add_history() { # <path> <name>
       local branch args=()
       branch="$(branch_of "$2")"
       if [ -n "$branch" ]; then
         if is_shallow "$1"; then args+=(--unshallow); fi
-        git -C "$1" fetch -q "''${args[@]}" --filter="$(filter_of "$1")" origin \
+        git -C "$1" fetch -q "''${args[@]}" --filter="$(filter_of "$1")" --no-recurse-submodules origin \
           "+refs/heads/$branch:refs/remotes/origin/$branch" < /dev/null \
-          || echo "odoo-nix: could not fetch $1's '$branch' history -- fetching every branch's commits alone" >&2
+          || echo "odoo-nix: could not fetch $1's '$branch' history -- fetching every branch's history instead" >&2
       fi
       track_all_branches "$1"
     }
@@ -217,9 +325,15 @@ pkgs.writeShellApplication {
     done
 
     for i in "''${checked[@]}"; do
+      if is_partial "''${paths[$i]}"; then
+        no_submodule_fetch "''${paths[$i]}"
+        stop_treeless "''${paths[$i]}"
+        prefetch_pin "''${paths[$i]}"
+        tidy_packs "''${paths[$i]}"
+      fi
       needs_history "''${paths[$i]}" || continue
       echo "odoo-nix: ''${paths[$i]} is a shallow or single-branch clone -- fetching its branch's history" >&2
-      echo "  and every branch's commits, once. This can take a while." >&2
+      echo "  (no file contents) and every branch's, once. This can take a while." >&2
       add_history "''${paths[$i]}" "''${names[$i]}" \
         || echo "odoo-nix: could not fetch ''${paths[$i]}'s history -- the next shell entry tries again" >&2
     done

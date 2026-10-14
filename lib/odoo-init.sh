@@ -181,7 +181,7 @@ add_submodule() {  # $1=url  $2=path
     # A partial clone of the one branch, as shell entry makes them
     # (lib/submodules-init.nix): every commit and folder, the files of the
     # checkout -- OCB with its commits alone, its folder history being
-    # enormous. Shell entry adds every other branch's commits.
+    # enormous. Shell entry adds every other branch the same way.
     local filter=blob:none
     [ "$path" != odoo ] || filter=tree:0
     git clone -q --filter="$filter" --single-branch --branch "$branch" -- "$url" "$path"
