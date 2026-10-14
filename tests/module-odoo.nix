@@ -14,6 +14,7 @@
 #     and odoo.service stays DOWN rather than serving v3 on v2's schema;
 #   - redeploying v2 recovers;
 #   - root's `odoo` (adminCli) runs as the service user, with its PATH;
+#   - nginx serves filestore attachments Odoo authorized (nginx.xSendfile);
 #   - logs: Odoo's records reach the journal with their syslog priority on
 #     every line (tracebacks too), no asctime/pid, and the journal fields.
 #
@@ -53,6 +54,7 @@ pkgs.testers.runNixOSTest {
         nginx = {
           enable = true;
           domain = "odoo.example.com";
+          xSendfile = true;
         };
       };
       # Provisioning installs base plus modules.txt (relative to the unit's
@@ -195,6 +197,36 @@ pkgs.testers.runNixOSTest {
         # binding its port. Piped, so the wrapper runs it with --pipe.
         out = machine.succeed("echo 'print(\"DBNAME\", env.cr.dbname)' | odoo shell acme")
         assert "DBNAME acme" in out, out
+
+    with subtest("nginx sends filestore attachments (x_sendfile)"):
+        def rpc(service, method, *args):
+            payload = json.dumps({"jsonrpc": "2.0", "method": "call",
+                                  "params": {"service": service, "method": method, "args": list(args)}})
+            res = json.loads(machine.succeed(
+                f"curl -sSf -H 'Content-Type: application/json' -d '{payload}' http://127.0.0.1:8069/jsonrpc"
+            ))
+            assert "result" in res, res
+            return res["result"]
+
+        uid = rpc("common", "login", "acme", "admin", "admin")
+        att_id = rpc("object", "execute_kw", "acme", uid, "admin", "ir.attachment", "create",
+                     [{"name": "hello.txt", "datas": "aGVsbG8gZnJvbSB0aGUgZmlsZXN0b3Jl", "public": True}])
+        [att] = rpc("object", "execute_kw", "acme", uid, "admin", "ir.attachment", "read",
+                    [[att_id], ["store_fname"]])
+        store_fname = att["store_fname"]
+        url = f"/web/content/{att_id}"
+        # Through nginx: the file itself.
+        body = machine.succeed(f"curl -sSf -H 'Host: odoo.example.com' http://localhost{url}")
+        assert body == "hello from the filestore", body
+        # Odoo itself only authorized it: an empty body and the redirect nginx followed.
+        headers = machine.succeed(f"curl -sSf -D - -o /tmp/direct http://127.0.0.1:8069{url}")
+        assert f"x-accel-redirect: /web/filestore/acme/{store_fname}" in headers.lower(), headers
+        assert machine.succeed("stat -c %s /tmp/direct").strip() == "0"
+        # The internal location is not reachable from outside.
+        machine.succeed(
+            "curl -sS -o /dev/null -w '%{http_code}' -H 'Host: odoo.example.com'"
+            f" http://localhost/web/filestore/acme/{store_fname} | grep -x 404"
+        )
 
     with subtest("a restart of the same build migrates nothing"):
         machine.succeed("systemctl restart odoo.service")

@@ -86,6 +86,8 @@ let
     proxy_set_header X-Forwarded-Server $hostname;
   '';
 
+  xSendfile = cfg.nginx.enable && cfg.nginx.xSendfile;
+
   # Base [options] (no secrets). addons_path is the assembled package's absolute
   # path; data_dir + the conf live under the stateful directory.
   baseOptions = {
@@ -102,6 +104,7 @@ let
     log_level = cfg.logging.level;
     log_db_level = cfg.logging.dbLevel;
   }
+  // lib.optionalAttrs xSendfile { x_sendfile = "True"; }
   # Socket auth means no db_host/db_port at all: absent keys fall back to
   # Odoo's defaults (the unix socket) on every series, where the old literal
   # "False" was coerced to a falsy bool by 18.0 and is skipped with a warning
@@ -629,6 +632,27 @@ in
           that 0750 and owned by the service user, which is the real gate.
         '';
       };
+      xSendfile = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Let nginx send filestore attachments instead of an Odoo worker.
+          Sets Odoo's `x_sendfile`: a download (`/web/content`, `/web/image`)
+          is still authorized by Odoo, which answers with an empty body and
+          `X-Accel-Redirect: /web/filestore/<db>/<path>`; nginx serves that
+          file from `<stateDir>/data/filestore` through an `internal`
+          location, keeping Odoo's own headers (Content-Type,
+          Content-Disposition, Content-Security-Policy, caching). A request
+          for `/web/filestore/` from outside is a 404.
+
+          nginx joins the service's group to read the filestore, which Odoo
+          creates group-readable; sessions and the runtime odoo.conf stay
+          private to the service user.
+
+          Off by default: with it on, anything that talks to Odoo's port
+          directly rather than through this nginx gets those empty bodies.
+        '';
+      };
     };
 
     extraEnv = mkOption {
@@ -722,8 +746,9 @@ in
           home = cfg.stateDir;
         };
       })
-      # nginx needs group membership to traverse the 0750 socket directory.
-      (mkIf (cfg.nginx.enable && nginxSocket) {
+      # nginx needs group membership to traverse the 0750 socket directory,
+      # and the 0750 state directory down to the filestore for x_sendfile.
+      (mkIf (cfg.nginx.enable && (nginxSocket || xSendfile)) {
         nginx.extraGroups = [ cfg.group ];
       })
     ];
@@ -1000,6 +1025,14 @@ in
             proxyWebsockets = true;
             recommendedProxySettings = !nginxSocket;
             extraConfig = socketProxyHeaders;
+          };
+          # Where Odoo's X-Accel-Redirect points (nginx.xSendfile). internal:
+          # reachable only through that header, never by a client's request.
+          "/web/filestore/" = mkIf xSendfile {
+            alias = "${cfg.stateDir}/data/filestore/";
+            extraConfig = ''
+              internal;
+            '';
           };
           "~* /web/static/" = {
             proxyPass = "http://odoo";
