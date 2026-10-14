@@ -191,6 +191,10 @@ pkgs.testers.runNixOSTest {
         machine.succeed("odoo db backup acme --format dump --path /var/lib/odoo/admin-backups")
         owners = machine.succeed("find /var/lib/odoo/admin-backups -name '*.dump' -printf '%u\\n'").split()
         assert owners and set(owners) == {"odoo"}, owners
+        # A shell beside the running multi-worker service: no second server
+        # binding its port. Piped, so the wrapper runs it with --pipe.
+        out = machine.succeed("echo 'print(\"DBNAME\", env.cr.dbname)' | odoo shell acme")
+        assert "DBNAME acme" in out, out
 
     with subtest("a restart of the same build migrates nothing"):
         machine.succeed("systemctl restart odoo.service")
