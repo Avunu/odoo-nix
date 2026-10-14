@@ -37,7 +37,7 @@ let
     ;
   cfg = config.services.odoo-nix;
 
-  dbName = cfg.dbName;
+  inherit (cfg) dbName;
   socketAuth = cfg.database.createLocally && cfg.database.passwordFile == null;
 
   # The journal-field contract shared with frappe-nix and wordpress-nix:
@@ -742,7 +742,7 @@ in
       (mkIf (cfg.user == "odoo") {
         odoo = {
           isSystemUser = true;
-          group = cfg.group;
+          inherit (cfg) group;
           home = cfg.stateDir;
         };
       })

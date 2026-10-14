@@ -43,7 +43,7 @@ let
   # The dev guard rails, as a project would bake them: only the test env gets
   # them (lib/python.nix); odooPythonEnv -- what builtOdoo runs -- must not.
   devguard = import ../lib/devguard.nix {
-    inherit pkgs lib;
+    inherit pkgs;
     settings.guards.mail.port = mailcatchPort;
   };
 
@@ -57,9 +57,7 @@ let
       devguard
       ;
     coreSource = ocb;
-    pyproject-nix = inputs.pyproject-nix;
-    pyproject-build-systems = inputs.pyproject-build-systems;
-    uv2nix = inputs.uv2nix;
+    inherit (inputs) pyproject-nix pyproject-build-systems uv2nix;
     # What modules/devenv.nix wires by default (builtinPythonLibraries,
     # builtinOverrides), so the fixture env is built the way a consumer's is.
     pythonLibraries = {
@@ -81,7 +79,7 @@ let
       ;
     odooSeries = series;
     coreSource = ocb;
-    odooPythonEnv = pythonEnvs.odooPythonEnv;
+    inherit (pythonEnvs) odooPythonEnv;
   };
 
   # The `odoo` CLI, production-shaped (no workspace scripts -- this fixture
@@ -90,7 +88,7 @@ let
     name: tree:
     import ../lib/cli.nix {
       inherit pkgs lib name;
-      python = python;
+      inherit python;
       rawOdooBin = "${tree}/bin/odoo";
       mirrorTree = tree;
       targetPythonEnv = pythonEnvs.odooPythonEnv;
@@ -164,7 +162,7 @@ let
         projectName = "${projectName}-${version}";
         odooSeries = series;
         coreSource = ocb;
-        odooPythonEnv = pythonEnvs.odooPythonEnv;
+        inherit (pythonEnvs) odooPythonEnv;
       };
     in
     {

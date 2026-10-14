@@ -63,7 +63,7 @@
 
 let
   cliPython = import ./rich-python.nix {
-    inherit pkgs python;
+    inherit python;
     extraPackages = ps: [ ps.click ];
   };
 

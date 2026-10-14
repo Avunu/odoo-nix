@@ -14,7 +14,7 @@ let
 in
 {
   options.perSystem = mkPerSystemOption (
-    { config, pkgs, ... }:
+    { pkgs, ... }:
     {
       imports = [
         (lib.mkRenamedOptionModule
@@ -677,7 +677,7 @@ in
         # shell's environment can re-point or disable a guard for one command.
         dg = cfg.devguard;
         devguardPkg = import ../lib/devguard.nix {
-          inherit pkgs lib;
+          inherit pkgs;
           settings = {
             enabled = dg.enable;
             guards = {
@@ -711,9 +711,7 @@ in
             coreSource
             ;
           devguard = if dg.enable then devguardPkg else null;
-          pyproject-nix = inputs.pyproject-nix;
-          pyproject-build-systems = inputs.pyproject-build-systems;
-          uv2nix = inputs.uv2nix;
+          inherit (inputs) pyproject-nix pyproject-build-systems uv2nix;
           pythonLibraries = builtinPythonLibraries // cfg.pythonLibraries;
           extraOverrides = lib.composeManyExtensions [
             builtinOverrides
@@ -747,7 +745,7 @@ in
         confSynth = import ../lib/odoo-conf.nix {
           inherit pkgs lib;
           inherit (cfg) odooConf;
-          addonsPath = addons.addonsPath;
+          inherit (addons) addonsPath;
           # Setting the key at all replaces Odoo's own default, so the
           # series' full default set has to be reproduced: 19.0 added `rpc`
           # (DEFAULT_SERVER_WIDE_MODULES = base,rpc,web) and would otherwise
@@ -807,7 +805,7 @@ in
             odooSeries
             coreSource
             ;
-          odooPythonEnv = pythonEnvs.odooPythonEnv;
+          inherit (pythonEnvs) odooPythonEnv;
         };
 
         # The `odoo` CLI: db/module/project subcommands + odoo-bin passthrough
@@ -858,7 +856,6 @@ in
         dbNocow = import ../lib/db-nocow.nix { inherit pkgs; };
 
         richPython = import ../lib/rich-python.nix {
-          inherit pkgs;
           inherit (cfg) python;
         };
 

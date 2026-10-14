@@ -116,7 +116,7 @@ let
   # nixpkgs. A series whose setup.py already declares it (19.0+) is left
   # alone: `prev` already carries the uv-resolved attribute there.
   lxmlHtmlCleanOverlay =
-    final: prev:
+    _final: prev:
     lib.optionalAttrs (!(prev ? lxml_html_clean)) (
       let
         base = python.pkgs.lxml-html-clean;

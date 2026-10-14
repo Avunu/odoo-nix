@@ -118,6 +118,15 @@
       # broke, and a slow Odoo run cannot mask a fast check. `script` runs in
       # checkPhase so hooks that attach to preCheck -- postgresqlTestHook --
       # work. HOME and CWD are the build directory.
+      # The repo's own Nix files, for `nix fmt` and checks.nix-lint alike:
+      # everything but templates/ (@PLACEHOLDERS@, not Nix that parses) and
+      # tests/fixtures/ (stand-ins for consumer projects).
+      nixFiles = pkgs: ''
+        ${pkgs.findutils}/bin/find . \( -path ./templates -o -path ./tests/fixtures -o -path ./.git \
+          -o -path ./.direnv -o -path ./.devenv -o -name result -o -name 'result-*' \) -prune \
+          -o -name '*.nix' -type f -print0
+      '';
+
       mkCheck =
         pkgs: name:
         {
@@ -187,7 +196,7 @@
           {
             inputs ? { },
             ...
-          }@consumerArgs:
+          }:
           config:
           flake-parts.lib.mkFlake {
             inputs = self.inputs // inputs;
@@ -208,6 +217,7 @@
       #   journald-formatter                                  the CLI's journald output (all systems)
       #   submodules-init                                     shell entry's submodule checkout (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
+      #   nix-lint                                            nixfmt, statix, deadnix (all systems)
       #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
       #   eval-*-<major>, lock-fresh-<major>                  per-series, no Odoo run (all systems)
       #   builtOdoo-<major>, odoo-init-<major>, odoo-test-<major>,
@@ -286,7 +296,7 @@
           devguard-baked =
             let
               pkg = import ./lib/devguard.nix {
-                inherit pkgs lib;
+                inherit pkgs;
                 settings.guards = {
                   mail.port = 2525;
                   egress.allow_hosts = [ "api.example.com" ];
@@ -308,6 +318,27 @@
           remote-store = mkCheck pkgs "remote-store" { } ''
             ${pkgs.python3}/bin/python3 ${./tests/test_remote.py} ${./lib}
           '';
+
+          # nixfmt (what `nix fmt` writes), statix (statix.toml) and deadnix,
+          # over the files `nix fmt` covers.
+          nix-lint =
+            mkCheck pkgs "nix-lint"
+              {
+                nativeCheckInputs = [
+                  pkgs.deadnix
+                  pkgs.nixfmt
+                  pkgs.statix
+                ];
+              }
+              ''
+                cp -r ${./.} src
+                chmod -R u+w src
+                cd src
+                { ${nixFiles pkgs} } > ../nix-files
+                xargs -0 nixfmt --check < ../nix-files
+                statix check --format errfmt --ignore 'tests/fixtures/*' --ignore 'templates/*' .
+                xargs -0 deadnix --fail < ../nix-files
+              '';
 
           submodules-init =
             mkCheck pkgs "submodules-init"
@@ -399,6 +430,15 @@
         }
       );
 
+      # `nix fmt`: the given files, or every file checks.nix-lint covers.
+      formatter = forAllSystems (
+        pkgs:
+        pkgs.writeShellScriptBin "odoo-nix-fmt" ''
+          if [ "$#" -gt 0 ]; then exec ${pkgs.lib.getExe pkgs.nixfmt} "$@"; fi
+          { ${nixFiles pkgs} } | ${pkgs.findutils}/bin/xargs -0 ${pkgs.lib.getExe pkgs.nixfmt}
+        ''
+      );
+
       # For working on odoo-nix itself (consumers get devenv shells from the
       # flake-parts module). uv here is the same nixpkgs uv the scripts use, so
       # the lock revision it writes is the one the pinned uv2nix reads.
@@ -407,6 +447,8 @@
           packages = [
             pkgs.uv
             pkgs.nixfmt
+            pkgs.statix
+            pkgs.deadnix
             pkgs.python3
             pkgs.jq
             (relock pkgs)
@@ -417,6 +459,7 @@
             echo "odoo-nix dev shell: ocb-18 -> $OCB_18"
             echo "                    ocb-19 -> $OCB_19"
             echo "  nix flake check -L        run everything (needs KVM for module-*)"
+            echo "  nix fmt                   format the Nix files (checks.nix-lint enforces it)"
             echo "  odoo-nix-relock           re-lock tests/fixtures/*/uv.lock"
           '';
         };
