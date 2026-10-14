@@ -207,6 +207,7 @@
       #   eval-addons-*, eval-odoo-conf-*, odoo-conf-render   pure library tests (all systems)
       #   journald-formatter                                  the CLI's journald output (all systems)
       #   submodules-init                                     shell entry's submodule checkout (all systems)
+      #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
       #   eval-*-<major>, lock-fresh-<major>                  per-series, no Odoo run (all systems)
       #   builtOdoo-<major>, odoo-init-<major>, odoo-test-<major>,
@@ -320,6 +321,17 @@
                 bash ${./tests/submodules-init.sh} \
                   ${import ./lib/submodules-init.nix { inherit pkgs; }}/bin/odoo-nix-submodules-init
               '';
+        }
+        // lib.optionalAttrs isLinux {
+          # The dev datadir's btrfs NOCOW attribute: arranged for a datadir
+          # initdb has yet to create, reported on one holding a cluster, and
+          # the one-off copy that fixes that. Branches on the sandbox's own
+          # filesystem, so it checks the real attribute on a btrfs builder and
+          # the no-op path everywhere else (TMPDIR=<btrfs dir> to run the
+          # former by hand).
+          db-nocow = mkCheck pkgs "db-nocow" { nativeCheckInputs = [ pkgs.e2fsprogs ]; } ''
+            bash ${./tests/db-nocow.sh} ${import ./lib/db-nocow.nix { inherit pkgs; }}/bin/odoo-nix-db-nocow
+          '';
         }
         // perSeries
         // lib.optionalAttrs isLinux (
