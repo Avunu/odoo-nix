@@ -180,7 +180,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 -   **odoo** — `odoo-bin -c odoo.conf --dev=all` (threaded; serves HTTP + websockets),
 -   **mailpit** — SMTP sink + web UI.
 
-On shell entry it checks out the git submodules a fresh clone has never had (once: one you later remove or deinitialize stays out until `odoo project update`) as partial clones — the pinned branch with every commit and folder but only the checkout's files (OCB: commits only), every other branch as commits, so `git switch` works and downloads what it needs — and brings any shallow or single-branch submodule to the same shape in place, once; it also symlinks the synthesized `odoo.conf` into place, ensures the filestore + `custom/` directories exist, and refreshes the editor integration below.
+On shell entry it checks out the git submodules a fresh clone has never had (once: one you later remove or deinitialize stays out until `odoo project update`) as partial clones — every branch with every commit and folder but only the checkout's files (OCB: commits only), so `git switch` works and downloads what it needs — and brings any shallow or single-branch submodule to the same shape in place, once. On every entry it also keeps those clones from growing: it fetches a submodule's newly pinned commit the ordinary way before `git submodule update` can lazily re-download its whole history, merges the packs that lazy fetches leave behind, and stops fetches recursing into nested submodules; it also symlinks the synthesized `odoo.conf` into place, ensures the filestore + `custom/` directories exist, and refreshes the editor integration below.
 
 ### Live code reload
 
