@@ -12,15 +12,7 @@
 #   /var/lib/odoo/data   persistent filestore
 #   /secrets/db_password, /secrets/admin_passwd, /secrets/*.conf   secrets
 # PostgreSQL is external.
-{
-  lib,
-  flake-parts-lib,
-  ...
-}:
-let
-  inherit (flake-parts-lib) mkPerSystemOption;
-in
-{
+_: {
   # Options live in ./devenv.nix (odoo-nix.containers.*). This module only adds
   # config, gated on enable + containers.enable.
   config.perSystem =

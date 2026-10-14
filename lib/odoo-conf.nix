@@ -46,57 +46,56 @@ let
   # empty value meant all along.
   unset = v: v == null || v == "" || v == "False";
 
-  optionsBlock =
-    {
-      # --- database connection ---
-      db_port = toString odooConf.dbPort;
-      db_user = odooConf.dbUser;
-    }
-    // lib.optionalAttrs (!unset odooConf.dbHost) {
-      db_host = odooConf.dbHost;
-    }
-    // lib.optionalAttrs (!unset odooConf.dbPassword) {
-      db_password = odooConf.dbPassword;
-    }
-    // lib.optionalAttrs (odooConf.dbName != null) {
-      db_name = odooConf.dbName;
-    }
-    // {
-      # --- storage + the synthesized addons routing ---
-      data_dir = odooConf.dataDir;
-      addons_path = addonsPath;
+  optionsBlock = {
+    # --- database connection ---
+    db_port = toString odooConf.dbPort;
+    db_user = odooConf.dbUser;
+  }
+  // lib.optionalAttrs (!unset odooConf.dbHost) {
+    db_host = odooConf.dbHost;
+  }
+  // lib.optionalAttrs (!unset odooConf.dbPassword) {
+    db_password = odooConf.dbPassword;
+  }
+  // lib.optionalAttrs (odooConf.dbName != null) {
+    db_name = odooConf.dbName;
+  }
+  // {
+    # --- storage + the synthesized addons routing ---
+    data_dir = odooConf.dataDir;
+    addons_path = addonsPath;
 
-      # --- runtime ---
-      admin_passwd = odooConf.adminPasswd;
-      http_interface = odooConf.httpInterface;
-      http_port = toString odooConf.httpPort;
-      gevent_port = toString odooConf.geventPort;
-      workers = toString odooConf.workers;
-      log_level = odooConf.logging.level;
-      log_db_level = odooConf.logging.dbLevel;
-      server_wide_modules = lib.concatStringsSep "," serverWideModules;
-    }
-    # log_db is a database *name*; "%d" is Odoo's own spelling for "the
-    # current request's database" (netsvc.PostgreSQLHandler), so that is what
-    # `true` renders as. Absent when off: 18.0's default is False, 19.0's is
-    # "" and would warn about a literal False.
-    // lib.optionalAttrs (odooConf.logging.db != false) {
-      log_db = if odooConf.logging.db == true then "%d" else odooConf.logging.db;
-    }
-    // lib.optionalAttrs (odooConf.logging.handlers != [ ]) {
-      log_handler = lib.concatStringsSep "," odooConf.logging.handlers;
-    }
-    // lib.optionalAttrs (odooConf.logging.file != null) {
-      logfile = odooConf.logging.file;
-    }
-    # "True", not "all": 18.0 only ever tests the option's truthiness, and
-    # 19.0 turned it into a boolean that warns about anything else.
-    // lib.optionalAttrs odooConf.withoutDemo {
-      without_demo = "True";
-    }
-    # Escape hatch: arbitrary extra [options] keys win last. Values stringified
-    # so callers may pass ints/bools.
-    // toIniSection odooConf.extra;
+    # --- runtime ---
+    admin_passwd = odooConf.adminPasswd;
+    http_interface = odooConf.httpInterface;
+    http_port = toString odooConf.httpPort;
+    gevent_port = toString odooConf.geventPort;
+    workers = toString odooConf.workers;
+    log_level = odooConf.logging.level;
+    log_db_level = odooConf.logging.dbLevel;
+    server_wide_modules = lib.concatStringsSep "," serverWideModules;
+  }
+  # log_db is a database *name*; "%d" is Odoo's own spelling for "the
+  # current request's database" (netsvc.PostgreSQLHandler), so that is what
+  # `true` renders as. Absent when off: 18.0's default is False, 19.0's is
+  # "" and would warn about a literal False.
+  // lib.optionalAttrs (odooConf.logging.db != false) {
+    log_db = if odooConf.logging.db == true then "%d" else odooConf.logging.db;
+  }
+  // lib.optionalAttrs (odooConf.logging.handlers != [ ]) {
+    log_handler = lib.concatStringsSep "," odooConf.logging.handlers;
+  }
+  // lib.optionalAttrs (odooConf.logging.file != null) {
+    logfile = odooConf.logging.file;
+  }
+  # "True", not "all": 18.0 only ever tests the option's truthiness, and
+  # 19.0 turned it into a boolean that warns about anything else.
+  // lib.optionalAttrs odooConf.withoutDemo {
+    without_demo = "True";
+  }
+  # Escape hatch: arbitrary extra [options] keys win last. Values stringified
+  # so callers may pass ints/bools.
+  // toIniSection odooConf.extra;
 
   odooConfFile = ini.generate "odoo.conf" (
     {

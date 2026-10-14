@@ -43,8 +43,7 @@ let
     dir:
     pathExists dir
     && lib.any (
-      child:
-      (readDir dir).${child} == "directory" && pathExists (dir + "/${child}/__manifest__.py")
+      child: (readDir dir).${child} == "directory" && pathExists (dir + "/${child}/__manifest__.py")
     ) (attrNames (readDir dir));
 
   externalRoot = workspaceRoot + "/${layout.externalDir}";
@@ -55,8 +54,7 @@ let
     if pathExists externalRoot then
       lib.sort (a: b: a < b) (
         lib.filter (
-          name:
-          (readDir externalRoot).${name} == "directory" && hasModule (externalRoot + "/${name}")
+          name: (readDir externalRoot).${name} == "directory" && hasModule (externalRoot + "/${name}")
         ) (attrNames (readDir externalRoot))
       )
     else

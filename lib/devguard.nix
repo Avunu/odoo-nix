@@ -7,10 +7,9 @@
 # production is the property that matters. tests/ checks it
 # (checks.devguard-not-in-prod).
 #
-#   import ./lib/devguard.nix { inherit pkgs lib; settings = { ... }; }
+#   import ./lib/devguard.nix { inherit pkgs; settings = { ... }; }
 {
   pkgs,
-  lib,
   # Merged over the package defaults at run time (odoo_devguard/_settings.py);
   # `ODOO_DEVGUARD_*` environment variables win over it.
   settings ? { },
