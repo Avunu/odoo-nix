@@ -1,0 +1,7 @@
+# Commits `git blame` skips: formatting-only, or near enough. GitHub's blame
+# view reads this file by itself; locally, once per clone:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# chore: nix fmt, and a nix-lint check (#43) -- the first `nix fmt` over the
+# repo, squashed with statix's `inherit` rewrites and deadnix's unused names.
+0c475f5a4c33d8d04483c193120f08f56155ea03
