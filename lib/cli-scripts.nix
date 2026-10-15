@@ -128,7 +128,7 @@ let
             if git ls-remote --heads "$url" "${odooSeries}" 2>/dev/null | grep -q .; then
               # A partial clone of the one branch, as shell entry makes them
               # (lib/submodules-init.nix): every commit and folder, the files
-              # of the checkout. Shell entry adds every other branch the same way.
+              # of the checkout.
               git clone -q --filter=blob:none --single-branch --branch "${odooSeries}" -- "$url" "$path"
               git submodule add -q --force -b "${odooSeries}" -- "$url" "$path"
               git config -f .gitmodules "submodule.$path.shallow" true
@@ -354,7 +354,7 @@ let
     # both.
     #
     # How much of it to fetch follows how the submodule was cloned. A partial
-    # clone (lib/submodules-init.nix) keeps every branch with every commit's
+    # clone (lib/submodules-init.nix) keeps its branch with every commit's
     # folders -- OCB (${layout.coreSrc}) with its commits only -- so ask for
     # the folders, except for OCB. --depth 1 would turn it into a shallow
     # clone again, so that is only for one still shallow. Never recursing into

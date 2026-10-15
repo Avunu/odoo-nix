@@ -20,19 +20,33 @@
 # *default* branch at depth 1 and then fetches the pinned commit — usually on
 # another branch (an OCA repo's default is the newest series) — with no depth
 # at all, so it is slow and still leaves the clone following one branch that
-# is not even the project's. Instead:
+# is not even the project's. Instead, the branch .gitmodules pairs the
+# submodule with, and only that branch, is cloned with its whole history of
+# commits and folders but no file contents (--filter=blob:none): `git log`,
+# `git log -- <file>` and merge-bases work offline, and a checkout downloads
+# only the files it needs. OCB (--core) is the exception: its folder history
+# alone is enormous, so its branch comes as commits only, folders and files
+# downloaded as needed.
 #
-#   - the branch .gitmodules pairs the submodule with is cloned with its whole
-#     history of commits and folders, but no file contents
-#     (--filter=blob:none): `git log`, `git log -- <file>` and merge-bases work
-#     offline, and a checkout downloads only the files it needs. OCB (--core)
-#     is the exception: its folder history alone is enormous, so its branch
-#     comes as commits only too, folders and files downloaded as needed;
-#   - every other branch is fetched the same way (OCB's as commits only), so
-#     `git switch <any branch>` works and downloads only the files it needs.
+# Only that branch, because the rest is most of the download. An OCA repo's
+# other branches are a dozen series of history, several times its checkout
+# (OCA/server-tools: 2 MB for 18.0's history, 5 MB of files, 15 MB for the
+# other branches), and OCB's are 63 MB as commits alone; times twenty-odd
+# submodules, that was the larger part of a first entry, for a `git switch`
+# to another series hardly anyone makes in a project's submodule. One that
+# does fetches the branch first:
 #
-# Not commits-only (tree:0) for an OCA repo's other branches, which is what
-# this once did. A treeless clone has no folders for any commit, so everything
+#   git remote set-branches --add origin 17.0 && git fetch origin && git switch 17.0
+#
+# Not a sparse checkout, either, though OCB's translations (*/i18n/*.po) are
+# three quarters of its files and half of what its checkout downloads. Nix
+# copies a submodule from the working tree, and leaves out, without a word,
+# a file sparse-checkout left out: an Odoo built from such a clone (`nix
+# build`, `nixos-rebuild --flake .`) would ship without its translations.
+#
+# Not commits-only (tree:0) for an OCA repo's branch, which is what this once
+# did for its other branches. A treeless clone has no folders for any commit,
+# so everything
 # that walks history — `git log -p` or `git log -- <path>` in an editor's
 # history view, `git blame`, `git diff` across a range — fetches them one
 # commit at a time, each as a pack of its own with the folders the last one
@@ -62,9 +76,11 @@
 # treeless clone each of those trees is a lazy fetch from the remote: one
 # round trip per commit on any other branch.
 #
-# A submodule already checked out shallow, or following a single branch —
-# every clone made before this — is brought to the same shape in place, once:
-# the checkout does not move, only history is fetched. See needs_history. An
+# A submodule already checked out shallow — what `shallow = true`, the
+# scaffolder and an earlier `odoo module add` made — is given its paired
+# branch's history in place, once: the checkout does not move, only history is
+# fetched. See needs_history. One an earlier odoo-nix gave every branch keeps
+# them. An
 # OCA clone an earlier odoo-nix made treeless keeps the commits it has without
 # their folders, and gets folders for the ones it fetches from now on (see
 # stop_treeless); `git fetch --refetch` in it fills in the rest, at the price
@@ -135,21 +151,6 @@ pkgs.writeShellApplication {
     no_submodule_fetch() { # <path>
       git -C "$1" config --local --get fetch.recurseSubmodules > /dev/null 2>&1 \
         || git -C "$1" config fetch.recurseSubmodules false
-    }
-
-    # Every branch, as the paired one is kept (filter_of), from here on. The
-    # refspec goes into the config only once the fetch has worked, so a clone
-    # the fetch failed on still reads as needing it (see needs_history) and
-    # the next entry retries.
-    track_all_branches() { # <path>
-      local filter args
-      filter="$(filter_of "$1")"
-      args=(--filter="$filter" --no-recurse-submodules)
-      if is_shallow "$1"; then args+=(--unshallow); fi
-      git -C "$1" fetch -q "''${args[@]}" origin '+refs/heads/*:refs/remotes/origin/*' < /dev/null || return 1
-      git -C "$1" config --replace-all remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
-      git -C "$1" config remote.origin.partialclonefilter "$filter"
-      no_submodule_fetch "$1"
     }
 
     is_partial() { # <path>
@@ -233,7 +234,7 @@ pkgs.writeShellApplication {
       # `submodule update` asks the clone for it before it fetches anything.
       prefetch_pin "$1"
       git submodule update --force --recursive -- "$1" < /dev/null || return 1
-      track_all_branches "$1" || echo "odoo-nix: $1 is checked out, but its other branches could not be fetched; the next shell entry tries again" >&2
+      no_submodule_fetch "$1"
     }
 
     # Put things back as they were before first_checkout — which, since it only
@@ -253,33 +254,32 @@ pkgs.writeShellApplication {
       [ -n "$3" ] || git config --unset "submodule.$2.active" || true
     }
 
-    # A checked-out submodule that is shallow, or follows one branch of origin:
-    # what `shallow = true`, `odoo module add` and the scaffolder made of every
-    # submodule until the first entry cloned them as above. One with no origin,
-    # or whose origin already fetches every branch (a full clone), is left as
-    # it is.
+    # A checked-out submodule that is shallow: what `shallow = true`, `odoo
+    # module add` and the scaffolder made of every submodule until the first
+    # entry cloned them as above. A clone that is not, partial or full, has
+    # its history already and is left as it is.
     needs_history() { # <path>
-      local specs
-      is_shallow "$1" && return 0
-      specs="$(git -C "$1" config --get-all remote.origin.fetch 2>/dev/null || true)"
-      [ -n "$specs" ] || return 1
-      [[ "$specs" != *'refs/heads/*:'* ]]
+      is_shallow "$1"
     }
 
     # needs_history's submodule, in place, to first_checkout's shape: the
-    # paired branch's history, and every other branch's the same way. HEAD,
-    # the checkout and any local branch stay exactly where they are; this only
-    # fetches.
+    # paired branch's history, followed from here on alongside whatever branch
+    # the clone already followed (git's shallow clone takes the remote's
+    # default). HEAD, the checkout and any local branch stay exactly where
+    # they are; this only fetches. A fetch that fails leaves the clone
+    # shallow, so the next entry tries again.
     add_history() { # <path> <name>
-      local branch args=()
+      local branch filter specs refspecs=()
       branch="$(branch_of "$2")"
-      if [ -n "$branch" ]; then
-        if is_shallow "$1"; then args+=(--unshallow); fi
-        git -C "$1" fetch -q "''${args[@]}" --filter="$(filter_of "$1")" --no-recurse-submodules origin \
-          "+refs/heads/$branch:refs/remotes/origin/$branch" < /dev/null \
-          || echo "odoo-nix: could not fetch $1's '$branch' history -- fetching every branch's history instead" >&2
+      filter="$(filter_of "$1")"
+      if [ -n "$branch" ]; then refspecs=("+refs/heads/$branch:refs/remotes/origin/$branch"); fi
+      git -C "$1" fetch -q --unshallow --filter="$filter" --no-recurse-submodules origin "''${refspecs[@]}" < /dev/null || return 1
+      specs="$(git -C "$1" config --get-all remote.origin.fetch || true)"
+      if [ -n "$branch" ] && [[ $'\n'"$specs"$'\n' != *$'\n'"''${refspecs[0]}"$'\n'* ]]; then
+        git -C "$1" config --add remote.origin.fetch "''${refspecs[0]}"
       fi
-      track_all_branches "$1"
+      git -C "$1" config remote.origin.partialclonefilter "$filter"
+      no_submodule_fetch "$1"
     }
 
     names=()
@@ -332,8 +332,8 @@ pkgs.writeShellApplication {
         tidy_packs "''${paths[$i]}"
       fi
       needs_history "''${paths[$i]}" || continue
-      echo "odoo-nix: ''${paths[$i]} is a shallow or single-branch clone -- fetching its branch's history" >&2
-      echo "  (no file contents) and every branch's, once. This can take a while." >&2
+      echo "odoo-nix: ''${paths[$i]} is a shallow clone -- fetching its branch's history (no file" >&2
+      echo "  contents), once. This can take a while." >&2
       add_history "''${paths[$i]}" "''${names[$i]}" \
         || echo "odoo-nix: could not fetch ''${paths[$i]}'s history -- the next shell entry tries again" >&2
     done
