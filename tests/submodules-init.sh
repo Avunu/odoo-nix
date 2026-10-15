@@ -53,18 +53,20 @@ has_obj() { # <repo> <object>
   GIT_NO_LAZY_FETCH=1 git -C "$1" cat-file -e "$2" 2> /dev/null
 }
 
-# The shape the first entry gives a clone: partial, not shallow, every branch
-# of origin fetched, folders but no file contents from here on (OCB: commits
-# only), and no recursing into nested submodules on fetch.
-partial_all_branches() { # <path>
+# The shape the first entry gives a clone: partial, not shallow, the paired
+# branch (main) of origin followed and no other, folders but no file contents
+# from here on (OCB: commits only), and no recursing into nested submodules on
+# fetch.
+partial_one_branch() { # <path>
   local filter=blob:none
   [ "$1" != odoo ] || filter=tree:0
   [ "$(git -C "$1" config remote.origin.promisor)" = true ] \
     && [ "$(git -C "$1" rev-parse --is-shallow-repository)" = false ] \
-    && [ "$(git -C "$1" config --get-all remote.origin.fetch)" = '+refs/heads/*:refs/remotes/origin/*' ] \
+    && [ "$(git -C "$1" config --get-all remote.origin.fetch)" = '+refs/heads/main:refs/remotes/origin/main' ] \
     && [ "$(git -C "$1" config remote.origin.partialclonefilter)" = "$filter" ] \
     && [ "$(git -C "$1" config fetch.recurseSubmodules)" = false ] \
-    && git -C "$1" rev-parse -q --verify refs/remotes/origin/other > /dev/null
+    && git -C "$1" rev-parse -q --verify refs/remotes/origin/main > /dev/null \
+    && ! git -C "$1" rev-parse -q --verify refs/remotes/origin/other > /dev/null
 }
 
 # Everything git knows about the project and its submodules, and the file tree.
@@ -172,20 +174,24 @@ run
 check_eq "exits 0" 0 "$RC"
 for p in odoo modules/present modules/fresh modules/inplace; do
   check "checks out $p at its pinned commit" at_pin "$p"
-  check "…as a partial clone of every branch" partial_all_branches "$p"
+  check "…as a partial clone of its branch alone" partial_one_branch "$p"
 done
 # origin/main is a commit past the pin, so nothing of it was checked out.
 check "the paired branch has its folders past the checkout…" has_obj modules/present 'origin/main^{tree}'
 check_not "…but not their file contents" has_obj modules/present 'origin/main:main/log.txt'
 check_not "…except OCB's, whose branch comes as commits only" has_obj odoo 'origin/main^{tree}'
-# Not commits only (tree:0): a clone without folders fetches them one commit at
-# a time, in a pack apiece, for anything that walks history.
-check "another branch has its folders too…" has_obj modules/present 'origin/other^{tree}'
+# Another branch is most of what an OCA repo's history weighs, and is fetched
+# when it is wanted, the way the header says.
+check_not "another branch is not fetched" has_obj modules/present "$(git -C "$ROOT/remotes/present.git" rev-parse other)"
+check "…until asked for" sh -c 'git -C modules/present remote set-branches --add origin other && git -C modules/present fetch -q origin'
+check "…with its folders…" has_obj modules/present 'origin/other^{tree}'
 check_not "…but not their file contents" has_obj modules/present 'origin/other:other/log.txt'
-check_not "…except OCB's, commits only there too" has_obj odoo 'origin/other^{tree}'
 check "and switching to it downloads what it needs" git -C modules/present switch -q other
 check "…files and all" test -f modules/present/other/log.txt
 git -C modules/present switch -q --detach "$(git ls-files -s -- modules/present | awk '{ print $2 }')"
+git -C modules/present config --replace-all remote.origin.fetch '+refs/heads/main:refs/remotes/origin/main'
+git -C modules/present branch -q -D other
+git -C modules/present update-ref -d refs/remotes/origin/other
 check "…past a gitlink with no .gitmodules entry" empty modules/stray
 check "says so" says "Initializing git submodule odoo (first shell entry in this clone)"
 check "names a submodule whose directory is in the way" says "modules/taken is not checked out, but its directory is not empty"
@@ -231,12 +237,12 @@ check "(they start out shallow)" test "$(git -C modules/inplace rev-parse --is-s
 run
 check_eq "exits 0" 0 "$RC"
 for p in odoo modules/present modules/fresh modules/taken modules/inplace; do
-  check "$p becomes a partial clone of every branch" partial_all_branches "$p"
+  check "$p becomes a partial clone of its branch" partial_one_branch "$p"
   check_eq "…its checkout where it was" "${head_before[$p]}" "$(git -C "$p" rev-parse HEAD)"
 done
 check_eq "a local commit is kept, and the worktree left clean" "" "$(git -C modules/present status --porcelain)"
 check "the paired branch gains its folders" has_obj modules/fresh 'origin/main~2^{tree}'
-check "says what it is fetching" says "modules/fresh is a shallow or single-branch clone"
+check "says what it is fetching" says "modules/fresh is a shallow clone"
 before="$(snapshot)"
 run
 after="$(snapshot)"
@@ -277,14 +283,14 @@ git clone -q "$ROOT/nestproject" "$ROOT/nestclone"
 cd "$ROOT/nestclone"
 run
 check_eq "exits 0" 0 "$RC"
-check "checks it out as a partial clone of every branch" partial_all_branches modules/nested
+check "checks it out as a partial clone of its branch" partial_one_branch modules/nested
 # A clone an earlier odoo-nix made: commits without their folders, which is
 # where the on-demand check is a lazy fetch per commit.
 git -C modules/nested config remote.origin.partialclonefilter tree:0
-commit_to nested other "other 3"
+commit_to nested main "main 3"
 git -C modules/nested fetch -q
 check_not "…so a plain git fetch in a clone made treeless does not fetch folders to look for submodule changes" \
-  has_obj modules/nested 'origin/other^{tree}'
+  has_obj modules/nested 'origin/main^{tree}'
 # A clone converted before the setting existed.
 git -C modules/nested config --unset fetch.recurseSubmodules || true
 run
@@ -388,7 +394,7 @@ echo "── a partial clone with many packs ───────────�
 # fetch starts does not merge them in a partial clone.
 cd "$ROOT/pinclone"
 for i in 1 2 3 4 5 6 7; do
-  commit_to pins other "other 4$i"
+  commit_to pins main "main 4$i"
   git -C modules/pins fetch -q
 done
 packs() { find "$GD/objects/pack" -name '*.pack' | wc -l | tr -d ' '; }
