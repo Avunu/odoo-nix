@@ -171,7 +171,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | restore.attachments | "none" | `"mirror"` also downloads object-store attachments (`fs_attachment`); either way the restored copy's remote `fs.storage` records are pointed at local disk |
 | restore.neutralize | true | neutralize databases restored from the remote store |
 | extraDevPackages / extraLibraryPaths / extraScripts / extraEnv | [] / [] / {} / {} | dev-shell extras |
-| containers.enable / containers.registry | false / "" | build the OCI image |
+| containers.enable / containers.registry | false / "" | build the OCI image; a non-empty registry prefixes its name (`ghcr.io/avunu` → `ghcr.io/avunu/<projectName>-odoo`) |
 
 ## Development shell
 
@@ -549,7 +549,7 @@ PostGIS (OCA `base_geoengine`): `database.extensions = ps: [ ps.postgis ];` buil
 
 ## Production — OCI containers
 
-Set `odoo-nix.containers.enable = true` to get `packages.<sys>.container-odoo`, an all-in-one image (`dockerTools.buildLayeredImage`) running `odoo-bin` with HTTP workers + gevent + cron. The entrypoint synthesizes `/etc/odoo/odoo.conf` from env-var defaults and merges secrets from mounted files:
+Set `odoo-nix.containers.enable = true` to get `packages.<sys>.container-odoo`, an all-in-one image (`dockerTools.buildLayeredImage`) running `odoo-bin` with HTTP workers + gevent + cron, named `<projectName>-odoo:latest`, or `<registry>/<projectName>-odoo:latest` with `containers.registry` set (a trailing slash is dropped). The entrypoint synthesizes `/etc/odoo/odoo.conf` from env-var defaults and merges secrets from mounted files:
 
 -   `/var/lib/odoo/data` — persistent filestore (volume),
 -   `/secrets/db_password`, `/secrets/admin_passwd`, `/secrets/*.conf` — secrets,

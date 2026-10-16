@@ -28,6 +28,12 @@ _: {
 
       inherit (import ../lib/env.nix) blasThreadCaps;
 
+      # containers.registry prefixes the image name: "ghcr.io/avunu" (or
+      # "ghcr.io/avunu/") names it ghcr.io/avunu/<name>; "" leaves it bare.
+      # The same rule as frappe-nix's modules/containers.nix.
+      registry = lib.removeSuffix "/" cfg.containers.registry;
+      imageName = name: if registry == "" then name else "${registry}/${name}";
+
       runtimeDeps = with pkgs; [
         bashInteractive
         coreutils
@@ -99,7 +105,7 @@ _: {
       '';
 
       odooImage = pkgs.dockerTools.buildLayeredImage {
-        name = "${cfg.registry or ""}${cfg.projectName}-odoo";
+        name = imageName "${cfg.projectName}-odoo";
         tag = "latest";
         contents = [ odooPkg ] ++ runtimeDeps;
         config = {

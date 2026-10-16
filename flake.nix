@@ -219,6 +219,7 @@
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint                                            nixfmt, statix, deadnix (all systems)
       #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
+      #   eval-container-name*                                the OCI image's name (Linux only)
       #   eval-*-<major>, lock-fresh-<major>                  per-series, no Odoo run (all systems)
       #   builtOdoo-<major>, odoo-init-<major>, odoo-test-<major>,
       #   module-odoo-<major>, module-nginx                   run Odoo / a VM (Linux only)
@@ -370,6 +371,14 @@
             import ./tests/module-eval.nix {
               inherit pkgs;
               odooModule = ./modules/nixos.nix;
+            }
+          )
+        )
+        // lib.optionalAttrs isLinux (
+          evalChecks "" (
+            import ./tests/containers-eval.nix {
+              inherit pkgs inputs;
+              inherit (self.lib) mkFlake;
             }
           )
         )
