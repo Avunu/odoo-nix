@@ -670,11 +670,16 @@ def _require_devguard() -> None:
     too. A per-command disable is scoped to that command and is nobody's
     problem.
     """
-    if os.environ.get("ODOO_NIX_DEVGUARD") == "0" and os.environ.get("ODOO_NIX_RESTORE_ALLOW_UNGUARDED") != "1":
+    if (
+        os.environ.get("ODOO_NIX_DEVGUARD") == "0"
+        and _env_flag("ODOO_NIX_RESTORE_REQUIRE_DEVGUARD", True)
+        and os.environ.get("ODOO_NIX_RESTORE_ALLOW_UNGUARDED") != "1"
+    ):
         raise click.ClickException(
             "refusing to restore: odoo-nix.devguard.enable is false in this project, so nothing stops the "
             "restored database from mailing customers, writing to production storage or running its crons. "
-            "Enable the devguard, or set ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1 to restore anyway."
+            "Enable the devguard, or set ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1 to restore anyway "
+            "(odoo-nix.restore.requireDevguard = false to stop asking)."
         )
 
 
@@ -685,7 +690,14 @@ def _attachments_root() -> Path:
     )
 
 
-def _restore_one(db_name: str, backup_path: str, force: bool, neutralize: bool, localize: bool = True) -> None:
+def _restore_one(
+    db_name: str,
+    backup_path: str,
+    overwrite: bool,
+    neutralize: bool,
+    localize: bool = True,
+    migrate: bool = False,
+) -> None:
     from odoo.service import db as odoo_db
 
     _require_devguard()
@@ -694,9 +706,12 @@ def _restore_one(db_name: str, backup_path: str, force: bool, neutralize: bool, 
     console.print(f"      {path}  ({_human_size(path.stat().st_size)})")
 
     if odoo_db.exp_db_exist(db_name):
-        if not force:
-            raise click.ClickException(f"database '{db_name}' already exists — pass --force to overwrite (drop it first).")
-        console.print(f"==> dropping existing '{db_name}' (--force)")
+        if not overwrite:
+            raise click.ClickException(
+                f"database '{db_name}' already exists, and --no-force refuses to overwrite it. "
+                "Drop it first, or leave out --no-force."
+            )
+        console.print(f"==> dropping existing '{db_name}' (--no-force to refuse)")
         odoo_db.exp_drop(db_name)
 
     console.print("[cyan][2/3][/] restoring database + filestore")
@@ -708,6 +723,69 @@ def _restore_one(db_name: str, backup_path: str, force: bool, neutralize: bool, 
         # keeps a remote store (devguard's objectstore guard would refuse to
         # open it anyway). The remote restore does this itself, after mirroring.
         _localize_storages(db_name, _remote_storages(db_name), _attachments_root())
+    if migrate:
+        _migrate_restored(db_name)
+
+
+def _migrate_restored(db_name: str) -> None:
+    """`odoo db migrate` on a database just restored, so a backup taken by
+    older code is brought up to this checkout's modules. No snapshot: the
+    backup just restored is one. Runs after the storages are localized, so
+    a module update never opens production's object store."""
+    say(f"==> migrating '{db_name}' (--no-migrate to skip)")
+    _migrate_one(db_name, MigrateOptions(snapshot="none"))
+
+
+def _overwrite(force: bool, no_force: bool) -> bool:
+    """Restore overwrites an existing database unless --no-force (python-devops-nix
+    CONVENTIONS.md, Restore: overwrite). --force was the old opt-in; it is
+    accepted, and does nothing, for one release."""
+    if force and no_force:
+        raise click.UsageError("--force and --no-force contradict each other.")
+    if force:
+        click.echo(
+            "odoo-nix: --force is deprecated and does nothing: restore overwrites by default now. "
+            "Pass --no-force to refuse instead. It goes away in the next release.",
+            err=True,
+        )
+    return not no_force
+
+
+def _with_files(files: bool | None, attachments: bool | None) -> bool:
+    """--files (restore.files), with the old --attachments read as it, with a
+    warning, for one release."""
+    if attachments is not None:
+        click.echo(
+            "odoo-nix: --attachments/--no-attachments is deprecated: use --files/--no-files. "
+            "It goes away in the next release.",
+            err=True,
+        )
+        if files is None:
+            files = attachments
+    return _env_flag("ODOO_NIX_RESTORE_FILES", False) if files is None else files
+
+
+#: The restore options both `odoo db restore` and `odoo project restore` take.
+def _restore_options(func):
+    for option in reversed(
+        (
+            click.option("--no-force", is_flag=True, help="Refuse to overwrite a database that already exists."),
+            click.option("--force", is_flag=True, hidden=True, help="Deprecated: overwriting is the default."),
+            click.option(
+                "--migrate/--no-migrate",
+                default=None,
+                help="Run `odoo db migrate` on the restored database (default: on; restore.migrate).",
+            ),
+            click.option(
+                "--files/--no-files",
+                default=None,
+                help="Remote restore: mirror object-store attachments locally (default: off; restore.files).",
+            ),
+            click.option("--attachments/--no-attachments", default=None, hidden=True, help="Deprecated: --files."),
+        )
+    ):
+        func = option(func)
+    return func
 
 
 #: Storages the localize step must leave alone: already local, or the backup
@@ -776,7 +854,7 @@ def _localize_storages(db_name: str, storages: list[dict], root: Path) -> None:
             console.print(f"  [dim]storage '{st['code']}' ({st['protocol']}) → {target}[/]")
 
 
-def _restore_remote(db_name, source_db, at, force, neutralize, use_cache, attachments, list_only) -> None:
+def _restore_remote(db_name, source_db, at, overwrite, neutralize, use_cache, files, list_only, migrate=False) -> None:
     _reexec_with_secrets()
     prefix = os.environ.get("ODOO_NIX_RESTORE_PREFIX")
     if prefix and not os.environ.get("BACKUPS_PREFIX"):
@@ -796,59 +874,66 @@ def _restore_remote(db_name, source_db, at, force, neutralize, use_cache, attach
                 use_cache=use_cache,
                 progress=lambda msg: console.print(f"      [dim]{msg}[/]"),
             )
-            _restore_one(db_name, str(fetched.paths["dump"]), force, neutralize, localize=False)
+            _restore_one(db_name, str(fetched.paths["dump"]), overwrite, neutralize, localize=False)
 
             storages = _remote_storages(db_name)
             root = _attachments_root()
             for st in storages:
                 src = (st["directory_path"] or "").format(db_name=source_db)
-                if attachments == "mirror" and src and "$" not in src and not backups.is_local():
+                if files and src and "$" not in src and not backups.is_local():
                     console.print(f"[cyan]mirroring[/] attachments '{st['code']}' from {src}")
                     store.mirror(src, root / st["code"])
-                elif attachments == "mirror":
+                elif files:
                     console.print(f"[yellow]![/] not mirroring '{st['code']}' ({src or 'no directory path'})")
             _localize_storages(db_name, storages, root)
     except BackupError as exc:
         raise click.ClickException("\n".join([exc.message, *exc.details])) from exc
+    if migrate:
+        _migrate_restored(db_name)
 
 
 @db_group.command("restore")
 @click.argument("db_name")
 @click.argument("backup_path", type=click.Path(exists=True), required=False)
-@click.option("--force", is_flag=True, help="Overwrite DB_NAME if it already exists.")
 @click.option(
     "--neutralize/--no-neutralize",
     default=None,
     help="Disable outgoing mail/cron on the restored copy. Default: on in the dev shell (restore.neutralize), off on a server.",
 )
 @click.option("--from", "source_db", default=None, help="Remote restore: source database folder (default: DB_NAME).")
-@click.option("--at", default=None, help="Remote restore: the newest backup within this point in time: ISO 8601 (2026-10-02, 2026-10-02T03:00) or a backup's own name (2026_10_02_03_00_00), or any leading part of either.")
+@click.option(
+    "--at",
+    default=None,
+    help="Remote restore: the newest backup within this point in time: ISO 8601 (2026-10-02, 2026-10-02T03:00) "
+    "or a backup's own name (2026_10_02_03_00_00), or any leading part of either.",
+)
 @click.option("--list", "list_only", is_flag=True, help="Remote restore: list available backups and exit.")
 @click.option("--no-cache", is_flag=True, help="Remote restore: download again even if cached.")
-@click.option(
-    "--attachments/--no-attachments",
-    default=None,
-    help="Remote restore: mirror object-store attachments locally (default: per odoo-nix.restore.attachments).",
-)
+@_restore_options
 @click.pass_context
-def db_restore(ctx, db_name, backup_path, force, neutralize, source_db, at, list_only, no_cache, attachments):
+def db_restore(
+    ctx, db_name, backup_path, neutralize, source_db, at, list_only, no_cache, no_force, force, migrate, files, attachments
+):
     """Restore BACKUP_PATH into DB_NAME -- or, with no path, the newest backup
-    from the remote store (S3 credentials from the backup-access secret)."""
+    from the remote store (S3 credentials from the backup-access secret).
+
+    An existing DB_NAME is overwritten (--no-force refuses), and the restored
+    database is migrated to this checkout's modules (--no-migrate skips it)."""
+    overwrite = _overwrite(force, no_force)
+    if migrate is None:
+        migrate = _env_flag("ODOO_NIX_RESTORE_MIGRATE", True)
     if backup_path:
         _load(ctx)
         if neutralize is None:
             # Off on a server (the variable is only set in the dev shell), on
             # in the dev shell: a dump you were handed is as live as one you fetched.
             neutralize = _env_flag("ODOO_NIX_RESTORE_NEUTRALIZE", False)
-        _restore_one(db_name, backup_path, force, neutralize)
+        _restore_one(db_name, backup_path, overwrite, neutralize, migrate=migrate)
         return
     source_db = source_db or os.environ.get("ODOO_NIX_RESTORE_SOURCE_DB") or db_name
     if neutralize is None:
         neutralize = _env_flag("ODOO_NIX_RESTORE_NEUTRALIZE", True)
-    if attachments is None:
-        mode = os.environ.get("ODOO_NIX_RESTORE_ATTACHMENTS", "none")
-    else:
-        mode = "mirror" if attachments else "none"
+    with_files = _with_files(files, attachments)
     if not list_only:
         _load(ctx)
-    _restore_remote(db_name, source_db, at, force, neutralize, not no_cache, mode, list_only)
+    _restore_remote(db_name, source_db, at, overwrite, neutralize, not no_cache, with_files, list_only, migrate=migrate)

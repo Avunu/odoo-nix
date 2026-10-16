@@ -14,7 +14,7 @@ let
 in
 {
   options.perSystem = mkPerSystemOption (
-    { pkgs, ... }:
+    { pkgs, config, ... }:
     {
       imports = [
         (lib.mkRenamedOptionModule
@@ -333,7 +333,8 @@ in
               Turning it off is a persistent decision about the whole project, not
               a per-command one (`ODOO_DEVGUARD_ENABLED=0` is that): `odoo db
               restore` refuses to run while it is off unless
-              `ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1`.
+              `ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` (or `restore.requireDevguard
+              = false`).
             '';
           };
 
@@ -605,20 +606,43 @@ in
             '';
           };
 
+          # restore.attachments ("none" | "mirror") became restore.files, the
+          # name both products use (python-devops-nix CONVENTIONS.md, Restore:
+          # files). Not lib.mkChangedOptionModule: the type changed, and its
+          # warning needs a `warnings` option, which perSystem has none of.
+          # Removed in the next minor release.
           attachments = mkOption {
-            type = types.enum [
-              "none"
-              "mirror"
-            ];
-            default = "none";
-            description = ''
-              What to do with attachments held in an object store
-              (`fs_attachment`). Either way the restored database's remote
-              `fs.storage` records are pointed at a local directory, so the
-              copy can never write to production.
+            type = types.nullOr (
+              types.enum [
+                "none"
+                "mirror"
+              ]
+            );
+            default = null;
+            visible = false;
+            description = "Deprecated: `restore.files` (`\"mirror\"` is `true`).";
+          };
 
-              `mirror` also downloads the bucket contents there (the
+          files = mkOption {
+            type = types.bool;
+            default =
+              if config.odoo-nix.restore.attachments == null then
+                false
+              else
+                lib.warn
+                  "odoo-nix.restore.attachments is deprecated: use odoo-nix.restore.files (\"mirror\" is true)."
+                  (config.odoo-nix.restore.attachments == "mirror");
+            defaultText = lib.literalExpression "false";
+            description = ''
+              Also download the attachments held in an object store
+              (`fs_attachment`) when restoring from the remote store
+              (`--files`/`--no-files` per command). Either way the restored
+              database's remote `fs.storage` records are pointed at a local
+              directory, so the copy can never write to production; with this
+              on, the bucket contents are mirrored there first (the
               backup-access credentials need read access to that bucket).
+
+              Was `restore.attachments = "mirror"`.
             '';
           };
 
@@ -626,6 +650,30 @@ in
             type = types.bool;
             default = true;
             description = "Neutralize (no outgoing mail, crons off) databases restored from the remote store.";
+          };
+
+          migrate = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Run `odoo db migrate` on a database once it is restored, so a
+              backup taken by older code is brought up to the checkout's
+              modules (`--no-migrate` per command). No snapshot is taken first:
+              the backup just restored is one.
+            '';
+          };
+
+          requireDevguard = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Refuse to restore while `devguard.enable` is false, because
+              nothing would then stop the restored database from mailing
+              customers, writing to production storage or running its crons.
+              `ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` overrides it per command.
+              Turn this off only for a project whose databases hold nothing
+              that can reach the outside.
+            '';
           };
         };
 
@@ -1153,8 +1201,10 @@ in
             // {
               ODOO_NIX_RESTORE_PREFIX = cfg.restore.prefix;
               ODOO_NIX_RESTORE_SOURCE_DB = cfg.restore.sourceDatabase;
-              ODOO_NIX_RESTORE_ATTACHMENTS = cfg.restore.attachments;
+              ODOO_NIX_RESTORE_FILES = if cfg.restore.files then "1" else "0";
               ODOO_NIX_RESTORE_NEUTRALIZE = if cfg.restore.neutralize then "1" else "0";
+              ODOO_NIX_RESTORE_MIGRATE = if cfg.restore.migrate then "1" else "0";
+              ODOO_NIX_RESTORE_REQUIRE_DEVGUARD = if cfg.restore.requireDevguard then "1" else "0";
             }
             // cfg.extraEnv;
 

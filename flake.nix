@@ -235,6 +235,7 @@
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   eval-secrets-*                                      odoo-nix's secrets module (all systems)
+      #   eval-restore-*                                      the dev shell's restore options (Linux only)
       #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
       #   eval-container-name*                                the OCI image's name (Linux only)
       #   eval-*-<major>, lock-fresh-<major>                  per-series, no Odoo run (all systems)
@@ -412,6 +413,14 @@
             import ./tests/module-eval.nix {
               inherit pkgs;
               odooModule = ./modules/nixos.nix;
+            }
+          )
+        )
+        // lib.optionalAttrs isLinux (
+          evalChecks "" (
+            import ./tests/restore-eval.nix {
+              inherit pkgs inputs;
+              inherit (self.lib) mkFlake;
             }
           )
         )
