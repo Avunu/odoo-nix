@@ -767,27 +767,42 @@ in
           ++ [ "web" ];
         };
 
-        # Secrets + remote restore (see modules/secrets.nix).
+        # Secrets + remote restore (see modules/secrets.nix): the
+        # python-devops-nix toolkit (PLAN.md, Phase 2), with odoo-nix's names.
         secretsCfg = topLevel.config.odoo-nix.secrets;
-        secretsTools = import ../lib/secrets-tools.nix {
-          inherit lib pkgs;
+        secretsTools = inputs.python-devops-nix.lib.secrets.tools {
+          inherit pkgs;
           cfg = secretsCfg;
-          schema = import ../lib/secrets-schema.nix { inherit lib; };
+          label = "odoo-nix";
+          restoreCommand = "odoo db restore";
+          bucketExample = "my-odoo-backups";
+          # setup-backup-access's check that the credentials reach the
+          # backups: one folder per database (lib/odoo_nix_cli/backup_layout.py).
+          verifyListing = ''
+            local listing
+            listing="$("$FETCH" folders)" || return
+            printf 'bucket reachable; %s database folder(s) under the prefix\n' \
+              "$(printf '%s\n' "$listing" | grep -c . || true)"
+          '';
         };
 
         mcBin = "${pkgs.minio-client}/bin/mc";
 
-        # remote.py as a standalone command (stdlib only): used by
-        # `setup-backup-access` to test credentials before encrypting them.
-        remoteTool = pkgs.writeShellScript "odoo-nix-remote" ''
-          export ODOO_NIX_MC=${mcBin}
-          exec ${pkgs.python3}/bin/python ${../lib/odoo_nix_cli/remote.py} "$@"
-        '';
+        # The backup fetch layer as a command (`odoo-nix-backup-fetch
+        # {list,folders,fetch}`), with odoo-nix's layout: what
+        # `setup-backup-access` tests the credentials with before encrypting
+        # them. The `odoo` CLI imports the same module in-process (lib/cli.nix).
+        backupFetch = inputs.python-devops-nix.lib.backups.fetch {
+          inherit pkgs;
+          label = "odoo-nix";
+          envPrefix = "ODOO";
+          layout = ../lib/odoo_nix_cli/backup_layout.py;
+        };
 
         # Run a command with the backup-access secret in its environment. The
         # `odoo` CLI re-executes itself through this when the credentials are
         # absent: decryption happens per command, never at shell entry (see
-        # lib/secrets-tools.nix for why).
+        # loadSecrets in python-devops-nix's lib.secrets.tools for why).
         withBackupAccess = pkgs.writeShellScript "odoo-nix-with-backup-access" ''
           ${secretsTools.loadSecrets config.agenix-shell.installationScript}
           export ODOO_NIX_SECRETS_LOADED=1
@@ -842,6 +857,7 @@ in
           rawOdooBin = devRawOdooBin;
           targetPythonEnv = pythonEnvs.devPythonEnv;
           inherit mcBin;
+          backupsModule = inputs.python-devops-nix.lib.backups.module;
           withSecrets = if restoreEnabled then withBackupAccess else null;
         };
 
@@ -853,6 +869,7 @@ in
           mirrorTree = builtOdoo;
           targetPythonEnv = pythonEnvs.odooPythonEnv;
           cliScripts = null;
+          backupsModule = inputs.python-devops-nix.lib.backups.module;
         };
 
         # The dev-shell welcome banner (rich-rendered, lib/banner.py) --
@@ -1304,11 +1321,9 @@ in
             # scripts -- this option remains solely for a consumer's own
             # custom scripts.
             scripts =
-              import ../lib/secret-scripts.nix {
-                inherit lib;
-                secrets = secretsTools;
-                fetch = remoteTool;
-                withSetup = cfg.restore.enable;
+              secretsTools.scripts {
+                # setup-backup-access only when remote restores are on.
+                fetch = if cfg.restore.enable then lib.getExe backupFetch else null;
               }
               // cfg.extraScripts;
           };

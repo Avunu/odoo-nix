@@ -110,7 +110,7 @@ def project_backup(ctx, fmt, out_dir, keep_days):
 )
 @click.option("--force", is_flag=True, help="Overwrite a database if it already exists.")
 @click.option("--neutralize", is_flag=True, help="Disable outgoing mail/cron on each restored copy (default in the dev shell: restore.neutralize).")
-@click.option("--at", default=None, help="Remote restore: backup at or before this timestamp prefix.")
+@click.option("--at", default=None, help="Remote restore: the newest backup within this point in time (ISO 8601 or a backup's own name; see `odoo db restore --help`).")
 @click.option(
     "--attachments/--no-attachments",
     default=None,

@@ -13,3 +13,6 @@ __pycache__/
 *.pyc
 /result
 /result-*
+
+# The base's backup fetch layer, vendored into the CLI package by lib/cli.nix.
+/lib/odoo_nix_cli/_backups.py
