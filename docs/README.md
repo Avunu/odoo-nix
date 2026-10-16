@@ -265,7 +265,7 @@ ODOO_DEVGUARD_DISABLE=crons odoo db migrate                              # named
 ODOO_DEVGUARD_ENABLED=0 odoo ...                                         # everything off (stock behaviour)
 ```
 
-or permanently with `devguard.egress.allowHosts`. Settings are baked into the environment from Nix and read at run time; `ODOO_DEVGUARD_<GUARD>_<KEY>` environment variables win.
+or permanently with `devguard.egress.allowHosts`; the environment variable replaces that list for the one command rather than adding to it. A hostname entry is matched against the name a connection was resolved from, since clients resolve a name and then connect to the address, and a refusal names that host: `blocked connection to 104.16.246.239:443 (api-sandbox.gocardless.com)`. An address an allowlisted name shares with another host, as on a CDN, passes for both. Settings are baked into the environment from Nix and read at run time; `ODOO_DEVGUARD_<GUARD>_<KEY>` environment variables win.
 
 **Restore interlock.** `devguard.enable = false` is a persistent decision about the whole project, not a per-command one, so `odoo db restore` and `odoo project restore` refuse to run while it is off (`ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` overrides). In the dev shell a file restore is neutralized and its remote `fs.storage` records are pointed at local disk exactly like a remote restore (see [Backups & restore](#backups--restore)).
 
