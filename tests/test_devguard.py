@@ -317,6 +317,56 @@ class EgressTest(unittest.TestCase):
         with unittest.mock.patch.object(egress, "_resolve", return_value=()):
             self.assertFalse(egress._allowed("nxdomain.invalid"))
 
+    def _stand_in_dns(self):
+        """Resolve a few reserved .test names, so nothing depends on real DNS."""
+        table = {"api.allowed.test": "192.0.2.10", "cdn.allowed.test": "192.0.2.11",
+                 "api.other.test": "192.0.2.12"}
+
+        def resolve(host, port, *args, **kwargs):
+            if host in table:
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (table[host], port or 0))]
+            raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+        return unittest.mock.patch.object(egress, "_getaddrinfo", resolve)
+
+    def assertLetThrough(self, fn):
+        """The guard let FN's connection through; TEST-NET then refuses or times out."""
+        try:
+            fn()
+        except DevGuardBlocked as exc:
+            self.fail(f"refused by the guard: {exc}")
+        except urllib.error.URLError as exc:
+            self.assertNotIsInstance(exc.reason, DevGuardBlocked)
+        except OSError:
+            pass
+
+    def test_an_allowlisted_name_passes_when_its_client_resolves_first(self):
+        # connect() is handed the address, never the name: create_connection,
+        # urllib3 (requests) and asyncio all resolve first.
+        with self._stand_in_dns(), env(EGRESS_ALLOW_HOSTS="api.allowed.test, *.allowed.test"):
+            self.assertLetThrough(lambda: socket.create_connection(("api.allowed.test", 9), timeout=0.3))
+            self.assertLetThrough(lambda: socket.create_connection(("cdn.allowed.test", 9), timeout=0.3))
+            self.assertLetThrough(lambda: urllib.request.urlopen("http://api.allowed.test:9/", timeout=0.3))
+            with self.assertRaises(DevGuardBlocked):
+                socket.create_connection(("api.other.test", 9), timeout=0.3)
+
+    def test_the_refusal_names_the_host_it_resolved(self):
+        with self._stand_in_dns():
+            with self.assertRaises(DevGuardBlocked) as ctx:
+                socket.create_connection(("api.other.test", 443), timeout=0.3)
+        self.assertIn("192.0.2.12:443 (api.other.test)", str(ctx.exception))
+
+    def test_dropping_the_entry_refuses_a_name_resolved_earlier(self):
+        with self._stand_in_dns():
+            with env(EGRESS_ALLOW_HOSTS="cdn.allowed.test"):
+                self.assertLetThrough(lambda: socket.create_connection(("cdn.allowed.test", 9), timeout=0.3))
+            with self.assertRaises(DevGuardBlocked):
+                socket.create_connection(("cdn.allowed.test", 9), timeout=0.3)
+
+    def test_an_unexpected_resolver_answer_is_ignored(self):
+        egress._remember("odd.test", [(socket.AF_UNIX, socket.SOCK_STREAM, 0, "", "/not/inet")])
+        egress._remember(b"\xff", [])
+
     def test_mail_catcher_host_is_always_allowed(self):
         with env(MAIL_HOST="catcher.lan"):
             self.assertTrue(egress._allowed("catcher.lan"))
@@ -544,7 +594,8 @@ class MailOdooLayerTest(unittest.TestCase):
 class StatusTest(unittest.TestCase):
     def test_reports_what_was_patched(self):
         st = odoo_devguard.status()
-        for target in ("socket.socket.connect", "ir_cron._callback", "FSStorage._get_filesystem"):
+        for target in ("socket.socket.connect", "socket.getaddrinfo", "ir_cron._callback",
+                       "FSStorage._get_filesystem"):
             self.assertEqual(st.get(target), "patched", target)
 
 

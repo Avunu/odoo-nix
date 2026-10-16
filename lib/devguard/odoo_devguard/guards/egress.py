@@ -15,6 +15,15 @@ What passes untouched:
 * anything in ``allow_hosts``: a hostname (``*.example.com`` allowed), an IP
   literal, or a CIDR
 
+Hostname entries are matched against the name a connection was *resolved
+from*. Clients resolve first and connect by address -- ``create_connection``,
+urllib3, asyncio -- so ``connect()`` only ever sees an IP. ``getaddrinfo`` is
+wrapped to remember which names produced which addresses, and an address passes
+if a name that resolved to it is allowlisted. One resolved some other way
+(aiodns, gevent's resolver, a hard-coded IP) is not remembered, and is refused
+unless its address is allowlisted: the gap fails closed. An address that an
+allowlisted name shares with another host (a CDN) passes for both.
+
 What this does not see: libpq. psycopg2 opens PostgreSQL connections in C, which
 is why the database is neither blocked nor in the allowlist -- and why a
 ``db_host`` pointing at a remote server is not this guard's business.
@@ -24,6 +33,7 @@ Not a firewall for the machine, only for this process tree's Python.
 
 import ipaddress
 import socket
+import threading
 
 from .._hook import on_import
 from .._patch import STATUS, announce, block, require
@@ -36,8 +46,17 @@ _INSTALLED = False
 #: Warn once per destination: a retry loop would otherwise bury the log.
 _WARNED = set()
 
-#: host -> frozenset of resolved addresses, for allowlisted hostnames.
-_RESOLVED = {}
+#: address -> the names getaddrinfo resolved to it, in this process.
+_ORIGINS = {}
+_ORIGINS_LOCK = threading.Lock()
+
+#: A bound, not a cache policy: past it the map starts over. Clients resolve
+#: right before they connect, so starting over loses nothing in use.
+_ORIGINS_MAX = 4096
+
+#: The real resolver. A module global looked up at call time, so the unit test
+#: can stand DNS in without a network.
+_getaddrinfo = socket.getaddrinfo
 
 
 def enabled():
@@ -83,10 +102,48 @@ def _ip(host):
 def _resolve(host):
     """Addresses a hostname maps to, via the original getaddrinfo."""
     try:
-        infos = socket.getaddrinfo(host, None)
-    except OSError:
+        infos = _getaddrinfo(host, None)
+    except (OSError, UnicodeError):
         return ()
     return tuple({ip for ip in (_ip(i[4][0]) for i in infos) if ip is not None})
+
+
+def _origins(addr):
+    with _ORIGINS_LOCK:
+        return set(_ORIGINS.get(addr, ()))
+
+
+def _remember(host, infos):
+    """Record the addresses a name resolved to. Never fails a resolution."""
+    if isinstance(host, bytes):
+        try:
+            host = host.decode("idna")
+        except UnicodeError:
+            return
+    if not isinstance(host, str) or _ip(host) is not None:
+        return
+    name = host.lower().rstrip(".")
+    if not name:
+        return
+    addrs = set()
+    for info in infos:
+        sockaddr = info[4] if len(info) > 4 else None
+        if isinstance(sockaddr, tuple) and sockaddr and isinstance(sockaddr[0], str):
+            addr = _ip(sockaddr[0])
+            if addr is not None:
+                addrs.add(addr)
+    with _ORIGINS_LOCK:
+        if len(_ORIGINS) >= _ORIGINS_MAX:
+            _ORIGINS.clear()
+        for addr in addrs:
+            _ORIGINS.setdefault(addr, set()).add(name)
+
+
+def getaddrinfo(host, port, *args, **kwargs):
+    """``socket.getaddrinfo``, remembering what each name resolved to."""
+    infos = _getaddrinfo(host, port, *args, **kwargs)
+    _remember(host, infos)
+    return infos
 
 
 def _allowed(host):
@@ -97,7 +154,13 @@ def _allowed(host):
         names.append(st.mail_host.lower())  # the catcher, wherever it listens
     addr = _ip(host)
     if addr is not None:
-        return _is_local(addr) or any(addr in net for net in networks)
+        # Resolved first, as nearly every client does: allowed if a name that
+        # produced this address is.
+        return (
+            _is_local(addr)
+            or any(addr in net for net in networks)
+            or any(_name_allowed(name, names) for name in _origins(addr))
+        )
 
     if host.lower().rstrip(".") == "localhost" or _name_allowed(host, names):
         return True
@@ -133,7 +196,11 @@ def _check(sock, address):
         "devguard.egress.allowHosts; ODOO_DEVGUARD_DISABLE=egress turns it off for one command",
     )
     key = (host, port)
+    addr = _ip(host)
+    resolved_from = sorted(_origins(addr)) if addr is not None else []
     message = f"blocked connection to {host}:{port}"
+    if resolved_from:
+        message += f" ({', '.join(resolved_from)})"
     if key in _WARNED:
         raise_blocked(message)
     _WARNED.add(key)
@@ -163,6 +230,10 @@ def _patch_stdlib():
     cls = socket.socket
     _wrap(cls, cls.connect, cls.connect_ex)
     STATUS["socket.socket.connect"] = "patched"
+    # socket.create_connection, urllib3 and asyncio look this up on the module
+    # at call time, so rebinding it reaches them all.
+    socket.getaddrinfo = getaddrinfo
+    STATUS["socket.getaddrinfo"] = "patched"
 
 
 def _patch_gevent(module):

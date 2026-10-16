@@ -359,8 +359,11 @@ in
               description = ''
                 Destinations the guard lets through: hostnames (`*.` for a
                 subdomain wildcard), IP literals or CIDRs. Loopback, Unix sockets
-                and the mail catcher are always allowed.
-                `ODOO_DEVGUARD_EGRESS_ALLOW_HOSTS=a,b` allows more for one command.
+                and the mail catcher are always allowed. A hostname is matched
+                against the name a connection was resolved from, so it works for
+                clients that resolve first and connect by address (nearly all).
+                `ODOO_DEVGUARD_EGRESS_ALLOW_HOSTS=a,b` replaces this list for one
+                command.
               '';
             };
           };
