@@ -8,7 +8,7 @@ name: check
 #   lock-fresh-<18|19>           tests/fixtures/<series>/uv.lock matches the pinned OCB
 #   builtOdoo-<18|19>            a real Odoo assembled from the pin with the consumer code path
 #   odoo-init-<18|19>            `-i base` against an in-sandbox PostgreSQL
-#   odoo-test-<18|19>            the fixture addon's Odoo tests (incl. dev_mailcatch)
+#   odoo-test-<18|19>            the fixture addon's Odoo tests (incl. the devguard mail guard)
 #   module-nginx                 the NixOS module's nginx/socket contract (stub Odoo, KVM)
 #   module-odoo-<18|19>          the NixOS module bringing up the real Odoo (KVM)
 #

@@ -491,7 +491,7 @@ Entries stay workspace-relative so the file is identical across machines and con
 
 `lib/odoo-conf.nix` renders the `[options]` block from your declarative `odooConf.*` settings plus the derived `addons_path` (via `pkgs.formats.ini`) to a read-only `/nix/store` file. The dev shell symlinks it to `./odoo.conf`; `--dev` stays a CLI flag so the same file is prod-usable.
 
-Beside `[options]` it can emit arbitrary extra sections (`extraSections`) for modules that read their own INI section — through 18.0 out of `odoo.tools.config.misc`, where Odoo's parser keeps unknown sections verbatim; 19.0 dropped `misc`, so a module re-reads the loaded file (`config['config']`) itself, as `dev_mailcatch` does. OCA modules like `queue_job` follow the same convention.
+Beside `[options]` it can emit arbitrary extra sections (`extraSections`) for modules that read their own INI section — through 18.0 out of `odoo.tools.config.misc`, where Odoo's parser keeps unknown sections verbatim; 19.0 dropped `misc`, so there a module re-reads the loaded file (`config['config']`) itself. OCA modules like `queue_job` follow the same convention.
 
 ## Production — `services.odoo-nix`
 

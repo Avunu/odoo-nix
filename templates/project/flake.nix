@@ -2,7 +2,7 @@
   description = "@PROJECT_NAME@ — Odoo (OCB) + OCA project (odoo-nix)";
 
   inputs = {
-    # src/odoo + src/external/* are git submodules; expose their contents to the
+    # odoo/ + modules/* are git submodules; expose their contents to the
     # flake source tree so the Nix engine can derive addons_path from them.
     self.submodules = true;
     odoo-nix.url = "github:Avunu/odoo-nix";

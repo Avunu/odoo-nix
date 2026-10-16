@@ -6,7 +6,7 @@
 #
 # An "addons root" is any directory that contains at least one immediate child
 # holding an `__manifest__.py` — i.e. a directory Odoo can scan for modules.
-# Each OCA repo under src/external/<repo> is itself one such root (the repo dir
+# Each OCA repo under modules/<repo> (layout.externalDir) is itself one such root (the repo dir
 # holds many module subdirs), so it contributes ONE addons_path entry.
 #
 # Path ordering is load-bearing for Odoo (first match wins):
@@ -48,7 +48,7 @@ let
 
   externalRoot = workspaceRoot + "/${layout.externalDir}";
 
-  # OCA repo dirs under src/external that actually contain modules, sorted for
+  # OCA repo dirs under layout.externalDir that actually contain modules, sorted for
   # deterministic output (readDir is already sorted, but be explicit).
   externalRepos =
     if pathExists externalRoot then
