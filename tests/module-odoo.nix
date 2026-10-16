@@ -15,6 +15,9 @@
 #   - redeploying v2 recovers;
 #   - root's `odoo` (adminCli) runs as the service user, with its PATH;
 #   - nginx serves filestore attachments Odoo authorized (nginx.xSendfile);
+#   - backups and pre-migrate snapshots are owner-only, though nginx is in
+#     the service group, while what a migration writes to the filestore stays
+#     readable to nginx through that group;
 #   - logs: Odoo's records reach the journal with their syslog priority on
 #     every line (tracebacks too), no asctime/pid, and the journal fields.
 #
@@ -82,6 +85,19 @@ pkgs.testers.runNixOSTest {
 
     def migrate_log():
         return machine.succeed("journalctl -u odoo-migrate.service --no-pager")
+
+    def mode(path):
+        return int(machine.succeed(f"stat -c %a {path}").strip(), 8)
+
+    def assert_private(directory, pattern):
+        # Whole databases: nginx is in the odoo group (nginx.xSendfile), so
+        # neither the file nor its directory may grant the group anything.
+        assert mode(directory) == 0o700, f"{directory} is {mode(directory):o}"
+        files = machine.succeed(f"find {directory} -name '{pattern}'").split()
+        assert files, f"nothing matching {pattern} in {directory}"
+        for f in files:
+            assert mode(f) == 0o600, f"{f} is {mode(f):o}"
+            machine.fail(f"sudo -u nginx cat {f} > /dev/null")
 
     def switch(to):
         # /run/booted-system: after the first `test` switch, /run/current-system
@@ -193,6 +209,11 @@ pkgs.testers.runNixOSTest {
         machine.succeed("odoo db backup acme --format dump --path /var/lib/odoo/admin-backups")
         owners = machine.succeed("find /var/lib/odoo/admin-backups -name '*.dump' -printf '%u\\n'").split()
         assert owners and set(owners) == {"odoo"}, owners
+        assert_private("/var/lib/odoo/admin-backups", "*.dump")
+        # and in the default place, <data_dir>/backups/<db>/
+        machine.succeed("odoo db backup acme --format dump")
+        assert mode("/var/lib/odoo/data/backups") == 0o700
+        assert_private("/var/lib/odoo/data/backups/acme", "*.dump")
         # A shell beside the running multi-worker service: no second server
         # binding its port. Piped, so the wrapper runs it with --pipe.
         out = machine.succeed("echo 'print(\"DBNAME\", env.cr.dbname)' | odoo shell acme")
@@ -244,6 +265,24 @@ pkgs.testers.runNixOSTest {
             " where table_name = 'res_partner' and column_name = 'odoo_nix_fixture_flag'"
         ) == "1"
         machine.wait_until_succeeds("curl -sSf -o /dev/null http://127.0.0.1:8069/web/login")
+
+    with subtest("the pre-migrate snapshot is private; what the migration wrote is not"):
+        assert_private("/var/lib/odoo/data/backups/acme/premigrate", "*.dump")
+        # v2's post-migrate wrote a public attachment. nginx sends it from the
+        # filestore (xSendfile) as a member of the odoo group, so every
+        # directory down to it needs group r-x and the file group r.
+        att_id, store_fname = psql(
+            "select id, store_fname from ir_attachment where name = 'odoo_nix_fixture_migrated.txt'"
+        ).split("|")
+        paths = ["/var/lib/odoo/data/filestore/acme"]
+        for part in store_fname.split("/"):
+            paths.append(f"{paths[-1]}/{part}")
+        for path in paths:
+            need = 0o040 if path == paths[-1] else 0o050
+            assert mode(path) & need == need, f"{path} is {mode(path):o}, which nginx cannot read through the group"
+        machine.succeed(f"sudo -u nginx cat {paths[-1]} > /dev/null")
+        body = machine.succeed(f"curl -sSf -H 'Host: odoo.example.com' http://localhost/web/content/{att_id}")
+        assert body == "written during migrate", body
 
     with subtest("a failed v3 migration rolls back and keeps Odoo down"):
         machine.fail(switch("v3"))

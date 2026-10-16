@@ -759,6 +759,11 @@ in
     systemd.tmpfiles.rules = [
       "d ${cfg.stateDir} 0750 ${cfg.user} ${cfg.group} -"
       "d ${cfg.stateDir}/data 0750 ${cfg.user} ${cfg.group} -"
+      # Backups and pre-migrate snapshots (`odoo db backup|migrate`, and OCA
+      # auto_backup's default folder) are whole databases. nginx joins
+      # cfg.group for the socket and the filestore, so this directory, unlike
+      # data/, is owner-only. `d` also tightens one that already exists.
+      "d ${cfg.stateDir}/data/backups 0700 ${cfg.user} ${cfg.group} -"
     ]
     # 0770, not 0750: nginx *creates* its listen socket in here and is only a
     # group member (added to cfg.group below), so it needs group write on the

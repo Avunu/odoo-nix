@@ -9,7 +9,8 @@ addon is the only thing that differs between builds. Version numbers carry no
 series prefix, so the same trees serve 18.0 and 19.0.
 
 - `v2` (1.0.1): adds a field on `res.partner` (a column only an update
-  creates) and a post-migrate script that records it ran.
+  creates) and a post-migrate script that records it ran and writes a
+  public filestore attachment.
 - `v3` (1.0.2): v2 plus a pre-migrate script that commits a change and then
   raises -- a migration that fails *after* touching the database, which is
   what a rollback has to undo.
