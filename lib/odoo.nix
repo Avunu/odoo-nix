@@ -5,10 +5,10 @@
 # It is consumed by the NixOS module and the container builder, which read the
 # absolute addons_path and interpreter from `passthru`.
 #
-# Layout produced:
-#   $out/src/odoo           (OCB core)
-#   $out/src/external/<repo>(OCA repos)
-#   $out/src/custom         (project addons)
+# Layout produced (the project's `layout`, shown with its defaults):
+#   $out/odoo               (OCB core, layout.coreSrc)
+#   $out/modules/<repo>     (OCA repos, layout.externalDir)
+#   $out/custom             (project addons, layout.customDir)
 #   $out/bin/odoo           (wrapper: env python + odoo-bin)
 #
 # Usage:

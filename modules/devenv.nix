@@ -46,7 +46,7 @@ in
 
         workspaceRoot = mkOption {
           type = types.path;
-          description = "Workspace root (where pyproject.toml, odoo.conf and src/ live).";
+          description = "Workspace root (where pyproject.toml, odoo.conf and the layout directories live).";
         };
 
         coreSource = mkOption {
