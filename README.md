@@ -90,8 +90,8 @@ A consuming `flake.nix` is just configuration:
           workspaceRoot = ./.;
           odooSeries = "18.0";
           python = pkgs.python311;
-          odooConf.dbName = "acme";
-          odooConf.adminPasswd = "change-me";  # dev only
+          settings.dbName = "acme";
+          settings.adminPasswd = "change-me";  # dev only
         };
       };
     });
@@ -146,20 +146,20 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | devguard.mail.httpPort | 8025 | Mailpit web UI port (was `mailcatch.httpPort`) |
 | devguard.jobs.enable / devguard.jobs.extraBlocked | true / [ ] | skip denylisted crons (auto_backup, currency rates, bank-statement pulls, EDI send, fetchmail, …); more external ids to skip. Formerly `devguard.crons.*` |
 | devguard.objectstore.enable / backups.enable / webhooks.enable / iap.enable | true | refuse remote `fs.storage`; skip remote `auto_backup` jobs; no-op webhook actions; fail IAP calls readably |
-| odooConf.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
-| odooConf.dataDir | "./.devenv/state/odoo" | Odoo filestore (gitignored under .devenv) |
-| odooConf.adminPasswd | "admin" | DB-manager master password (dev) |
-| odooConf.httpInterface | "127.0.0.1" | interface the dev server binds (http_interface); "0.0.0.0" to reach it from another host/container |
-| odooConf.httpPort/geventPort | 8069 / 8072 | HTTP + websocket/longpolling ports |
-| odooConf.workers | 0 | worker processes (0 = threaded dev mode) |
-| odooConf.devMode | "all" | --dev flag for the dev process |
-| odooConf.logging.level | "info" | root logging verbosity (log_level) |
-| odooConf.logging.handlers | [ ] | per-logger level overrides, e.g. [ "werkzeug:WARNING" ] (log_handler) |
-| odooConf.logging.db/dbLevel | false / "warning" | mirror logs into a database (log_db/log_db_level): `true` = the request's own database (`%d`), a string = that database |
-| odooConf.logging.file | null | write logs to this file instead of stderr (logfile); production logging is [`services.odoo-nix`'s](#logging) |
+| settings.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
+| settings.dataDir | "./.devenv/state/odoo" | Odoo filestore (gitignored under .devenv) |
+| settings.adminPasswd | "admin" | DB-manager master password (dev) |
+| settings.httpInterface | "127.0.0.1" | interface the dev server binds (http_interface); "0.0.0.0" to reach it from another host/container |
+| settings.httpPort/geventPort | 8069 / 8072 | HTTP + websocket/longpolling ports |
+| settings.workers | 0 | worker processes (0 = threaded dev mode) |
+| settings.devMode | "all" | --dev flag for the dev process |
+| settings.logging.level | "info" | root logging verbosity (log_level) |
+| settings.logging.handlers | [ ] | per-logger level overrides, e.g. [ "werkzeug:WARNING" ] (log_handler) |
+| settings.logging.db/dbLevel | false / "warning" | mirror logs into a database (log_db/log_db_level): `true` = the request's own database (`%d`), a string = that database |
+| settings.logging.file | null | write logs to this file instead of stderr (logfile); production logging is [`services.odoo-nix`'s](#logging) |
 | dev.autoReload | true | make Odoo's --dev=reload watcher functional (see Live code reload) |
-| odooConf.extra | { } | arbitrary extra [options] keys merged last |
-| odooConf.withoutDemo | false | skip demo data for every module (without_demo = True) |
+| settings.extra | { } | arbitrary extra [options] keys merged last |
+| settings.withoutDemo | false | skip demo data for every module (without_demo = True) |
 | postgres.extensions | _: [ ] | extensions built into the dev PostgreSQL, e.g. ps: [ ps.postgis ] (base_geoengine) |
 | postgres.noCow | true | on btrfs, keep the dev datadir off copy-on-write (`chattr +C`); an existing cluster is reported with the `odoo-nix-db-nocow migrate "$PGDATA"` that fixes it (Linux) |
 | ide.enable | true | expose the env to editors: ./.venv symlink + merged odoo analysis root |
@@ -182,6 +182,7 @@ odoo-nix and frappe-nix name the jobs they share the same way ([python-devops-ni
 | Old | New |
 | --- | --- |
 | `projectName` | `name`, which also sets devenv's own `name` (`lib.mkDefault`) |
+| `odooConf.*` | `settings.*`, as in `services.odoo-nix`; every option under it keeps its name |
 | `mailcatch.*` | `devguard.mail.*` |
 | `devguard.crons.*` | `devguard.jobs.*` |
 | `restore.attachments` | `restore.files` (`"mirror"` is `true`) |
@@ -307,7 +308,7 @@ Everything — dev shell, `services.odoo-nix`, and containers — shares one `od
 | `odoo module add-bundle [name …]` | add a curated bundle of OCA modules (from data/oca-bundles.json) |
 | `odoo project update [--no-migrate]` | pull submodules, re-aggregate OCA Python deps, uv lock — then migrate every database, unless `--no-migrate` |
 | `odoo project backup [--format zip\|dump] [--path DIR] [--keep-days N]` | back up *every* database matching `dbfilter` in one call — no db argument needed, unlike `db backup` |
-| `odoo project restore [--restore DB PATH …] [--no-force] [--neutralize] [--no-migrate]` | restore one or more explicit database=backup pairs in a single batch; with no `--restore`, restore the project database (`odooConf.dbName`) from the remote store — see [Backups & restore](#backups--restore) |
+| `odoo project restore [--restore DB PATH …] [--no-force] [--neutralize] [--no-migrate]` | restore one or more explicit database=backup pairs in a single batch; with no `--restore`, restore the project database (`settings.dbName`) from the remote store — see [Backups & restore](#backups--restore) |
 | `odoo shell [db]` | Odoo Python REPL |
 | `odoo test <m[,m2]> [db]` | run module tests; refuses to run if a skipped browser tour would silently read as a pass |
 
@@ -337,7 +338,7 @@ Production (`services.odoo-nix`) and the container image get the same binary and
 Production pushes database backups to S3-compatible storage; any developer whose SSH key is a declared recipient restores one locally with a single command:
 
 ```sh
-odoo project restore                # the project database (odooConf.dbName), newest backup
+odoo project restore                # the project database (settings.dbName), newest backup
 odoo db restore acme_dev --from acme --at 2026-10-01
 odoo db restore acme_dev --from acme --list
 ```
@@ -504,7 +505,7 @@ Entries stay workspace-relative so the file is identical across machines and con
 
 ## `odoo.conf` synthesis
 
-`lib/odoo-conf.nix` renders the `[options]` block from your declarative `odooConf.*` settings plus the derived `addons_path` (via `pkgs.formats.ini`) to a read-only `/nix/store` file. The dev shell symlinks it to `./odoo.conf`; `--dev` stays a CLI flag so the same file is prod-usable.
+`lib/odoo-conf.nix` renders the `[options]` block from your declarative `settings.*` options plus the derived `addons_path` (via `pkgs.formats.ini`) to a read-only `/nix/store` file. The dev shell symlinks it to `./odoo.conf`; `--dev` stays a CLI flag so the same file is prod-usable.
 
 Beside `[options]` it can emit arbitrary extra sections (`extraSections`) for modules that read their own INI section — through 18.0 out of `odoo.tools.config.misc`, where Odoo's parser keeps unknown sections verbatim; 19.0 dropped `misc`, so there a module re-reads the loaded file (`config['config']`) itself. OCA modules like `queue_job` follow the same convention.
 

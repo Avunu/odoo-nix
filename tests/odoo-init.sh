@@ -28,6 +28,6 @@ flake=acme/flake.nix
 grep -qE '^\s*name = "acme-shop";$' "$flake"
 refute grep -q projectName "$flake"
 refute grep -q '@[A-Z_]*@' "$flake"
-grep -qE '^\s*odooConf\.dbName = "acme_db";$' "$flake"
+grep -qE '^\s*settings\.dbName = "acme_db";$' "$flake"
 grep -qE '^name = "acme-shop"$' acme/pyproject.toml
 echo "odoo-init: ok"

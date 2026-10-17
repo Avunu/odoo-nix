@@ -100,6 +100,42 @@ in
         deprecations = warned "projectName'" "name'" config;
       };
     };
+  # odooConf.* -> settings.* (Framework config blocks), the block as a
+  # whole: every option keeps its name (and a priority set inside it), the
+  # rendered odoo.conf is the one the new name gives, and each option set is
+  # warned about.
+  rename-odoo-conf =
+    let
+      block = {
+        dbName = "legacy";
+        httpPort = 8169;
+        logging.level = "debug";
+        extra.limit_time_real = "600";
+        withoutDemo = lib.mkForce true;
+      };
+      old = perSystemConfig { odooConf = block; };
+      new = perSystemConfig { settings = block; };
+    in
+    {
+      expected = {
+        settings = {
+          dbName = "legacy";
+          httpPort = 8169;
+          level = "debug";
+          withoutDemo = true;
+        };
+        conf = new.packages.odooConf.outPath;
+        deprecations = lib.replicate 5 true;
+      };
+      actual = {
+        settings = {
+          inherit (old.odoo-nix.settings) dbName httpPort withoutDemo;
+          inherit (old.odoo-nix.settings.logging) level;
+        };
+        conf = old.packages.odooConf.outPath;
+        deprecations = warned "odooConf." "settings." old;
+      };
+    };
   # The identity is devenv's `name` too, unless the shell sets its own.
   identity-shell-name = {
     expected = "acme";

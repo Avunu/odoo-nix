@@ -115,7 +115,7 @@ let
     (import ../lib/odoo-conf.nix {
       inherit pkgs lib;
       addonsPath = addons.addonsPathFor "${tree}";
-      odooConf = {
+      settings = {
         # Empty host/password = keys left out = unix socket, no password (the
         # run passes --db_host=$PGHOST anyway).
         dbHost = "";

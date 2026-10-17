@@ -9,13 +9,13 @@
 # render lowercase, breaking Odoo's parser).
 #
 # Usage:
-#   import ./lib/odoo-conf.nix { inherit pkgs lib; odooConf = cfg.odooConf;
+#   import ./lib/odoo-conf.nix { inherit pkgs lib; settings = cfg.settings;
 #                                addonsPath = addons.addonsPath; }
 
 {
   pkgs,
   lib,
-  odooConf,
+  settings,
   addonsPath,
   # Modules imported at server start, before any registry is built. "base" and
   # "web" are always loaded by Odoo; they are listed explicitly because setting
@@ -48,54 +48,54 @@ let
 
   optionsBlock = {
     # --- database connection ---
-    db_port = toString odooConf.dbPort;
-    db_user = odooConf.dbUser;
+    db_port = toString settings.dbPort;
+    db_user = settings.dbUser;
   }
-  // lib.optionalAttrs (!unset odooConf.dbHost) {
-    db_host = odooConf.dbHost;
+  // lib.optionalAttrs (!unset settings.dbHost) {
+    db_host = settings.dbHost;
   }
-  // lib.optionalAttrs (!unset odooConf.dbPassword) {
-    db_password = odooConf.dbPassword;
+  // lib.optionalAttrs (!unset settings.dbPassword) {
+    db_password = settings.dbPassword;
   }
-  // lib.optionalAttrs (odooConf.dbName != null) {
-    db_name = odooConf.dbName;
+  // lib.optionalAttrs (settings.dbName != null) {
+    db_name = settings.dbName;
   }
   // {
     # --- storage + the synthesized addons routing ---
-    data_dir = odooConf.dataDir;
+    data_dir = settings.dataDir;
     addons_path = addonsPath;
 
     # --- runtime ---
-    admin_passwd = odooConf.adminPasswd;
-    http_interface = odooConf.httpInterface;
-    http_port = toString odooConf.httpPort;
-    gevent_port = toString odooConf.geventPort;
-    workers = toString odooConf.workers;
-    log_level = odooConf.logging.level;
-    log_db_level = odooConf.logging.dbLevel;
+    admin_passwd = settings.adminPasswd;
+    http_interface = settings.httpInterface;
+    http_port = toString settings.httpPort;
+    gevent_port = toString settings.geventPort;
+    workers = toString settings.workers;
+    log_level = settings.logging.level;
+    log_db_level = settings.logging.dbLevel;
     server_wide_modules = lib.concatStringsSep "," serverWideModules;
   }
   # log_db is a database *name*; "%d" is Odoo's own spelling for "the
   # current request's database" (netsvc.PostgreSQLHandler), so that is what
   # `true` renders as. Absent when off: 18.0's default is False, 19.0's is
   # "" and would warn about a literal False.
-  // lib.optionalAttrs (odooConf.logging.db != false) {
-    log_db = if odooConf.logging.db == true then "%d" else odooConf.logging.db;
+  // lib.optionalAttrs (settings.logging.db != false) {
+    log_db = if settings.logging.db == true then "%d" else settings.logging.db;
   }
-  // lib.optionalAttrs (odooConf.logging.handlers != [ ]) {
-    log_handler = lib.concatStringsSep "," odooConf.logging.handlers;
+  // lib.optionalAttrs (settings.logging.handlers != [ ]) {
+    log_handler = lib.concatStringsSep "," settings.logging.handlers;
   }
-  // lib.optionalAttrs (odooConf.logging.file != null) {
-    logfile = odooConf.logging.file;
+  // lib.optionalAttrs (settings.logging.file != null) {
+    logfile = settings.logging.file;
   }
   # "True", not "all": 18.0 only ever tests the option's truthiness, and
   # 19.0 turned it into a boolean that warns about anything else.
-  // lib.optionalAttrs odooConf.withoutDemo {
+  // lib.optionalAttrs settings.withoutDemo {
     without_demo = "True";
   }
   # Escape hatch: arbitrary extra [options] keys win last. Values stringified
   # so callers may pass ints/bools.
-  // toIniSection odooConf.extra;
+  // toIniSection settings.extra;
 
   odooConfFile = ini.generate "odoo.conf" (
     {
