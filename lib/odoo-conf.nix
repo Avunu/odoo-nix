@@ -11,6 +11,9 @@
 # Usage:
 #   import ./lib/odoo-conf.nix { inherit pkgs lib; settings = cfg.settings;
 #                                addonsPath = addons.addonsPath; }
+#
+# `settings` is the dev shell's block plus `httpPort`, `geventPort` and
+# `dbPort`, which modules/devenv.nix fills in from its `ports` tree.
 
 {
   pkgs,
