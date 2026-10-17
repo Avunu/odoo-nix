@@ -44,7 +44,7 @@ in
       ];
       inherit (inputs) agenix-shell;
       # flake.lib.odooSecrets: the name before the base's flake.lib.secrets,
-      # kept for one release.
+      # kept through 1.x, removed in 2.0.0.
       libAliases = [ "odooSecrets" ];
     })
   ];

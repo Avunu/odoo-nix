@@ -1,5 +1,10 @@
 version: 2
 
+# Commit prefixes (README "Versioning"): `fix(deps)`, so each bump ships as an
+# odoo-nix patch release. The flake inputs are what a project builds Odoo from,
+# and frappe-nix gives its own nix, pre-commit and github-actions bumps the same
+# prefix.
+#
 # Keeps this repo's dependencies up to date. PRs auto-merge once the required checks go
 # green — see .github/workflows/dependabot-auto-merge.yml.
 #
@@ -36,7 +41,7 @@ updates:
     schedule:
       interval: weekly
     commit-message:
-      prefix: chore
+      prefix: "fix(deps)"
     groups:
       ocb:
         patterns: ["ocb-*"]
@@ -45,13 +50,25 @@ updates:
       nix:
         patterns: ["*"]
 
+  # The hook revs in .pre-commit-config.yaml (pre-commit-hooks, ruff-pre-commit),
+  # in one PR.
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "fix(deps)"
+    groups:
+      pre-commit-hooks:
+        patterns: ["*"]
+
   # GitHub Actions used by the workflows in .github/workflows.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: daily
     commit-message:
-      prefix: chore
+      prefix: "fix(deps)"
     groups:
       github-actions:
         patterns: ["*"]

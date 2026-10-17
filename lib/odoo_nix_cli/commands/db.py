@@ -739,13 +739,13 @@ def _migrate_restored(db_name: str) -> None:
 def _overwrite(force: bool, no_force: bool) -> bool:
     """Restore overwrites an existing database unless --no-force (python-devops-nix
     CONVENTIONS.md, Restore: overwrite). --force was the old opt-in; it is
-    accepted, and does nothing, for one release."""
+    accepted, and does nothing, through 1.x (removed in 2.0.0)."""
     if force and no_force:
         raise click.UsageError("--force and --no-force contradict each other.")
     if force:
         click.echo(
             "odoo-nix: --force is deprecated and does nothing: restore overwrites by default now. "
-            "Pass --no-force to refuse instead. It goes away in the next release.",
+            "Pass --no-force to refuse instead. It is kept through 1.x, removed in 2.0.0.",
             err=True,
         )
     return not no_force
@@ -753,11 +753,11 @@ def _overwrite(force: bool, no_force: bool) -> bool:
 
 def _with_files(files: bool | None, attachments: bool | None) -> bool:
     """--files (restore.files), with the old --attachments read as it, with a
-    warning, for one release."""
+    warning, through 1.x (removed in 2.0.0)."""
     if attachments is not None:
         click.echo(
             "odoo-nix: --attachments/--no-attachments is deprecated: use --files/--no-files. "
-            "It goes away in the next release.",
+            "It is kept through 1.x, removed in 2.0.0.",
             err=True,
         )
         if files is None:

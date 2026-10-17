@@ -410,7 +410,7 @@ in
       lacks "migrating" overwrite.log
       neutralized | grep -qx 0
 
-      # --force: accepted for one release, with a warning, and does nothing
+      # --force: accepted through 1.x (removed in 2.0.0), with a warning, and does nothing
       odoo db restore "$DSTDB" --from "$SRCDB" --force 2>&1 | tee force.log
       grep -q -- '--force is deprecated' force.log
       grep -q "restored '$DSTDB'" force.log

@@ -15,7 +15,8 @@ name: check
 # OCB is pinned (inputs.ocb-18 / ocb-19, flake = false). Nothing drifts except when
 # flake.lock changes, and dependabot's weekly nix update is what proposes that -- as a
 # pull request that runs these checks. So there is no `schedule:` here; its absence is
-# the point.
+# the point. release.yml dispatches this on the release pull request, whose
+# GITHUB_TOKEN push raises no event.
 
 on:
   push:
@@ -23,11 +24,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   flake:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # the checkout
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # `determinate: false` -- this flake carries no Determinate-only nixConfig
       # (FlakeHub substituters, lazy trees), so the default buys nothing here and
@@ -35,7 +42,7 @@ jobs:
       # registered there, logging a failure annotation on every run. `kvm` stays
       # at its default (on): the installer adds the udev rule so the daemon
       # advertises the `kvm` system feature the module-* VM tests need.
-      - uses: DeterminateSystems/nix-installer-action@v23
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: false
 
@@ -47,7 +54,7 @@ jobs:
       # inputs (the OCB tarballs) are not uploaded; GitHub serves them fast
       # enough, so `diff-store` stays off. Fork pull requests get a read-only
       # token and degrade to pull-only on their own.
-      - uses: DeterminateSystems/magic-nix-cache-action@v15
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
         with:
           # Perf/diagnostic telemetry to Determinate Systems is on by default.
           diagnostic-endpoint: ""
