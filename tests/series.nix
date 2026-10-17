@@ -352,53 +352,103 @@ in
     # `odoo db restore` with no backup file: the newest (or --at) backup from
     # the remote store -- here a directory laid out like the bucket
     # (<root>/<db>/<ts>.dump), the same code path the S3 store takes after
-    # listing. Restored neutralized by default; refuses to overwrite without
-    # --force; --list and --at select; a missing timestamp fails.
+    # listing. The restore conventions shared with frappe-nix
+    # (python-devops-nix CONVENTIONS.md, Restore): neutralized and migrated by
+    # default, overwriting unless --no-force, --force a warned no-op,
+    # --files/--attachments, refused without the devguard unless
+    # restore.requireDevguard is off, and --at in ISO 8601 or odoo-nix's
+    # naming.
     cli-remote-restore = mkCheck "cli-remote-restore-${major}" pg ''
       DBFLAGS="--db-host $PGHOST --db-user $PGUSER"
       SRCDB="odoo_nix_rsrc_${major}"
       DSTDB="odoo_nix_rdst_${major}"
       export ODOO_NIX_BACKUP_SOURCE="$PWD/bucket"
+      odoo() { ${odooCli}/bin/odoo -c ${conf} $DBFLAGS "$@"; }
+      fails() { # <log> <command...>: the command must fail
+        local log="$1"; shift
+        if "$@" >"$log" 2>&1; then echo "expected to fail: $*" >&2; cat "$log" >&2; exit 1; fi
+      }
+      # `! grep` is exempt from errexit, so it could never fail the check.
+      lacks() { # <text> <log>
+        if grep -q -- "$1" "$2"; then echo "$2 should not say: $1" >&2; exit 1; fi
+      }
+      neutralized() { psql -d "$DSTDB" -tAc "select count(*) from ir_mail_server where name = 'neutralization - disable emails'"; }
 
-      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$SRCDB" 2>&1 | tee provision.log
-      ! grep -qE ' (ERROR|CRITICAL) ' provision.log
-      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db backup "$SRCDB" --format dump --path "$ODOO_NIX_BACKUP_SOURCE/$SRCDB" 2>&1 | tee backup.log
+      odoo db provision "$SRCDB" 2>&1 | tee provision.log
+      if grep -qE ' (ERROR|CRITICAL) ' provision.log; then exit 1; fi
+      odoo db backup "$SRCDB" --format dump --path "$ODOO_NIX_BACKUP_SOURCE/$SRCDB" 2>&1 | tee backup.log
 
-      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --list | tee list.log
+      odoo db restore "$DSTDB" --from "$SRCDB" --list | tee list.log
       grep -qE '^[0-9]{4}(_[0-9]{2}){5}\.dump ' list.log
+      NAME="$(head -n1 list.log | cut -d' ' -f1)"
 
-      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" 2>&1 | tee restore.log
+      # neutralized and migrated by default
+      odoo db restore "$DSTDB" --from "$SRCDB" 2>&1 | tee restore.log
       grep -q "restored '$DSTDB'" restore.log
+      grep -q "migrating '$DSTDB'" restore.log
+      grep -q "$DSTDB: up to date" restore.log
       psql -d "$DSTDB" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
-      # neutralized by default: the dummy outgoing-mail server is in place
-      psql -d "$DSTDB" -tAc "select count(*) from ir_mail_server where name = 'neutralization - disable emails'" | grep -qx 1
+      neutralized | grep -qx 1
 
-      # no silent overwrite, and --force really does it
-      if ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" >refuse.log 2>&1; then
-        echo "restore overwrote an existing database without --force" >&2
-        exit 1
-      fi
-      grep -q -- '--force' refuse.log
-      ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --force --no-neutralize 2>&1 | tee force.log
+      # --no-force refuses an existing database; without it, it is overwritten
+      fails refuse.log odoo db restore "$DSTDB" --from "$SRCDB" --no-force
+      grep -q -- '--no-force' refuse.log
+      odoo db restore "$DSTDB" --from "$SRCDB" --no-neutralize --no-migrate 2>&1 | tee overwrite.log
+      grep -q "dropping existing '$DSTDB'" overwrite.log
+      grep -q "restored '$DSTDB'" overwrite.log
+      lacks "migrating" overwrite.log
+      neutralized | grep -qx 0
+
+      # --force: accepted for one release, with a warning, and does nothing
+      odoo db restore "$DSTDB" --from "$SRCDB" --force 2>&1 | tee force.log
+      grep -q -- '--force is deprecated' force.log
       grep -q "restored '$DSTDB'" force.log
-      psql -d "$DSTDB" -tAc "select count(*) from ir_mail_server where name = 'neutralization - disable emails'" | grep -qx 0
+      fails both.log odoo db restore "$DSTDB" --from "$SRCDB" --force --no-force
+
+      # restore.migrate = false reaches the CLI as ODOO_NIX_RESTORE_MIGRATE=0
+      ODOO_NIX_RESTORE_MIGRATE=0 odoo db restore "$DSTDB" --from "$SRCDB" 2>&1 | tee nomigrate.log
+      lacks "migrating" nomigrate.log
+
+      # --files, and --attachments as its deprecated name. A directory store
+      # has nothing to mirror from, so either only reaches the storages step.
+      odoo db restore "$DSTDB" --from "$SRCDB" --files 2>&1 | tee files.log
+      grep -q "restored '$DSTDB'" files.log
+      lacks 'deprecated' files.log
+      odoo db restore "$DSTDB" --from "$SRCDB" --attachments 2>&1 | tee attachments.log
+      grep -q -- '--attachments/--no-attachments is deprecated' attachments.log
+      grep -q "restored '$DSTDB'" attachments.log
 
       # devguard.enable = false in a dev shell (ODOO_NIX_DEVGUARD=0) refuses to
-      # restore a production database, unless explicitly overridden
-      if ODOO_NIX_DEVGUARD=0 ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --force >unguarded.log 2>&1; then
-        echo "restore ran with the devguard off" >&2
-        exit 1
-      fi
+      # restore a production database, unless explicitly overridden, or
+      # restore.requireDevguard is off
+      fails unguarded.log env ODOO_NIX_DEVGUARD=0 ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB"
       grep -q 'devguard' unguarded.log
-      ODOO_NIX_DEVGUARD=0 ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1 ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --force 2>&1 | tee override.log
+      grep -q 'requireDevguard' unguarded.log
+      ODOO_NIX_DEVGUARD=0 ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1 odoo db restore "$DSTDB" --from "$SRCDB" 2>&1 | tee override.log
       grep -q "restored '$DSTDB'" override.log
+      ODOO_NIX_DEVGUARD=0 ODOO_NIX_RESTORE_REQUIRE_DEVGUARD=0 odoo db restore "$DSTDB" --from "$SRCDB" 2>&1 | tee notrequired.log
+      grep -q "restored '$DSTDB'" notrequired.log
 
-      # a timestamp nothing matches fails with a message, not a restore
-      if ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$DSTDB" --from "$SRCDB" --at 2001 --force >at.log 2>&1; then
-        echo "restore succeeded for a timestamp nothing matches" >&2
-        exit 1
-      fi
+      # --at: ISO 8601 and odoo-nix's own naming, whole or a leading part
+      ISO="$(sed -E 's/^([0-9]{4})_([0-9]{2})_([0-9]{2})_([0-9]{2})_([0-9]{2})_([0-9]{2}).*/\1-\2-\3T\4:\5:\6/' <<<"$NAME")"
+      for at in "$ISO" "''${ISO%%T*}" "$NAME" "''${NAME:0:10}"; do
+        odoo db restore "$DSTDB" --from "$SRCDB" --at "$at" --no-migrate 2>&1 | tee at-ok.log
+        grep -q "backup: $NAME" at-ok.log
+        grep -q "restored '$DSTDB'" at-ok.log
+      done
+
+      # a time nothing matches fails with a message, not a restore; so does
+      # something that is not a time
+      fails at.log odoo db restore "$DSTDB" --from "$SRCDB" --at 2001
       grep -q 'no backup matches --at 2001' at.log
+      fails at-bad.log odoo db restore "$DSTDB" --from "$SRCDB" --at yesterday
+      grep -q 'is not a point in time' at-bad.log
+
+      # project restore takes the same flags: --no-force refuses there too
+      fails project-refuse.log odoo project restore --restore "$DSTDB" "$ODOO_NIX_BACKUP_SOURCE/$SRCDB/$NAME" --no-force
+      grep -q -- '--no-force' project-refuse.log
+      odoo project restore --restore "$DSTDB" "$ODOO_NIX_BACKUP_SOURCE/$SRCDB/$NAME" --no-migrate 2>&1 | tee project.log
+      grep -q "restored '$DSTDB'" project.log
     '';
 
     # `odoo db backup --format dump` (no filestore), `--keep-days` pruning,

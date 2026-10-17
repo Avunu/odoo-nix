@@ -14,7 +14,18 @@ import click
 from rich.console import Console
 
 from .. import odooenv
-from .db import MigrateOptions, _backup_one, _env_flag, _migrate_one, _restore_one, _restore_remote, _run_multi
+from .db import (
+    MigrateOptions,
+    _backup_one,
+    _env_flag,
+    _migrate_one,
+    _overwrite,
+    _restore_one,
+    _restore_options,
+    _restore_remote,
+    _run_multi,
+    _with_files,
+)
 
 console = Console()
 
@@ -108,42 +119,44 @@ def project_backup(ctx, fmt, out_dir, keep_days):
     help="A database name and the backup file to restore into it. Repeatable. "
     "Omit to restore the project database from the remote backup store.",
 )
-@click.option("--force", is_flag=True, help="Overwrite a database if it already exists.")
 @click.option("--neutralize", is_flag=True, help="Disable outgoing mail/cron on each restored copy (default in the dev shell: restore.neutralize).")
-@click.option("--at", default=None, help="Remote restore: the newest backup within this point in time (ISO 8601 or a backup's own name; see `odoo db restore --help`).")
 @click.option(
-    "--attachments/--no-attachments",
+    "--at",
     default=None,
-    help="Remote restore: mirror object-store attachments locally (default: per odoo-nix.restore.attachments).",
+    help="Remote restore: the newest backup within this point in time (ISO 8601 or a backup's own name; see `odoo db restore --help`).",
 )
+@_restore_options
 @click.pass_context
-def project_restore(ctx, pairs, force, neutralize, at, attachments):
+def project_restore(ctx, pairs, neutralize, at, no_force, force, migrate, files, attachments):
     """Restore explicit DB PATH pairs in one batch (see `odoo db restore` for
     a single database) -- or, with no --restore, the project database
-    (`odooConf.dbName`) from the remote backup store (pass --force to
-    overwrite it)."""
+    (`odooConf.dbName`) from the remote backup store. Existing databases are
+    overwritten (--no-force refuses) and migrated afterwards (--no-migrate)."""
+    overwrite = _overwrite(force, no_force)
+    if migrate is None:
+        migrate = _env_flag("ODOO_NIX_RESTORE_MIGRATE", True)
     conf_path = odooenv.resolve_config_path(ctx.obj.get("config"))
     odoo_config = odooenv.load_config(conf_path, odooenv.db_connection_args(ctx.obj))
     if not pairs:
         db_name = odooenv.resolve_database(ctx.obj.get("database"), odoo_config)
         if not db_name:
             raise click.UsageError("no database: pass -d/--database or set odooConf.dbName.")
-        mode = os.environ.get("ODOO_NIX_RESTORE_ATTACHMENTS", "none") if attachments is None else ("mirror" if attachments else "none")
         _restore_remote(
             db_name,
             os.environ.get("ODOO_NIX_RESTORE_SOURCE_DB") or db_name,
             at,
-            force,
+            overwrite,
             _env_flag("ODOO_NIX_RESTORE_NEUTRALIZE", True),
             True,
-            mode,
+            _with_files(files, attachments),
             False,
+            migrate=migrate,
         )
         return
     if not neutralize:
         neutralize = _env_flag("ODOO_NIX_RESTORE_NEUTRALIZE", False)
     _run_multi(
         list(pairs),
-        lambda pair: _restore_one(pair[0], pair[1], force, neutralize),
+        lambda pair: _restore_one(pair[0], pair[1], overwrite, neutralize, migrate=migrate),
         label=lambda pair: pair[0],
     )

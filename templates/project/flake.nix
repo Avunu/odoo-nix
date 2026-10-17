@@ -63,7 +63,7 @@
               # `odoo db restore` / `odoo project restore` from the S3 backups:
               # restore = {
               #   sourceDatabase = "production_db";  # folder the server backs up into
-              #   attachments = "mirror";            # also download object-store attachments
+              #   files = true;                      # also download object-store attachments
               # };
 
               # Build production OCI images with `nix build .#builtOdoo` and the
