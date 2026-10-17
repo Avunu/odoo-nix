@@ -11,6 +11,8 @@ topLevel@{
 let
   inherit (lib) mkOption mkEnableOption types;
   inherit (flake-parts-lib) mkPerSystemOption;
+  # Series -> interpreter, the same file odoo-init scaffolds from.
+  presets = builtins.fromJSON (builtins.readFile ../lib/odoo-presets.json);
 in
 {
   options.perSystem = mkPerSystemOption (
@@ -77,8 +79,20 @@ in
 
         python = mkOption {
           type = types.package;
-          default = pkgs.python311;
-          description = "Python interpreter (should match the series; 3.11 for 18.0, 3.12 for 19.0).";
+          default =
+            let
+              series = config.odoo-nix.odooSeries;
+            in
+            pkgs.${
+              presets.${series}.python or (throw ''
+                odoo-nix: no preset for odooSeries "${series}" in lib/odoo-presets.json; set odoo-nix.python.
+              '')
+            };
+          defaultText = lib.literalMD ''
+            the series' interpreter from `lib/odoo-presets.json`
+            (`pkgs.python311` for 18.0, `pkgs.python312` for 19.0)
+          '';
+          description = "Python interpreter (should match the series' `requires-python`).";
         };
 
         nodejs = mkOption {
