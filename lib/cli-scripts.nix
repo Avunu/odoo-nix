@@ -35,9 +35,11 @@
   # OCB from a flake input (see modules/devenv.nix `coreSource`) -- affects
   # only the "bump it with nix flake update" note in projectUpdate.
   coreSource ? null,
-  # lib/submodules-init.nix's tool: projectUpdate checks out a submodule this
-  # clone has never had the way shell entry does, as a partial clone.
-  submodulesInitBin ? null,
+  # odoo-nix-sources (lib/shell-tools.nix, python-devops-nix's lib.sources):
+  # `module add` clones a new repo with it, and projectUpdate checks out a
+  # submodule this clone has never had the way shell entry does, as a partial
+  # clone.
+  sourcesBin,
   # lib/build-deps.nix: odoo-nix-build-deps, which keeps pyproject.toml's
   # sdist build dependencies in step with uv.lock after each `uv lock`.
   buildDeps,
@@ -128,17 +130,19 @@ let
           ADDED_PATHS=()
           for repo in "''${NEW_REPOS[@]}"; do
             url="$(oca_repo_url "$repo")"; path="${layout.externalDir}/$repo"
-            if git ls-remote --heads "$url" "${odooSeries}" 2>/dev/null | grep -q .; then
-              # A partial clone of the one branch, as shell entry makes them
-              # (lib/submodules-init.nix): every commit and folder, the files
-              # of the checkout.
-              git clone -q --filter=blob:none --single-branch --branch "${odooSeries}" -- "$url" "$path"
+            # A partial clone of the one branch, as shell entry makes them
+            # (odoo-nix-sources): every commit and folder, the files of the
+            # checkout. A repo with no branch for the series is skipped (exit
+            # 3, and the tool says so); a failed clone stops here.
+            rc=0
+            ${sourcesBin} clone --branch "${odooSeries}" --require-branch "$url" "$path" || rc=$?
+            if [ "$rc" -eq 0 ]; then
               git submodule add -q --force -b "${odooSeries}" -- "$url" "$path"
               git config -f .gitmodules "submodule.$path.shallow" true
               ADDED_PATHS+=("$path")
               echo "   + $path"
-            else
-              echo "   ⚠  $repo has no '${odooSeries}' branch — skipped" >&2
+            elif [ "$rc" -ne 3 ]; then
+              exit "$rc"
             fi
           done
           # Scoped to just the paths added above (recursive, for any nested
@@ -280,7 +284,7 @@ let
 
       echo "==> Cloning $url ($branch) → $path…"
       mkdir -p "$(dirname "$path")"
-      git clone -q --filter=blob:none --single-branch --branch "$branch" -- "$url" "$path"
+      ${sourcesBin} clone --branch "$branch" --require-branch "$url" "$path"
 
       mapfile -t FOUND < <(oca_scan_modules "$path" | LC_ALL=C sort -u)
       SEL=()
@@ -338,11 +342,9 @@ let
   projectUpdate = pkgs.writeShellScript "odoo-nix-project-update" ''
     ${preamble}
     echo "==> Updating git submodules…"
-    ${lib.optionalString (submodulesInitBin != null) ''
-      # A submodule this clone has never had is checked out as shell entry
-      # does it -- a partial clone, not the shallow one `update --init` makes.
-      ${submodulesInitBin} --core ${lib.escapeShellArg layout.coreSrc} "$PWD"
-    ''}
+    # A submodule this clone has never had is checked out as shell entry
+    # does it -- a partial clone, not the shallow one `update --init` makes.
+    ${sourcesBin} enter --treeless ${lib.escapeShellArg layout.coreSrc} "$PWD"
     git submodule update --init --recursive
     # Move each submodule to the tip of its .gitmodules-pinned branch, fetched
     # fresh by name. Two things rule out the more obvious approaches here:
@@ -357,12 +359,12 @@ let
     # both.
     #
     # How much of it to fetch follows how the submodule was cloned. A partial
-    # clone (lib/submodules-init.nix) keeps its branch with every commit's
+    # clone (odoo-nix-sources) keeps its branch with every commit's
     # folders -- OCB (${layout.coreSrc}) with its commits only -- so ask for
     # the folders, except for OCB. --depth 1 would turn it into a shallow
     # clone again, so that is only for one still shallow. Never recursing into
     # nested submodules: in a partial clone that check is a lazy fetch per
-    # commit (see lib/submodules-init.nix).
+    # commit (see python-devops-nix's python/sources.py).
     git submodule foreach --quiet '
       branch="$(git config -f "$toplevel/.gitmodules" --get "submodule.$sm_path.branch")"
       [ -n "$branch" ] || branch="$(git symbolic-ref --quiet --short HEAD || true)"

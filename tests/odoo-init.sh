@@ -1,5 +1,5 @@
-# The scaffolder (lib/odoo-init.sh), offline: git and uv are stand-ins, so no
-# submodule is fetched and nothing is locked. What is checked is what it
+# The scaffolder (lib/odoo-init.sh), offline: git, uv and odoo-nix-sources
+# are stand-ins, so no submodule is fetched and nothing is locked. What is checked is what it
 # writes into the template: the project's identity as `odoo-nix.name`
 # (python-devops-nix CONVENTIONS.md, Identity options), and the database.
 #
@@ -10,15 +10,13 @@ refute() { if "$@"; then echo "refuted, but it succeeded: $*" >&2; exit 1; fi; }
 
 stubs=$PWD/stubs
 mkdir -p "$stubs"
-printf '#!%s\n' "$BASH" | tee "$stubs/git" "$stubs/uv" >/dev/null
-cat >> "$stubs/git" <<'SH'
-# ls-remote --heads <url> <branch>: every branch exists; clone: an empty tree.
-case "$1" in
-  ls-remote) echo "0000000000000000000000000000000000000000 refs/heads/$4" ;;
-  clone) mkdir -p "${*: -1}" ;;
-esac
+printf '#!%s\n' "$BASH" | tee "$stubs/git" "$stubs/uv" "$stubs/odoo-nix-sources" >/dev/null
+# odoo-nix-sources clone ... <url> <path>: every branch exists, and the clone
+# is an empty tree. Every git subcommand succeeds and does nothing.
+cat >> "$stubs/odoo-nix-sources" <<'SH'
+[ "$1" = clone ] && mkdir -p "${*: -1}"
 SH
-chmod +x "$stubs/git" "$stubs/uv"
+chmod +x "$stubs/git" "$stubs/uv" "$stubs/odoo-nix-sources"
 
 PATH="$stubs:$PATH" bash -euo pipefail "$script" \
   --series 18.0 --name "Acme Shop" --db "acme-db" acme </dev/null >init.log 2>&1 \

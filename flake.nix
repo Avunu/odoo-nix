@@ -263,7 +263,7 @@
       #   eval-addons-*, eval-odoo-conf-*, odoo-conf-render   pure library tests (all systems)
       #   journald-formatter                                  the CLI's journald output (all systems)
       #   devguard-core, devguard, devguard-baked             the dev guard rails: base core, odoo-nix's side (all systems)
-      #   submodules-init                                     shell entry's submodule checkout (all systems)
+      #   sources                                             shell entry's submodule checkout (all systems)
       #   scaffold                                            odoo-init's generated project, offline (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
@@ -487,29 +487,46 @@
                 bash ${./tests/odoo-init.sh} ${(odooInit pkgs).script}
               '';
 
-          submodules-init =
-            mkCheck pkgs "submodules-init"
+          # odoo-nix-sources (python-devops-nix's lib.sources, configured in
+          # lib/shell-tools.nix): odoo-nix's acceptance test of it.
+          sources =
+            mkCheck pkgs "sources"
               {
                 nativeCheckInputs = [
                   pkgs.git
                   pkgs.findutils
+                  pkgs.gawk
                 ];
               }
               ''
-                bash ${./tests/submodules-init.sh} \
-                  ${import ./lib/submodules-init.nix { inherit pkgs; }}/bin/odoo-nix-submodules-init
+                bash ${./tests/sources.sh} ${
+                  lib.getExe (import ./lib/shell-tools.nix { inherit pkgs base; }).sources
+                }
               '';
         }
         // lib.optionalAttrs isLinux {
-          # The dev datadir's btrfs NOCOW attribute: arranged for a datadir
-          # initdb has yet to create, reported on one holding a cluster, and
-          # the one-off copy that fixes that. Branches on the sandbox's own
+          # The dev datadir's btrfs NOCOW attribute (python-devops-nix's
+          # lib.dbNocow, configured in lib/shell-tools.nix): arranged for a
+          # datadir initdb has yet to create, reported on one holding a
+          # cluster, and the one-off copy that fixes that. The base's own
+          # test, run against odoo-nix's command. Branches on the sandbox's own
           # filesystem, so it checks the real attribute on a btrfs builder and
           # the no-op path everywhere else (TMPDIR=<btrfs dir> to run the
           # former by hand).
-          db-nocow = mkCheck pkgs "db-nocow" { nativeCheckInputs = [ pkgs.e2fsprogs ]; } ''
-            bash ${./tests/db-nocow.sh} ${import ./lib/db-nocow.nix { inherit pkgs; }}/bin/odoo-nix-db-nocow
-          '';
+          db-nocow =
+            mkCheck pkgs "db-nocow"
+              {
+                nativeCheckInputs = [
+                  pkgs.e2fsprogs
+                  pkgs.procps
+                ];
+              }
+              ''
+                bash ${inputs.python-devops-nix}/tests/db-nocow.sh \
+                  ${
+                    lib.getExe (import ./lib/shell-tools.nix { inherit pkgs base; }).dbNocow
+                  } parent pidfile odoo-nix
+              '';
         }
         // perSeries
         // evalChecks "" (
