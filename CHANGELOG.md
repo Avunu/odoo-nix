@@ -40,7 +40,7 @@
 * odoo-migrate command ([836f0d8](https://github.com/Avunu/odoo-nix/commit/836f0d89404c62a2a61d30603dccbcc25aa49f26))
 * **python:** adopt python-devops-nix's Python environment pieces (Phase 4) ([#59](https://github.com/Avunu/odoo-nix/issues/59)) ([cd10f52](https://github.com/Avunu/odoo-nix/commit/cd10f52673d52e78ee05dd49d1e189755e49104b))
 * pythonLibraries native libraries expose ([3ccc1bd](https://github.com/Avunu/odoo-nix/commit/3ccc1bd2e9087fb78336fb40c0c08639ba13e699))
-* **release:** release odoo-nix with release-please and a release-1 b… ([#60](https://github.com/Avunu/odoo-nix/issues/60)) ([70b4a42](https://github.com/Avunu/odoo-nix/commit/70b4a42442643ae3304b9e20b7d957cf6c78ac68))
+* **release:** release odoo-nix with release-please and a release-1 branch ([#60](https://github.com/Avunu/odoo-nix/issues/60)) ([70b4a42](https://github.com/Avunu/odoo-nix/commit/70b4a42442643ae3304b9e20b7d957cf6c78ac68))
 * **restore:** the restore conventions shared with frappe-nix ([#53](https://github.com/Avunu/odoo-nix/issues/53)) ([ca69c71](https://github.com/Avunu/odoo-nix/commit/ca69c71293450a1df85a6476ba96dc890435b8b5))
 * **secrets:** adopt python-devops-nix's secrets toolkit and backup layer ([#52](https://github.com/Avunu/odoo-nix/issues/52)) ([510b0f1](https://github.com/Avunu/odoo-nix/commit/510b0f1a2c546be2e5affc11d61399f52ed4b6c2))
 * **shell:** adopt python-devops-nix's development shell pieces (Phase 5) ([#62](https://github.com/Avunu/odoo-nix/issues/62)) ([51aad1e](https://github.com/Avunu/odoo-nix/commit/51aad1e851c1cb6d9a3484b809a5bbcd822eba96))
