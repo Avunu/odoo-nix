@@ -15,6 +15,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-parts.follows = "flake-parts";
     };
+    # Shared building blocks with frappe-nix: the secrets toolkit
+    # (lib.secrets), the backup fetch layer (lib.backups) and the repository
+    # checks (lib.checks). Its own inputs are nixpkgs and flake-parts, both
+    # followed, so it adds one node to a consumer's lock.
+    python-devops-nix = {
+      url = "github:Avunu/python-devops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+    };
     nix2container = {
       url = "github:nlewo/nix2container";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -114,19 +123,25 @@
         name = "odoo-nix-addons";
       };
 
-      # One small derivation per assertion: `nix flake check` names what
-      # broke, and a slow Odoo run cannot mask a fast check. `script` runs in
-      # checkPhase so hooks that attach to preCheck -- postgresqlTestHook --
-      # work. HOME and CWD are the build directory.
+      base = inputs.python-devops-nix.lib;
+
       # The repo's own Nix files, for `nix fmt` and checks.nix-lint alike:
       # everything but templates/ (@PLACEHOLDERS@, not Nix that parses) and
       # tests/fixtures/ (stand-ins for consumer projects).
+      nixLintIgnore = [
+        "templates"
+        "tests/fixtures"
+      ];
       nixFiles = pkgs: ''
         ${pkgs.findutils}/bin/find . \( -path ./templates -o -path ./tests/fixtures -o -path ./.git \
           -o -path ./.direnv -o -path ./.devenv -o -name result -o -name 'result-*' \) -prune \
           -o -name '*.nix' -type f -print0
       '';
 
+      # One small derivation per assertion: `nix flake check` names what
+      # broke, and a slow Odoo run cannot mask a fast check. `script` runs in
+      # checkPhase so hooks that attach to preCheck -- postgresqlTestHook --
+      # work. HOME and CWD are the build directory.
       mkCheck =
         pkgs: name:
         {
@@ -217,7 +232,9 @@
       #   journald-formatter                                  the CLI's journald output (all systems)
       #   submodules-init                                     shell entry's submodule checkout (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
-      #   nix-lint                                            nixfmt, statix, deadnix (all systems)
+      #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
+      #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
+      #   eval-secrets-*                                      odoo-nix's secrets module (all systems)
       #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
       #   eval-container-name*                                the OCI image's name (Linux only)
       #   eval-*-<major>, lock-fresh-<major>                  per-series, no Odoo run (all systems)
@@ -314,32 +331,50 @@
               PY
             '';
 
-          # lib/odoo_nix_cli/remote.py (backup discovery, selection, cache, the
-          # fail-safe download) without Odoo or a network.
-          remote-store = mkCheck pkgs "remote-store" { } ''
-            ${pkgs.python3}/bin/python3 ${./tests/test_remote.py} ${./lib}
-          '';
+          # python-devops-nix's backup fetch layer, which the `odoo` CLI
+          # imports in-process: the base's own tests, on every interpreter a
+          # preset runs the CLI on (PLAN.md, Python versions).
+          backups = base.backups.check {
+            inherit pkgs;
+            product = "odoo-nix";
+            interpreters = base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; };
+          };
 
-          # nixfmt (what `nix fmt` writes), statix (statix.toml) and deadnix,
-          # over the files `nix fmt` covers.
-          nix-lint =
-            mkCheck pkgs "nix-lint"
-              {
-                nativeCheckInputs = [
-                  pkgs.deadnix
-                  pkgs.nixfmt
-                  pkgs.statix
-                ];
-              }
-              ''
-                cp -r ${./.} src
-                chmod -R u+w src
-                cd src
-                { ${nixFiles pkgs} } > ../nix-files
-                xargs -0 nixfmt --check < ../nix-files
-                statix check --format errfmt --ignore 'tests/fixtures/*' --ignore 'templates/*' .
-                xargs -0 deadnix --fail < ../nix-files
+          # odoo-nix's side of it (lib/odoo_nix_cli/backups.py,
+          # backup_layout.py): the layout, the names, `--at`, without Odoo or
+          # a network, on the same interpreters, against the package as
+          # lib/cli.nix vendors it.
+          backup-layout =
+            let
+              package = pkgs.runCommandLocal "odoo-nix-cli-package" { } ''
+                mkdir -p $out
+                cp -r ${./lib/odoo_nix_cli} $out/odoo_nix_cli
+                chmod u+w $out/odoo_nix_cli
+                cp ${base.backups.module} $out/odoo_nix_cli/_backups.py
               '';
+            in
+            mkCheck pkgs "backup-layout" { } (
+              lib.concatMapStrings (py: ''
+                ${pkgs.${py}.interpreter} -I ${./tests/test_backups.py} ${package}
+              '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
+            );
+
+          # nixfmt-rs (what `nix fmt` writes), statix (statix.toml, compared
+          # with the base's) and deadnix, over the files `nix fmt` covers.
+          nix-lint = base.checks.nixLint {
+            inherit pkgs;
+            src = ./.;
+            product = "odoo-nix";
+            ignore = nixLintIgnore;
+          };
+
+          # .editorconfig, .pre-commit-config.yaml and ruff.toml carry the
+          # base's settings (python-devops-nix CONVENTIONS.md, Repository files).
+          shared-config = base.checks.sharedConfig {
+            inherit pkgs;
+            src = ./.;
+            product = "odoo-nix";
+          };
 
           submodules-init =
             mkCheck pkgs "submodules-init"
@@ -366,6 +401,12 @@
           '';
         }
         // perSeries
+        // evalChecks "" (
+          import ./tests/secrets-module.nix {
+            inherit pkgs lib inputs;
+            inherit (self.lib) mkFlake;
+          }
+        )
         // lib.optionalAttrs isLinux (
           evalChecks "" (
             import ./tests/module-eval.nix {
@@ -382,7 +423,6 @@
             }
           )
         )
-        // lib.optionalAttrs isLinux (import ./tests/secrets-cli.nix { inherit pkgs; })
         // lib.optionalAttrs isLinux {
           # The nginx/socket contract test, against a stub Odoo (see the file
           # header). Real-Odoo module tests are module-odoo-<major>.
@@ -443,8 +483,8 @@
       formatter = forAllSystems (
         pkgs:
         pkgs.writeShellScriptBin "odoo-nix-fmt" ''
-          if [ "$#" -gt 0 ]; then exec ${pkgs.lib.getExe pkgs.nixfmt} "$@"; fi
-          { ${nixFiles pkgs} } | ${pkgs.findutils}/bin/xargs -0 ${pkgs.lib.getExe pkgs.nixfmt}
+          if [ "$#" -gt 0 ]; then exec ${pkgs.lib.getExe pkgs.nixfmt-rs} "$@"; fi
+          { ${nixFiles pkgs} } | ${pkgs.findutils}/bin/xargs -0 ${pkgs.lib.getExe pkgs.nixfmt-rs}
         ''
       );
 
@@ -455,7 +495,7 @@
         default = pkgs.mkShell {
           packages = [
             pkgs.uv
-            pkgs.nixfmt
+            pkgs.nixfmt-rs
             pkgs.statix
             pkgs.deadnix
             pkgs.python3

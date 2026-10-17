@@ -338,7 +338,7 @@ Three pieces make this work, and they share one set of variables:
 
 Backups live at `s3://$BACKUPS_BUCKET/$BACKUPS_PREFIX/<database>/<YYYY_MM_DD_HH_MM_SS>.dump[.zip]` — the `auto_backup` naming `odoo db backup` also uses.
 
-**1. The credentials, in agenix.** Declare who may read them in the project flake (the machinery is [frappe-nix's](https://github.com/Avunu/frappe-nix), ported):
+**1. The credentials, in agenix.** Declare who may read them in the project flake (the machinery is [python-devops-nix](https://github.com/Avunu/python-devops-nix)'s secrets toolkit, shared with frappe-nix):
 
 ```nix
 odoo-nix.secrets = {
@@ -353,17 +353,17 @@ Then, in the dev shell, `setup-backup-access` prompts for the five values, tests
 **2. The server side.** Add the OCA `auto_backup` and `fs_storage` modules plus [`auto_backup_fs_storage`](https://github.com/Avunu/avunu-odoo-addons) (a thin bridge: an *FS Storage* method on `auto_backup`) and decrypt the same ciphertext on the host:
 
 ```nix
-age.secrets.odoo-backup.file = inputs.myproject.lib.odooSecrets.files.odoo_backup_access;
+age.secrets.odoo-backup.file = inputs.myproject.lib.secrets.files.odoo_backup_access;
 services.odoo-nix.environmentFiles = [ config.age.secrets.odoo-backup.path ];
 ```
 
-Installing the bridge module creates an `odoo_backup` `fs.storage` whose options are `$BACKUPS_*` references (resolved from the process environment by `fs_storage`'s `eval_options_from_env` — no credentials in the database) and a daily `dump`-format job with 30-day retention. To give the server its own write-capable key and keep developers read-only, set `odoo-nix.secrets.backupAccess.hosts = false` and declare the server's file under `odoo-nix.secrets.extra`.
+(`lib.odooSecrets` is the old name of `lib.secrets`, kept for one release.) Installing the bridge module creates an `odoo_backup` `fs.storage` whose options are `$BACKUPS_*` references (resolved from the process environment by `fs_storage`'s `eval_options_from_env` — no credentials in the database) and a daily `dump`-format job with 30-day retention. To give the server its own write-capable key and keep developers read-only, set `odoo-nix.secrets.backupAccess.hosts = false` and declare the server's file under `odoo-nix.secrets.extra`.
 
-**3. Restoring.** `odoo db restore` with no file lists `<prefix>/<database>/`, takes the newest backup (or the newest at/before `--at`), downloads it to `.devenv/state/odoo-nix/restore/` (size-checked, the newest two kept), then restores it **neutralized** (no outgoing mail, crons off; `--no-neutralize` to opt out). `--from` names the production database folder when it differs from the local name (`restore.sourceDatabase`). Needs `--force` to replace an existing database.
+**3. Restoring.** `odoo db restore` with no file lists `<prefix>/<database>/`, takes the newest backup (or the newest within `--at`, which takes ISO 8601 — `2026-10-02`, `2026-10-02T03:00` — or a backup's own name, `2026_10_02_03_00_00`, or any leading part of either), downloads it to `.devenv/state/odoo-nix/restore/` (size-checked; the one just fetched and one other kept), then restores it **neutralized** (no outgoing mail, crons off; `--no-neutralize` to opt out). `--from` names the production database folder when it differs from the local name (`restore.sourceDatabase`). Needs `--force` to replace an existing database.
 
 *Attachments in object storage.* If production runs `fs_attachment` with an S3 storage, the database dump holds only `<storage>://<path>` pointers and a restored copy would otherwise carry production's bucket credentials and write new attachments into the production bucket. So after every remote restore, each non-local `fs.storage` row is rewritten to a local directory (`.devenv/state/odoo-nix/attachments/<code>`; protocol `file`, options cleared, `eval_options_from_env` off). With `restore.attachments = "mirror"` (or `--attachments`) the bucket contents are mirrored there first — repeat runs copy only what changed — using the backup-access credentials, which then need read access to the attachment bucket. Without it, attachments are simply missing locally. Restoring never writes to any bucket.
 
-Format: with attachments in object storage, `dump` (database only) is the complete backup — the `zip` format's filestore would not contain them. `ODOO_NIX_BACKUP_SOURCE=<dir>` points the restore at a directory laid out like the bucket instead of S3 (used by the tests).
+Format: with attachments in object storage, `dump` (database only) is the complete backup — the `zip` format's filestore would not contain them. `ODOO_NIX_BACKUP_SOURCE=<dir>` points the restore at a directory laid out like the bucket instead of S3 (used by the tests), and `ODOO_NIX_MC` names the minio-client binary. The listing, download and cache are python-devops-nix's backup fetch layer (`lib.backups`), which the `odoo` CLI imports in-process with odoo-nix's layout (`lib/odoo_nix_cli/backup_layout.py`); `odoo-nix-backup-fetch {list,folders,fetch}` is the same layer as a command, which `setup-backup-access` tests the credentials with.
 
 ### Adding a third-party module repo
 
@@ -585,18 +585,19 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `cli-migrate-<18\|19>` | `odoo db migrate` from build to build, the way `odoo-migrate.service` runs it: provision records the baseline; the same build is a one-query no-op; v2 of the fixture (`tests/fixtures/migrate`) updates **only** the fixture — new column, post-migrate script, new build recorded; version drift with unchanged checksums is still migrated; v3's migration commits a change and then fails, and the database is back exactly as v2 left it; `--keep` prunes only after a success; an uninitialised database is skipped |
 | `devguard` | the dev guard rails without Odoo or a network (`tests/test_devguard.py`): settings precedence and per-command disable, the post-import hook and its fail-closed behaviour, the egress guard against real sockets (loopback and Unix pass; everything else — urllib, asyncio, `create_connection` — is refused before any packet), the mail transport against a stub SMTP server, and the Odoo-facing guards against stand-in modules |
 | `devguard-baked` | the package `lib/devguard.nix` builds: Nix-baked settings actually reach the guard |
-| `remote-store` | the remote backup store (`lib/odoo_nix_cli/remote.py`, `tests/test_remote.py`) without Odoo or a network: only real backups are listed, newest/`--at` selection, cache + keep-two, the fail-safe download, the throwaway `mc` config |
-| `secrets-cli` | `edit-secret` / `rekey-secrets` / `check-secrets` against a real ragenix and committed fixture keys: the file lands in the repo (not the store), is encrypted to the declared recipients, is `git add`ed, and a rekey to a longer list lets the new key decrypt (Linux) |
-| `eval-secrets-schema-*` | the secret list, generated rules and agenix-shell set: a declared secret with no `.age` file yet is reported but does not break evaluation |
+| `backups` | python-devops-nix's backup fetch layer, which the CLI imports in-process: the base's own tests (`lib.backups.check`), on each interpreter a preset names |
+| `backup-layout` | odoo-nix's side of it (`lib/odoo_nix_cli/backups.py`, `backup_layout.py`, `tests/test_backups.py`), without Odoo or a network, on each preset's interpreter: only real backups are listed, `--at` in ISO 8601 and in odoo-nix's naming, fetching an older backup keeps it, odoo-nix's names (`ODOO_NIX_*`, the `odoonix` mc alias) |
+| `eval-secrets-*` | `odoo-nix.secrets` (python-devops-nix's `lib.secrets.mkModule`) through `lib.mkFlake`: the `odoo_` variables, backup-access encrypted to the host keys by default, a declared secret with no `.age` file yet reported but left out of agenix-shell, `lib.secrets` and its `lib.odooSecrets` alias. The toolkit itself (`edit-secret`, `rekey-secrets`, `check-secrets`, agecheck) is tested in python-devops-nix |
 | `cli-remote-restore-<18\|19>` | `odoo db restore` from a directory store: `--list`, newest backup restored neutralized, refuses to overwrite without `--force`, `--no-neutralize`, a non-matching `--at` fails |
 | `db-nocow` | `odoo-nix-db-nocow` (`tests/db-nocow.sh`): NOCOW arranged for a datadir `initdb` has yet to create and cleared from its parent after, an existing cluster reported, the stopped-server copy keeping mode 0700. Checks the real attribute on a btrfs builder, the no-op elsewhere (`TMPDIR=<btrfs dir>` to run it by hand; Linux only) |
-| `nix-lint` | `nixfmt --check` (what `nix fmt` writes), `statix` (`statix.toml`) and `deadnix` over the repo's Nix files, `templates/` and `tests/fixtures/` excluded |
+| `nix-lint` | python-devops-nix's `lib.checks.nixLint`: `nixfmt-rs --check` (what `nix fmt` writes), `statix` (`statix.toml`, compared with the base's copy) and `deadnix` over the repo's Nix files, `templates/` and `tests/fixtures/` excluded |
+| `shared-config` | python-devops-nix's `lib.checks.sharedConfig`: `.editorconfig`, `.pre-commit-config.yaml` and `ruff.toml` make every setting the base's copies make |
 | `journald-formatter` | the CLI's journald output without Odoo (`tests/test_journald.py`, on each series' interpreter): level → `<N>`, every line of a traceback prefixed, and the full `odoo` → sitecustomize → patched `init_logger` path against a stand-in `odoo.netsvc` |
 | `eval-module-*` | `services.odoo-nix` evaluated, nothing built (`tests/module-eval.nix`; includes `environmentFiles` reaching the units): `APP_SERVICE`/`APP_SITE` and `SyslogIdentifier` on every unit, `APP_SITE` left out without `dbName`, the journald switch and the `logging.file` warning, PostgreSQL's log settings, nginx's access log |
 | `module-nginx` | `services.odoo-nix`'s nginx/socket contract, with a stub Odoo that echoes headers; the journal fields on what the units log and nginx's JSON access log in the journal (needs KVM) |
 | `module-odoo-<18\|19>` | `services.odoo-nix` with the real CLI package: `odoo-migrate` provisions the empty database before `odoo.service` starts, `/web/login` via nginx and directly, `version_info`; root's `odoo db backup` runs as the service user with its tools; with `nginx.xSendfile`, an attachment comes through nginx while Odoo's own response is empty and `/web/filestore/` is a 404 from outside; a restart migrates nothing; deploying v2 (a specialisation) migrates the changed module; deploying v3 fails the migration, rolls it back and leaves `odoo.service` **down**; redeploying v2 recovers; Odoo's records in the journal at their priority with no asctime/pid (workers and the gevent process included), a traceback at the error's priority on every line (needs KVM) |
 
-Everything that runs Odoo or a VM is Linux-only; eval checks and `lock-fresh` run on every system. `nix develop` gives a shell for working on odoo-nix itself (`uv`, `nixfmt`, `odoo-nix-relock`); consumers get their devenv shell from the flake-parts module instead.
+Everything that runs Odoo or a VM is Linux-only; eval checks and `lock-fresh` run on every system. `nix develop` gives a shell for working on odoo-nix itself (`uv`, `nixfmt-rs`, `odoo-nix-relock`); consumers get their devenv shell from the flake-parts module instead.
 
 The fixtures are the smallest consumer-shaped workspace: a hand-written `pyproject.toml` (`dependencies = ["odoo"]`, OCB as the path source `odoo/` exactly as `oca_sources.py` emits it, `freezegun` + `websocket-client` in the dev group), a committed `uv.lock`, and one custom addon. There is no `odoo/` in the tree — the Nix build gets it from the `ocb-*` input through `coreSource`, and the test run uses `testPythonEnv` (`packages.odooTestEnv` in a consumer): the production wheels plus the dev group, non-editable, so it runs in the sandbox.
 
@@ -644,7 +645,7 @@ modules/
   devenv.nix                 # perSystem.odoo-nix options + dev shell
   containers.nix             # dockerTools OCI image
   nixos.nix                  # services.odoo-nix
-  secrets.nix                # odoo-nix.secrets: agenix + agenix-shell (top-level flake-parts module)
+  secrets.nix                # odoo-nix.secrets: python-devops-nix's lib.secrets.mkModule (agenix + agenix-shell)
 addons/
   dev_mailcatch/             # deprecated no-op stub (the catch-all is odoo_devguard's `mail` guard now)
 lib/
@@ -654,14 +655,9 @@ lib/
   odoo.nix                   # builtOdoo assembly
   cli.nix                    # wraps builtOdoo (or the live dev checkout) with the odoo CLI
   cli-scripts.nix            # bash helpers `odoo module add[-bundle]`/`project update` delegate to
-  odoo_nix_cli/               # the odoo CLI itself (Python: click + rich)
+  odoo_nix_cli/               # the odoo CLI itself (Python: click + rich); backup_layout.py is its backup naming
   devguard/odoo_devguard/    # dev guard rails (egress, mail, crons, objectstore, backups, webhooks, iap); dev virtualenv only
   devguard.nix               # builds that package with a project's settings baked in (_baked.json)
-  secrets-schema.nix         # the one derivation of the secret set (paths, rules, shell vars)
-  secrets-tools.nix          # generated agenix rules, on-demand decryption, setup-backup-access
-  secret-scripts.nix         # edit-secret / rekey-secrets / check-secrets / setup-backup-access
-  agecheck.py                # verify .age files are encrypted to their declared recipients
-  sh/backup-access.sh        # setup-backup-access
   odoo-ls.nix                # odoo-ls (language server) package builder
   odoo-ls-Cargo.lock         # vendored lockfile (odoo-ls does not commit one upstream)
   overrides.nix              # native-build Python overlays
@@ -682,15 +678,15 @@ tests/
   module-nginx.nix           # NixOS VM test: nginx/socket contract (stub Odoo)
   module-odoo.nix            # NixOS VM test: services.odoo-nix with the real builtOdoo
   test_journald.py           # the CLI's journald formatter + init_logger patch, without Odoo
-  test_remote.py             # the remote backup store, without Odoo or a network
+  test_backups.py            # odoo-nix's backup layout and names, without Odoo or a network
+  secrets-module.nix         # odoo-nix.secrets evaluated through lib.mkFlake
   test_devguard.py           # the dev guard rails, without Odoo or a network
-  secrets-cli.{nix,sh}       # edit-secret / rekey-secrets against a real ragenix
   lock_fresh.py              # uv.lock ↔ pinned OCB consistency
   relock.nix                 # `nix run .#relock`
   relock-odoo-ls.nix         # `nix run .#relock-odoo-ls`
   fixtures/<series>/         # pyproject.toml + uv.lock + custom/odoo_nix_fixture
   fixtures/addons-tree*/     # synthetic trees for eval.nix
-  fixtures/{keys,secrets}/   # committed age keypairs + a ciphertext for the secrets tests
+  fixtures/secrets/          # a ciphertext for the secrets module tests
 ```
 
 ## License

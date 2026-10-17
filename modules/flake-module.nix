@@ -4,7 +4,7 @@
 {
   imports = [
     inputs.devenv.flakeModule
-    inputs.agenix-shell.flakeModules.default
+    # Imports agenix-shell's flake module itself (lib.secrets.mkModule).
     ./secrets.nix
     ./devenv.nix
     ./containers.nix

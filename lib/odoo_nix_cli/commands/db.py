@@ -26,7 +26,8 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from .. import migrate_plan, odooenv, remote
+from .. import migrate_plan, odooenv
+from ..backups import BackupError, backups
 from ..progress import MigrationProgress
 
 console = Console()
@@ -725,7 +726,7 @@ def _reexec_with_secrets() -> None:
     they are not in the environment, re-run this very command under the
     dev-shell wrapper that decrypts the backup-access secret first."""
     wrapper = os.environ.get("ODOO_NIX_WITH_SECRETS")
-    if remote.has_credentials() or not wrapper or os.environ.get("ODOO_NIX_SECRETS_LOADED"):
+    if backups.has_credentials() or not wrapper or os.environ.get("ODOO_NIX_SECRETS_LOADED"):
         return
     console.print("[dim]decrypting backup-access secret...[/]")
     os.execv(wrapper, [wrapper, "odoo", *sys.argv[1:]])  # noqa: S606
@@ -781,27 +782,34 @@ def _restore_remote(db_name, source_db, at, force, neutralize, use_cache, attach
     if prefix and not os.environ.get("BACKUPS_PREFIX"):
         os.environ["BACKUPS_PREFIX"] = prefix
     try:
-        with remote.store() as base:
+        with backups.store() as store:
             if list_only:
-                for name, size in remote.list_backups(base, source_db):
-                    say(f"{name}  {_human_size(size)}")
+                for backup in backups.require_sets(store, source_db):
+                    say(f"{backup.name}  {_human_size(backup.objects['dump'].size)}")
                 return
             console.print(f"[cyan]fetching[/] newest backup of '{source_db}'" if not at else f"[cyan]fetching[/] '{source_db}' @ {at}")
-            path = remote.fetch(base, source_db, _restore_cache_dir(), at, use_cache)
-            _restore_one(db_name, str(path), force, neutralize, localize=False)
+            fetched = backups.fetch(
+                store,
+                source_db,
+                dest=_restore_cache_dir(),
+                at=at,
+                use_cache=use_cache,
+                progress=lambda msg: console.print(f"      [dim]{msg}[/]"),
+            )
+            _restore_one(db_name, str(fetched.paths["dump"]), force, neutralize, localize=False)
 
             storages = _remote_storages(db_name)
             root = _attachments_root()
             for st in storages:
                 src = (st["directory_path"] or "").format(db_name=source_db)
-                if attachments == "mirror" and src and "$" not in src and not remote.is_local():
+                if attachments == "mirror" and src and "$" not in src and not backups.is_local():
                     console.print(f"[cyan]mirroring[/] attachments '{st['code']}' from {src}")
-                    remote.mirror(src, root / st["code"])
+                    store.mirror(src, root / st["code"])
                 elif attachments == "mirror":
                     console.print(f"[yellow]![/] not mirroring '{st['code']}' ({src or 'no directory path'})")
             _localize_storages(db_name, storages, root)
-    except remote.RemoteError as exc:
-        raise click.ClickException(str(exc)) from exc
+    except BackupError as exc:
+        raise click.ClickException("\n".join([exc.message, *exc.details])) from exc
 
 
 @db_group.command("restore")
@@ -814,7 +822,7 @@ def _restore_remote(db_name, source_db, at, force, neutralize, use_cache, attach
     help="Disable outgoing mail/cron on the restored copy. Default: on in the dev shell (restore.neutralize), off on a server.",
 )
 @click.option("--from", "source_db", default=None, help="Remote restore: source database folder (default: DB_NAME).")
-@click.option("--at", default=None, help="Remote restore: newest backup at or before this timestamp prefix (YYYY_MM_DD_HH_MM_SS).")
+@click.option("--at", default=None, help="Remote restore: the newest backup within this point in time: ISO 8601 (2026-10-02, 2026-10-02T03:00) or a backup's own name (2026_10_02_03_00_00), or any leading part of either.")
 @click.option("--list", "list_only", is_flag=True, help="Remote restore: list available backups and exit.")
 @click.option("--no-cache", is_flag=True, help="Remote restore: download again even if cached.")
 @click.option(

@@ -93,6 +93,7 @@ let
       mirrorTree = tree;
       targetPythonEnv = pythonEnvs.odooPythonEnv;
       cliScripts = null;
+      backupsModule = inputs.python-devops-nix.lib.backups.module;
     };
   odooCli = mkCli "${projectName}-cli" builtOdoo;
 
@@ -397,7 +398,7 @@ in
         echo "restore succeeded for a timestamp nothing matches" >&2
         exit 1
       fi
-      grep -q 'no backup matching' at.log
+      grep -q 'no backup matches --at 2001' at.log
     '';
 
     # `odoo db backup --format dump` (no filestore), `--keep-days` pruning,

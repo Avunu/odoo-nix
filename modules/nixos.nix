@@ -678,7 +678,7 @@ in
         `odoo db restore`, exported by the project flake:
 
             age.secrets.odoo-backup.file =
-              inputs.myproject.lib.odooSecrets.files.odoo_backup_access;
+              inputs.myproject.lib.secrets.files.odoo_backup_access;
             services.odoo-nix.environmentFiles = [ config.age.secrets.odoo-backup.path ];
 
         (The host's key must be in the project's `odoo-nix.secrets.hostRecipients`.)
