@@ -20,10 +20,14 @@
 # Odoo's records reach the journal with their real syslog priority (see
 # logging.journald and lib/odoo_nix_cli/journald.py) -- what a log shipper
 # reading the journal (Vector -> Loki, `journalctl -p warning`) filters on.
+#
+# python-devops-nix's library arrives as the module argument `odooNixBase`:
+# flake.nixosModules.default sets it, so import that, not this file alone.
 {
   config,
   lib,
   pkgs,
+  odooNixBase,
   ...
 }:
 
@@ -154,13 +158,11 @@ let
     pkgs.coreutils
   ];
 
-  inherit (import ../lib/env.nix) blasThreadCaps;
-
   serviceEnv = {
     ODOO_RC = runtimeConf;
     LANG = "C.UTF-8";
   }
-  // blasThreadCaps
+  // odooNixBase.python.threadCaps
   # Read by the odoo CLI (lib/odoo_nix_cli/journald.py), which also checks
   # that stderr really is the journal stream before changing anything.
   // lib.optionalAttrs journaldActive { ODOO_NIX_JOURNALD = "1"; }

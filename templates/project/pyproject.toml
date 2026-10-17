@@ -73,7 +73,7 @@ build-backend = "setuptools.build_meta"
 packages = []
 
 # Legacy sdist-only deps (from Odoo's requirements) that don't declare setuptools
-# as a build dependency. Auto-maintained from uv.lock (lib/uv_build_deps.py).
+# as a build dependency. Auto-maintained from uv.lock (odoo-nix-build-deps).
 [tool.uv.extra-build-dependencies]
 # >>> odoo-nix: sdist build deps (managed) >>>
 # <<< odoo-nix: sdist build deps (managed) <<<

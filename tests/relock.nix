@@ -7,12 +7,13 @@
   pkgs,
   ocbInputs,
   presets,
+  # lib/build-deps.nix: odoo-nix-build-deps.
+  buildDeps,
 }:
 pkgs.writeShellApplication {
   name = "odoo-nix-relock";
   runtimeInputs = [
     pkgs.uv
-    pkgs.python3
     pkgs.git
     pkgs.coreutils
   ];
@@ -35,7 +36,7 @@ pkgs.writeShellApplication {
         export UV_PYTHON="$py" UV_PYTHON_DOWNLOADS=never
         echo "==> $series: uv lock $* (python: $py)"
         uv lock "$@"
-        python3 "$root/lib/uv_build_deps.py" update pyproject.toml uv.lock
+        ${pkgs.lib.getExe buildDeps} update pyproject.toml uv.lock
         uv lock
       ) || {
         core_shadow_end "$dir/odoo" "$ocb" "$shadow"

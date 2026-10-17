@@ -112,7 +112,7 @@ odoo db provision       # (another shell) create the DB + install modules.txt
 | flakeModules.default | the flake-parts module (devenv shell + containers + the odoo-nix option namespace) |
 | nixosModules.default | the standalone services.odoo-nix NixOS module |
 | lib.mkFlake | flake-parts.lib.mkFlake wrapper that merges odoo-nix's own inputs |
-| lib.overrides | composable Python native-build overlays (psycopg2, python-ldap, lxml, libsass) |
+| lib.overrides | composable Python native-build overlays: python-devops-nix's shared fixes one by one (psycopg2, python-ldap, lxml, pycups, python-magic, pyvips, cairocffi) and libsass |
 | lib.addons | the addons_path synthesis function, for testing / advanced use |
 | lib.odoo-ls | the odoo-ls (Odoo language server) package builder |
 | packages.<sys>.odoo-init / .default | the scaffolder executable |
@@ -134,7 +134,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | python | the series' preset (`lib/odoo-presets.json`: python311 for 18.0, python312 for 19.0) | interpreter (match the series) |
 | nodejs | pkgs.nodejs_22 | Node.js (for rtlcss / asset tooling) |
 | pythonOverrides | _: _: {} | uv2nix package-set overlay for native-build overrides |
-| pythonLibraries | { } | per-package native libs to expose to a Python build, e.g. { python-snappy = [ pkgs.snappy ]; } (merged with built-ins; pycups is built in) |
+| pythonLibraries | { } | per-package native libs to expose to a Python build, e.g. { python-snappy = [ pkgs.snappy ]; } (python-devops-nix's shared fixes already cover psycopg2, python-ldap, lxml, pycups, python-magic, pyvips and cairocffi) |
 | layout.coreSrc | "odoo" | path of the OCB source submodule (or of the symlink `coreSource` maintains) |
 | layout.externalDir | "modules" | directory holding OCA module-repo submodules |
 | layout.customDir | "custom" | directory holding your own modules |
@@ -464,13 +464,13 @@ Modules that aren't packaged (a plain addons repo with no per-module `pyproject.
 
 This is a pure enumeration of available local modules — no dependency _logic_. uv resolves the graph; adding a module or changing its manifest deps is picked up automatically.
 
-The dev environment installs the modules **editable** (live source) and `odoo` as a wheel (its vendored `pep517_odoo` backend needs `setup/` on `PYTHONPATH` during the build, handled in `lib/python.nix`); Odoo is still **run from source** via `odoo-bin` + `addons_path`, so module loading and OCB edits work exactly as before — the editable installs just feed uv's resolution. `lib/overrides.nix` supplies native-build overrides (psycopg2, python-ldap) and a `[tool.uv.extra-build-dependencies]` block grants `setuptools` to sdist-only legacy deps. For a genuine version conflict, use `[tool.uv] override-dependencies`.
+The dev environment installs the modules **editable** (live source) and `odoo` as a wheel (its vendored `pep517_odoo` backend needs `setup/` on `PYTHONPATH` during the build, handled in `lib/python.nix`); Odoo is still **run from source** via `odoo-bin` + `addons_path`, so module loading and OCB edits work exactly as before — the editable installs just feed uv's resolution. The package set is uv2nix's, then python-devops-nix's shared package fixes (`lib.python.overrides`: psycopg2, python-ldap, lxml, pycups, python-magic, pyvips, cairocffi; a build fix applies only to a source build, a runtime fix such as python-magic's libmagic path to a wheel too), then odoo-nix's own (the OCB build, `lxml_html_clean`), then `pythonOverrides`. A `[tool.uv.extra-build-dependencies]` block grants `setuptools` to sdist-only legacy deps; `odoo-nix-build-deps update` (python-devops-nix's `lib.python.buildDeps`) derives it from `uv.lock` after each `uv lock`, and `odoo-nix-build-deps check` fails when it is out of date. Every virtualenv goes through python-devops-nix's stale-lock audit (`lib.python.lockAudit`): a dependency `pyproject.toml` declares and `uv.lock` lacks (a module added to `modules.txt` without re-locking) fails evaluation with `odoo-nix: uv.lock does not cover every declared dependency`, naming it, where uv2nix alone would build the environment without it. For a genuine version conflict, use `[tool.uv] override-dependencies`.
 
-When a module pulls a C-extension dep that needs system headers (e.g. `pycups` → `cups/http.h`), expose the library declaratively rather than writing an override (`python-magic` needs neither: odoo-nix points it at nixpkgs' libmagic itself, so it works outside the dev shell too) — the `pythonLibraries` option maps a Python package to nixpkgs libraries whose `.dev` headers + pkg-config are added to its build:
+When a module pulls a C-extension dep that needs system headers (e.g. `pycups` → `cups/http.h`), expose the library declaratively rather than writing an override (the shared fixes above need neither; `python-magic`, for one, is pointed at nixpkgs' libmagic, so it works outside the dev shell too) — the `pythonLibraries` option maps a Python package to nixpkgs libraries whose `.dev` headers + pkg-config are added to its build:
 
 ```nix
 odoo-nix.pythonLibraries = {
-  python-snappy = [ pkgs.snappy ];   # pycups is built in
+  python-snappy = [ pkgs.snappy ];   # pycups needs no entry
 };
 ```
 
@@ -613,7 +613,7 @@ Wraps `flake-parts.lib.mkFlake`, merging odoo-nix's own inputs (devenv, uv2nix, 
 
 ### `lib.overrides`
 
-Composable `final: prev:` Python overlays for packages needing system libraries (`psycopg2`, `python-ldap`, `lxml`, `libsass`). psycopg2 + python-ldap are wired by default; pass more via `pythonOverrides`.
+Composable Python overlays for packages needing system libraries: `lib.overrides.<package> { pkgs }` is a `final: prev:` overlay. Every one but `libsass` is python-devops-nix's (`lib.python.packageOverrides`), and those are already applied to every project's environment; they are here for a flake that builds its own package set. Pass more via `pythonOverrides`.
 
 ### `lib.addons`
 
@@ -628,6 +628,8 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `eval-addons-*`, `eval-odoo-conf-*`, `odoo-conf-render` | pure tests of `lib/addons.nix` on a synthetic tree (`tests/fixtures/addons-tree`) and of `lib/odoo-conf.nix` rendering |
 | `eval-*-<18\|19>` | per-series eval assertions: the fixture's `requires-python` matches `lib/odoo-presets.json`; `builtOdoo`'s `passthru.addonsPath` / `odooVersion` contract |
 | `lock-fresh-<18\|19>` | `tests/fixtures/<series>/uv.lock` still matches the pinned `ocb-*` input (series + `install_requires`) |
+| `build-deps-<18\|19>` | `odoo-nix-build-deps check`: the fixture's managed `[tool.uv.extra-build-dependencies]` block is what its `uv.lock` derives |
+| `eval-lock-audit-*` | the stale-lock audit: each fixture's lock covers its `pyproject.toml` (`-18`, `-19`), and on `tests/fixtures/stale-lock` (18.0's lock, one dependency more) it names the gap and the fix, and no virtualenv evaluates |
 | `builtOdoo-<18\|19>` | the assembled package builds — including the non-editable `odoo` wheel; `bin/odoo --version` runs on the production env; `python-magic` finds libmagic with no `LD_LIBRARY_PATH` |
 | `odoo-init-<18\|19>` | `-i base` against an in-sandbox PostgreSQL (`postgresqlTestHook`, unix socket); `web` installed proves the second core root; and, since this is the production wrapper and environment, the dev guard rails are absent from it (no `odoo_devguard` on disk or in the log) |
 | `odoo-test-<18\|19>` | installs the fixture addon `tests/fixtures/<series>/custom/odoo_nix_fixture` and runs its Odoo tests (ORM round-trip + the dev guard rails: a mail redirected with the Nix-baked port, egress refused before a packet, the guards reached their targets), asserting the stats line shows they ran |
@@ -665,7 +667,7 @@ nix run .#relock            # or: nix run .#relock -- --upgrade
 git add tests/fixtures/*/uv.lock tests/fixtures/*/pyproject.toml
 ```
 
-It runs `uv lock` in each fixture with the series' interpreter from `lib/odoo-presets.json`, then syncs the sdist build-dep block with `lib/uv_build_deps.py` — the tail of what `odoo project update` runs in a consumer, including the lock-time shadow of the store path (`lib/core-shadow.sh`) that `coreSource` needs; `tests/fixtures/<series>/odoo` (gitignored) is left pointing at the pinned tree afterwards.
+It runs `uv lock` in each fixture with the series' interpreter from `lib/odoo-presets.json`, then syncs the sdist build-dep block with `odoo-nix-build-deps` (`lib/build-deps.nix`) — the tail of what `odoo project update` runs in a consumer, including the lock-time shadow of the store path (`lib/core-shadow.sh`) that `coreSource` needs; `tests/fixtures/<series>/odoo` (gitignored) is left pointing at the pinned tree afterwards.
 
 odoo-ls's own weekly dependabot PR (`odoo-ls-src` / `odoo-ls-typeshed`, their own group) is different: odoo-ls does not commit a `Cargo.lock` upstream, so odoo-nix vendors one at `lib/odoo-ls-Cargo.lock`. A bump needs it refreshed, or `nix build .#odoo-ls` fails outright (the lighter-weight equivalent of `lock-fresh-<major>` for this input):
 
@@ -716,11 +718,11 @@ lib/
   devguard.nix               # builds that package with a project's settings baked in (_baked.json)
   odoo-ls.nix                # odoo-ls (language server) package builder
   odoo-ls-Cargo.lock         # vendored lockfile (odoo-ls does not commit one upstream)
-  overrides.nix              # native-build Python overlays
+  overrides.nix              # lib.overrides: python-devops-nix's shared package fixes, and libsass
+  build-deps.nix             # odoo-nix-build-deps: python-devops-nix's sdist build-dep sync
   core-shadow.sh             # writable lock-time shadow of a store-resident OCB (coreSource)
   oca-lib.sh                 # OCA repo resolver + module picker (shell)
   oca_sources.py             # generate uv path-sources (deps + sources blocks)
-  uv_build_deps.py           # sdist build-dep sync
   init.nix / odoo-init.sh    # the scaffolder
   odoo-presets.json          # series → python / branch
 data/
