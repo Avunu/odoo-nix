@@ -141,7 +141,9 @@
       # One small derivation per assertion: `nix flake check` names what
       # broke, and a slow Odoo run cannot mask a fast check. `script` runs in
       # checkPhase so hooks that attach to preCheck -- postgresqlTestHook --
-      # work. HOME and CWD are the build directory.
+      # work. HOME and CWD are the build directory. `refute CMD...` fails the
+      # check when CMD succeeds: a bare `! CMD` never does, bash exempts `!`
+      # pipelines from errexit.
       mkCheck =
         pkgs: name:
         {
@@ -163,6 +165,12 @@
               set -o pipefail
               export HOME="$NIX_BUILD_TOP"
               cd "$NIX_BUILD_TOP"
+              refute() {
+                if "$@"; then
+                  echo "refuted, but it succeeded: $*" >&2
+                  exit 1
+                fi
+              }
               ${script}
               runHook postCheck
             '';
@@ -285,8 +293,8 @@
             grep -qE '^without_demo\s*=\s*True$' "$f"
             grep -qE '^server_wide_modules\s*=\s*base,rpc,web,dev_mailcatch$' "$f"
             grep -qE '^proxy_mode\s*=\s*True$' "$f"
-            ! grep -qE '^log_db\s*=' "$f"
-            ! grep -qE '^db_password\s*=' "$f"
+            refute grep -qE '^log_db\s*=' "$f"
+            refute grep -qE '^db_password\s*=' "$f"
             grep -qE '^http_interface\s*=\s*127\.0\.0\.1$' "$f"
             grep -qE '^limit_time_real\s*=\s*1200$' "$f"
           '';
