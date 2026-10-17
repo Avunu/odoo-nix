@@ -12,26 +12,51 @@ string, never a substring.
 
 Skipping, not raising: the job counts as having run, so it is not retried on
 every tick and ``ir.cron.progress`` stays tidy. The ``WARNING`` line names it.
+
+The settings are the shared job denylist's (``jobs``: ``devguard.jobs.*``,
+``ODOO_DEVGUARD_JOBS_*``, ``ODOO_DEVGUARD_DISABLE=jobs``); the log lines keep
+Odoo's word, ``odoo_devguard[crons]``. ``ODOO_DEVGUARD_DISABLE=crons``, the
+name before the shared one, still turns the guard off, with a warning, until
+odoo-nix's next minor release.
 """
 
 import functools
 
 from .._hook import on_import
 from .._patch import announce, require, require_any, warn
-from .._settings import settings
+from .._settings import env_name, settings
 
-NAME = "crons"
+#: The settings key, and the name ODOO_DEVGUARD_DISABLE takes.
+NAME = "jobs"
+
+#: The name the log lines carry: Odoo calls these crons.
+LOG = "crons"
+
+#: The guard's name before the shared one (python-devops-nix CONVENTIONS.md,
+#: Job denylist), still accepted by ODOO_DEVGUARD_DISABLE for one release.
+_OLD_NAME = "crons"
 
 _INSTALLED = False
+_WARNED_OLD_NAME = False
 
 
 def enabled():
-    return settings().guard_enabled(NAME)
+    global _WARNED_OLD_NAME
+    st = settings()
+    if _OLD_NAME in st.disabled_guards:
+        if not _WARNED_OLD_NAME:
+            _WARNED_OLD_NAME = True
+            warn(
+                LOG,
+                f"{env_name('disable')}={_OLD_NAME} is deprecated; use "
+                f"{env_name('disable')}={NAME}",
+            )
+        return False
+    return st.guard_enabled(NAME)
 
 
 def blocked():
-    st = settings()
-    return set(st.items(NAME, "blocked_crons")) | set(st.items(NAME, "extra_blocked_crons"))
+    return set(settings().blocked_jobs)
 
 
 def _external_id(cron):
@@ -48,8 +73,8 @@ def _patch(module):
         if enabled():
             xmlid = _external_id(self)
             if xmlid in blocked():
-                announce(NAME, "scheduled actions on the denylist are skipped, not run")
-                warn(NAME, f"skipping cron {xmlid} ({cron_name!r})")
+                announce(LOG, "scheduled actions on the denylist are skipped, not run")
+                warn(LOG, f"skipping cron {xmlid} ({cron_name!r})")
                 return None
         return original(self, cron_name, server_action_id, *args, **kwargs)
 

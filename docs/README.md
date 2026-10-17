@@ -144,7 +144,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | devguard.mail.enable | true | redirect ALL outgoing email to the local Mailpit catcher; block IMAP/POP3 (was `mailcatch.enable`) |
 | devguard.mail.host / devguard.mail.port | "127.0.0.1" / 1025 | catcher SMTP endpoint (drives Mailpit and Odoo; was `mailcatch.host`/`port`) |
 | devguard.mail.httpPort | 8025 | Mailpit web UI port (was `mailcatch.httpPort`) |
-| devguard.crons.enable / devguard.crons.extraBlocked | true / [ ] | skip denylisted crons (auto_backup, currency rates, bank-statement pulls, EDI send, fetchmail, …); more external ids to skip |
+| devguard.jobs.enable / devguard.jobs.extraBlocked | true / [ ] | skip denylisted crons (auto_backup, currency rates, bank-statement pulls, EDI send, fetchmail, …); more external ids to skip. Formerly `devguard.crons.*` |
 | devguard.objectstore.enable / backups.enable / webhooks.enable / iap.enable | true | refuse remote `fs.storage`; skip remote `auto_backup` jobs; no-op webhook actions; fail IAP calls readably |
 | odooConf.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
 | odooConf.dataDir | "./.devenv/state/odoo" | Odoo filestore (gitignored under .devenv) |
@@ -250,24 +250,26 @@ It is a small Python package, **grafted into the dev and test virtualenvs with a
 
 | Guard | What it does | Settings |
 | --- | --- | --- |
-| `egress` | **the catch-all.** Refuses every `connect()` the process makes to a non-loopback address — requests, httpx (openai, ollama), aiohttp (s3fs), urllib3 (plaid), urllib (currency rates), paramiko (SFTP), smtplib, whatever the next addon imports. Unix sockets, loopback (Mailpit, the longpolling worker, queue_job calling back into itself) and the mail catcher always pass; PostgreSQL does too, because libpq connects in C | `egress.allowHosts` |
+| `egress` | **the catch-all.** Refuses every `connect()` the process makes to a non-loopback address — requests, httpx (openai, ollama), aiohttp (s3fs), urllib3 (plaid), urllib (currency rates), paramiko (SFTP), smtplib, whatever the next addon imports. Unix sockets, loopback (Mailpit, the longpolling worker, queue_job calling back into itself; IPv4-mapped `::ffff:127.0.0.1` too), `localhost` and every name under it (`*.localhost`) and the mail catcher always pass; PostgreSQL does too, because libpq connects in C | `egress.allowHosts` |
 | `mail` | every SMTP connection lands on Mailpit whatever `ir.mail_server` record, from-filter or API transport (mail_cloudflare) a mail names; TLS/auth faked; IMAP/POP3 refused | `mail.{host,port,httpPort}` |
-| `crons` | skips denylisted scheduled actions by exact external id, even if switched back on | `crons.extraBlocked` |
+| `jobs` | skips denylisted scheduled actions (crons) by exact external id, even if switched back on; its log lines read `odoo_devguard[crons]` | `jobs.extraBlocked` |
 | `objectstore` | `fs.storage` records can only be local (`file`/`odoofs`/`memory`); an S3/SFTP storage cannot be opened, so attachments and backups can't reach a production bucket | |
 | `backups` | `auto_backup` jobs to SFTP/FS Storage are skipped, and so is their retention pass (which would delete production's backups) | |
 | `webhooks`, `iap` | outbound webhook actions do nothing; IAP calls fail with a readable error | |
 
 Only `egress` and the mail transport are *transport-level* (they know nothing about Odoo, so they hold across upgrades and unknown addons); the rest patch Odoo and addon APIs so failures read as "blocked by odoo-devguard" instead of a socket error, and are therefore one refactor away from being bypassed. A patch target that has moved fails the import loudly rather than leaving an inert guard (`DevGuardPatchError`). It is "a large reduction in blast radius plus an egress firewall for the Odoo process" — not an airgap for the machine.
 
-Each guard says so on first use — `WARNING odoo_devguard[egress] ACTIVE -- outbound connections from this process are blocked ...` — and names what it blocked. To let one thing through:
+Each guard says so on first use — `WARNING odoo_devguard[egress] ACTIVE -- outbound connections from this process are refused (loopback only). Allow a destination with devguard.egress.allowHosts, ...` — and names what it blocked. To let one thing through:
 
 ```sh
 ODOO_DEVGUARD_EGRESS_ALLOW_HOSTS=api.example.com,10.0.0.0/8 odoo shell   # one command
-ODOO_DEVGUARD_DISABLE=crons odoo db migrate                              # named guard(s) off
+ODOO_DEVGUARD_DISABLE=jobs odoo db migrate                               # named guard(s) off
 ODOO_DEVGUARD_ENABLED=0 odoo ...                                         # everything off (stock behaviour)
 ```
 
-or permanently with `devguard.egress.allowHosts`; the environment variable replaces that list for the one command rather than adding to it. A hostname entry is matched against the name a connection was resolved from, since clients resolve a name and then connect to the address, and a refusal names that host: `blocked connection to 104.16.246.239:443 (api-sandbox.gocardless.com)`. An address an allowlisted name shares with another host, as on a CDN, passes for both. Settings are baked into the environment from Nix and read at run time; `ODOO_DEVGUARD_<GUARD>_<KEY>` environment variables win.
+or permanently with `devguard.egress.allowHosts`; the environment variable replaces that list for the one command rather than adding to it. A hostname entry is matched against the name a connection was resolved from, since clients resolve a name and then connect to the address, and a refusal names that host: `blocked connection to 104.16.246.239:443 (api-sandbox.gocardless.com)`. An address an allowlisted name shares with another host, as on a CDN, passes for both. Settings are baked into the environment from Nix and read at run time; `ODOO_DEVGUARD_<GUARD>_<KEY>` environment variables win, and a runtime file between the two (`$ODOO_DEVGUARD_RUNTIME`, else `$DEVENV_RUNTIME/devguard-runtime.json`, JSON in the baked shape) changes a setting for a running shell without a rebuild. The guard core is shared with frappe-nix ([python-devops-nix](https://github.com/Avunu/python-devops-nix), `lib.devguard`); odoo-nix supplies `_product.py` and the Odoo-facing guards.
+
+**Migrating from `devguard.crons.*`:** the options are now `devguard.jobs.{enable,extraBlocked}` (the old names still work, with a deprecation warning, until the next minor release). For one command, `ODOO_DEVGUARD_DISABLE=jobs` replaces `=crons` (still accepted, with a warning), and `ODOO_DEVGUARD_JOBS_ENABLE` / `ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED` replace `ODOO_DEVGUARD_CRONS_ENABLE` / `ODOO_DEVGUARD_CRONS_EXTRA_BLOCKED_CRONS`; the old variables are still read as the new ones, with a warning, and a new one that is set wins.
 
 **Restore interlock.** `devguard.enable = false` is a persistent decision about the whole project, not a per-command one, so `odoo db restore` and `odoo project restore` refuse to run while it is off (`ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` overrides for one command, `restore.requireDevguard = false` for the project). In the dev shell a file restore is neutralized and its remote `fs.storage` records are pointed at local disk exactly like a remote restore (see [Backups & restore](#backups--restore)).
 
@@ -659,9 +661,10 @@ lib/
   python.nix                 # uv2nix Python env
   odoo.nix                   # builtOdoo assembly
   cli.nix                    # wraps builtOdoo (or the live dev checkout) with the odoo CLI
+  cli-package.nix            # the odoo_nix_cli package, with python-devops-nix's _hook.py and _backups.py vendored
   cli-scripts.nix            # bash helpers `odoo module add[-bundle]`/`project update` delegate to
   odoo_nix_cli/               # the odoo CLI itself (Python: click + rich); backup_layout.py is its backup naming
-  devguard/odoo_devguard/    # dev guard rails (egress, mail, crons, objectstore, backups, webhooks, iap); dev virtualenv only
+  devguard/odoo_devguard/    # _product.py + Odoo guards (mail, jobs, objectstore, backups, webhooks, iap) over python-devops-nix's core; dev virtualenv only
   devguard.nix               # builds that package with a project's settings baked in (_baked.json)
   odoo-ls.nix                # odoo-ls (language server) package builder
   odoo-ls-Cargo.lock         # vendored lockfile (odoo-ls does not commit one upstream)

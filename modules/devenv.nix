@@ -14,26 +14,16 @@ let
   # Series -> interpreter, the same file odoo-init scaffolds from.
   presets = builtins.fromJSON (builtins.readFile ../lib/odoo-presets.json);
 
-  # mailcatch.* became devguard.mail.*. Not lib.mkRenamedOptionModule: it
-  # reports through a `warnings` option, which perSystem has none of, so the
-  # rename went unannounced. doRename does the aliasing (priorities kept); the
-  # warning goes on `deprecations`, which the config below emits with
-  # lib.warn. Removed in the next minor release.
-  renamedMailcatch =
-    name:
+  # Renamed options: mailcatch.* became devguard.mail.*, and devguard.crons.*
+  # became devguard.jobs.* (python-devops-nix CONVENTIONS.md, Job denylist).
+  # Not lib.mkRenamedOptionModule: it reports through a `warnings` option,
+  # which perSystem has none of, so the rename went unannounced. doRename does
+  # the aliasing (priorities kept); the warning goes on `deprecations`, which
+  # the config below emits with lib.warn. Removed in the next minor release.
+  renamed =
+    from: to:
     { options, ... }:
     let
-      from = [
-        "odoo-nix"
-        "mailcatch"
-        name
-      ];
-      to = [
-        "odoo-nix"
-        "devguard"
-        "mail"
-        name
-      ];
       fromOpt = lib.getAttrFromPath from options;
     in
     {
@@ -47,17 +37,51 @@ let
       ];
       config.odoo-nix.deprecations = lib.optional fromOpt.isDefined "The option `${lib.showOption from}' defined in ${lib.showFiles fromOpt.files} has been renamed to `${lib.showOption to}'.";
     };
+  renamedMailcatch =
+    name:
+    renamed
+      [
+        "odoo-nix"
+        "mailcatch"
+        name
+      ]
+      [
+        "odoo-nix"
+        "devguard"
+        "mail"
+        name
+      ];
+  renamedCrons =
+    name:
+    renamed
+      [
+        "odoo-nix"
+        "devguard"
+        "crons"
+        name
+      ]
+      [
+        "odoo-nix"
+        "devguard"
+        "jobs"
+        name
+      ];
 in
 {
   options.perSystem = mkPerSystemOption (
     { pkgs, config, ... }:
     {
-      imports = map renamedMailcatch [
-        "enable"
-        "host"
-        "port"
-        "httpPort"
-      ];
+      imports =
+        map renamedMailcatch [
+          "enable"
+          "host"
+          "port"
+          "httpPort"
+        ]
+        ++ map renamedCrons [
+          "enable"
+          "extraBlocked"
+        ];
 
       options.odoo-nix = {
         enable = mkEnableOption "Odoo + OCA devenv shell";
@@ -440,7 +464,9 @@ in
             };
           };
 
-          crons = {
+          # The job denylist (python-devops-nix CONVENTIONS.md, Job denylist):
+          # Odoo's crons. Formerly devguard.crons.*.
+          jobs = {
             enable = mkOption {
               type = types.bool;
               default = true;
@@ -781,6 +807,7 @@ in
         dg = cfg.devguard;
         devguardPkg = import ../lib/devguard.nix {
           inherit pkgs;
+          base = inputs.python-devops-nix.lib;
           settings = {
             enabled = dg.enable;
             guards = {
@@ -793,9 +820,9 @@ in
                 inherit (dg.mail) host port;
                 http_port = dg.mail.httpPort;
               };
-              crons = {
-                enable = dg.crons.enable;
-                extra_blocked_crons = dg.crons.extraBlocked;
+              jobs = {
+                enable = dg.jobs.enable;
+                extra_blocked = dg.jobs.extraBlocked;
               };
               objectstore.enable = dg.objectstore.enable;
               backups.enable = dg.backups.enable;
@@ -814,6 +841,7 @@ in
             coreSource
             ;
           devguard = if dg.enable then devguardPkg else null;
+          pythonLib = inputs.python-devops-nix.lib.python;
           inherit (inputs) pyproject-nix pyproject-build-systems uv2nix;
           pythonLibraries = builtinPythonLibraries // cfg.pythonLibraries;
           extraOverrides = lib.composeManyExtensions [
@@ -950,7 +978,7 @@ in
           rawOdooBin = devRawOdooBin;
           targetPythonEnv = pythonEnvs.devPythonEnv;
           inherit mcBin;
-          backupsModule = inputs.python-devops-nix.lib.backups.module;
+          base = inputs.python-devops-nix.lib;
           withSecrets = if restoreEnabled then withBackupAccess else null;
         };
 
@@ -962,7 +990,7 @@ in
           mirrorTree = builtOdoo;
           targetPythonEnv = pythonEnvs.odooPythonEnv;
           cliScripts = null;
-          backupsModule = inputs.python-devops-nix.lib.backups.module;
+          base = inputs.python-devops-nix.lib;
         };
 
         # The dev-shell welcome banner (rich-rendered, lib/banner.py) --

@@ -40,7 +40,7 @@
 #     targetPythonEnv = pythonEnvs.odooPythonEnv;
 #     mirrorTree = builtOdoo;               # null for the dev-shell shape
 #     cliScripts = import ./lib/cli-scripts.nix { ... };  # null: no workspace
-#     backupsModule = inputs.python-devops-nix.lib.backups.module;
+#     base = inputs.python-devops-nix.lib;
 #   }
 
 {
@@ -55,11 +55,9 @@
   # null: `odoo module add` and `odoo project update` then fail with a clear
   # message instead of being wired to scripts that assume a git checkout.
   cliScripts ? null,
-  # python-devops-nix's backup fetch layer (lib.backups.module), copied into
-  # the package as odoo_nix_cli/_backups.py (PLAN.md, design rule 6): what
-  # `odoo db restore` lists and downloads remote backups with
-  # (lib/odoo_nix_cli/backups.py).
-  backupsModule,
+  # inputs.python-devops-nix.lib: lib/cli-package.nix vendors its post-import
+  # hook and backup fetch layer into the package (PLAN.md, design rule 6).
+  base,
   # Remote restore (lib/odoo_nix_cli/backups.py): the minio-client binary, and
   # the wrapper that runs a command with the backup-access secret decrypted.
   # Dev shell only; null elsewhere.
@@ -128,8 +126,6 @@ pkgs.runCommand name
     mkdir -p $out
     ${mirrorCmd}
     mkdir -p $out/bin $out/lib
-    cp -r ${./odoo_nix_cli} $out/lib/odoo_nix_cli
-    chmod u+w $out/lib/odoo_nix_cli
-    cp ${backupsModule} $out/lib/odoo_nix_cli/_backups.py
+    cp -r ${import ./cli-package.nix { inherit pkgs base; }}/odoo_nix_cli $out/lib/odoo_nix_cli
     makeWrapper ${cliPython}/bin/python $out/bin/odoo ${wrapperArgs}
   ''

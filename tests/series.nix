@@ -44,6 +44,7 @@ let
   # them (lib/python.nix); odooPythonEnv -- what builtOdoo runs -- must not.
   devguard = import ../lib/devguard.nix {
     inherit pkgs;
+    base = inputs.python-devops-nix.lib;
     settings.guards.mail.port = mailcatchPort;
   };
 
@@ -56,6 +57,7 @@ let
       projectName
       devguard
       ;
+    pythonLib = inputs.python-devops-nix.lib.python;
     coreSource = ocb;
     inherit (inputs) pyproject-nix pyproject-build-systems uv2nix;
     # What modules/devenv.nix wires by default (builtinPythonLibraries,
@@ -93,7 +95,7 @@ let
       mirrorTree = tree;
       targetPythonEnv = pythonEnvs.odooPythonEnv;
       cliScripts = null;
-      backupsModule = inputs.python-devops-nix.lib.backups.module;
+      base = inputs.python-devops-nix.lib;
     };
   odooCli = mkCli "${projectName}-cli" builtOdoo;
 

@@ -25,7 +25,10 @@ Two ways in, because `odoo` either runs Odoo in-process or execs odoo-bin
     install_root_handler() gives them a journald handler directly.
 
 Nothing here imports odoo, click or rich: the sitecustomize path runs inside
-the project's own Python env, which has none of the CLI's dependencies.
+the project's own Python env, which has none of the CLI's dependencies. The
+post-import hook is python-devops-nix's `_hook.py` (stdlib only), copied in
+by lib/cli-package.nix (lib.python.mkGraft), so the source tree alone does
+not import: tests run against the built package.
 """
 from __future__ import annotations
 
@@ -34,6 +37,8 @@ import os
 import re
 import sys
 import threading
+
+from ._hook import on_import
 
 ENV_FLAG = "ODOO_NIX_JOURNALD"
 
@@ -139,51 +144,18 @@ def patch_netsvc(netsvc) -> None:
     netsvc.init_logger = init_logger
 
 
-class _NetsvcImportHook:
-    """sys.meta_path finder that patches odoo.netsvc as it is imported.
+def install_import_hook() -> None:
+    """Patch odoo.netsvc as it is imported (python-devops-nix's post-import
+    hook, `_hook.py`, which lib/cli-package.nix puts beside this module).
 
     Importing odoo from sitecustomize to patch it eagerly is not an option:
     odoo/__init__.py branches on sys.argv (gevent's monkey-patching must come
     before anything else is imported), and argv is not final that early. So
     wait for the import Odoo does itself, and patch the module right after it
-    executes -- before tools/config.py, which imported it, can call it.
-    """
-
-    _target = "odoo.netsvc"
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname != self._target:
-            return None
-        for finder in sys.meta_path:
-            if finder is self or not hasattr(finder, "find_spec"):
-                continue
-            spec = finder.find_spec(fullname, path, target)
-            if spec is not None:
-                break
-        else:
-            return None
-        loader = spec.loader
-        exec_module = getattr(loader, "exec_module", None)
-        if exec_module is None:
-            return None
-
-        def patched_exec_module(module):
-            exec_module(module)
-            patch_netsvc(module)
-            if self in sys.meta_path:
-                sys.meta_path.remove(self)
-
-        loader.exec_module = patched_exec_module
-        return spec
-
-
-def install_import_hook() -> None:
-    netsvc = sys.modules.get("odoo.netsvc")
-    if netsvc is not None:
-        patch_netsvc(netsvc)
-        return
-    if not any(isinstance(f, _NetsvcImportHook) for f in sys.meta_path):
-        sys.meta_path.insert(0, _NetsvcImportHook())
+    executes -- before tools/config.py, which imported it, can call it. Already
+    imported: patched at once. patch_netsvc is idempotent, so a second call
+    is harmless."""
+    on_import("odoo.netsvc", patch_netsvc)
 
 
 def install_root_handler(level: int = logging.WARNING) -> None:
