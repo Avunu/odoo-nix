@@ -556,11 +556,31 @@ def _backup_extension(fmt: str) -> str:
     return "dump.zip" if fmt == "zip" else "dump"
 
 
+def _private_dir(path: Path) -> None:
+    """Create `path` and any missing parents owner-only (0700).
+
+    A backup is the whole database, and the service's default umask would
+    leave it readable to its group -- which nginx joins under nginx.socketPath
+    and nginx.xSendfile. Only the dump is made private, not the process's
+    umask: a migration also writes filestore attachments, which nginx serves
+    through that same group. A directory that already exists keeps its mode
+    (--path may name a shared one); the files written into it are 0600
+    regardless."""
+    missing = []
+    while not path.exists():
+        missing.append(path)
+        path = path.parent
+    for directory in reversed(missing):
+        with contextlib.suppress(FileExistsError):
+            directory.mkdir(mode=0o700)
+            directory.chmod(0o700)
+
+
 def _backup_path(db_name: str, out_dir: str | None, fmt: str) -> Path:
     import odoo.tools
 
     base = Path(out_dir) if out_dir else Path(odoo.tools.config["data_dir"]) / "backups" / db_name
-    base.mkdir(parents=True, exist_ok=True)
+    _private_dir(base)
     stamp = dt.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")  # noqa: DTZ005 -- a local-time filename stamp, not a stored timestamp
     return base / f"{stamp}.{_backup_extension(fmt)}"
 
@@ -586,7 +606,11 @@ def _backup_one(db_name: str, out_dir: str | None, fmt: str = "zip", keep_days: 
 
     dest = _backup_path(db_name, out_dir, fmt)
     start = time.monotonic()
-    with open(dest, "wb") as stream:
+    # 0600 from the first byte, whatever the umask, and also when a file of
+    # that name was already there.
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "wb") as stream:
         odoo_db.dump_db(db_name, stream, backup_format=fmt)
     elapsed = time.monotonic() - start
     say(f"[green]✓[/] {db_name} → {dest}  ({_human_size(dest.stat().st_size)}, {elapsed:.1f}s)")
