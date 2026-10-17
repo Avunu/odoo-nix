@@ -74,7 +74,7 @@ in
       requireDevguard = false;
     };
   };
-  # The old name, for one release: "mirror" is files = true.
+  # The old name, kept through 1.x (removed in 2.0.0): "mirror" is files = true.
   restore-attachments-alias = {
     expected = [
       "1"

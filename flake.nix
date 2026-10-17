@@ -267,6 +267,7 @@
       #   scaffold                                            odoo-init's generated project, offline (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
+      #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   eval-secrets-*                                      odoo-nix's secrets module (all systems)
       #   eval-lock-audit-*                                   the stale-lock audit on a stale fixture (all systems)
@@ -429,6 +430,44 @@
             src = ./.;
             product = "odoo-nix";
           };
+
+          # The pr-policy check (lib/pr_policy.py) against throwaway git
+          # repositories, through the real committed and committed.toml.
+          pr-policy =
+            mkCheck pkgs "pr-policy"
+              {
+                nativeCheckInputs = [
+                  pkgs.git
+                  pkgs.committed
+                ];
+              }
+              ''
+                export HOME="$TMPDIR" GIT_CONFIG_GLOBAL=/dev/null
+                ${pkgs.python3.interpreter} -I ${./tests/test_pr_policy.py} ${./lib/pr_policy.py} ${./committed.toml}
+              '';
+
+          # The workflows: actionlint (with shellcheck over each `run:`) and
+          # zizmor offline, with .github/zizmor.yml (every `uses:` SHA-pinned).
+          workflows =
+            mkCheck pkgs "workflows"
+              {
+                nativeCheckInputs = with pkgs; [
+                  git
+                  actionlint
+                  shellcheck
+                  zizmor
+                ];
+              }
+              ''
+                export HOME="$TMPDIR" GIT_CONFIG_GLOBAL=/dev/null
+                mkdir repo
+                cp -r ${./.github} repo/.github
+                chmod -R u+w repo
+                cd repo
+                git init -q
+                actionlint
+                zizmor --offline --config .github/zizmor.yml .github/workflows
+              '';
 
           # The scaffolder, offline (git and uv stood in): the identity it
           # writes is `odoo-nix.name`.

@@ -21,7 +21,7 @@ let
   # Not lib.mkRenamedOptionModule: it reports through a `warnings` option,
   # which perSystem has none of, so the rename went unannounced. doRename does
   # the aliasing (priorities kept); the warning goes on `deprecations`, which
-  # the config below emits with lib.warn. Removed in the next minor release.
+  # the config below emits with lib.warn. Kept through 1.x, removed in 2.0.0.
   renamed =
     from: to:
     { options, ... }:
@@ -37,7 +37,7 @@ let
           use = lib.id;
         })
       ];
-      config.odoo-nix.deprecations = lib.optional fromOpt.isDefined "The option `${lib.showOption from}' defined in ${lib.showFiles fromOpt.files} has been renamed to `${lib.showOption to}'.";
+      config.odoo-nix.deprecations = lib.optional fromOpt.isDefined "The option `${lib.showOption from}' defined in ${lib.showFiles fromOpt.files} has been renamed to `${lib.showOption to}' (the old name is kept through 1.x, removed in 2.0.0).";
     };
   renamedMailcatch =
     name:
@@ -839,7 +839,7 @@ in
           # name both products use (python-devops-nix CONVENTIONS.md, Restore:
           # files). Not lib.mkChangedOptionModule: the type changed, and its
           # warning needs a `warnings` option, which perSystem has none of.
-          # Removed in the next minor release.
+          # Kept through 1.x, removed in 2.0.0.
           attachments = mkOption {
             type = types.nullOr (
               types.enum [
@@ -859,7 +859,7 @@ in
                 false
               else
                 lib.warn
-                  "odoo-nix.restore.attachments is deprecated: use odoo-nix.restore.files (\"mirror\" is true)."
+                  "odoo-nix.restore.attachments is deprecated: use odoo-nix.restore.files (\"mirror\" is true; the old name is kept through 1.x, removed in 2.0.0)."
                   (config.odoo-nix.restore.attachments == "mirror");
             defaultText = lib.literalExpression "false";
             description = ''
@@ -1415,8 +1415,8 @@ in
 
               ODOO_NIX_HTTP_PORT = toString cfg.ports.http;
               ODOO_NIX_GEVENT_PORT = toString cfg.ports.gevent;
-              # The old names (Tool-owned variables), exported until the next
-              # minor release.
+              # The old names (Tool-owned variables), exported through 1.x,
+              # removed in 2.0.0.
               ODOO_HTTP_PORT = toString cfg.ports.http;
               ODOO_GEVENT_PORT = toString cfg.ports.gevent;
               # Single source of truth: the same values are baked into the

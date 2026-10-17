@@ -26,15 +26,15 @@ def repo_root() -> Path:
 
 
 def getenv(name: str, legacy: str) -> str | None:
-    """$name, else the variable's old name $legacy, read with a warning until
-    the next minor release (python-devops-nix CONVENTIONS.md, Tool-owned
+    """$name, else the variable's old name $legacy, read with a warning through
+    1.x, removed in 2.0.0 (python-devops-nix CONVENTIONS.md, Tool-owned
     variables: every variable odoo-nix's own tools read is ODOO_NIX_*)."""
     value = os.environ.get(name)
     if value is not None:
         return value
     value = os.environ.get(legacy)
     if value is not None:
-        click.echo(f"odoo-nix: ${legacy} is deprecated, set ${name} instead.", err=True)
+        click.echo(f"odoo-nix: ${legacy} is deprecated, set ${name} instead (the old name is kept through 1.x, removed in 2.0.0).", err=True)
     return value
 
 

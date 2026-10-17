@@ -146,7 +146,7 @@ in
     actual = (perSystemConfig { }).devenv.shells.default.name;
   };
   # devguard.crons.* -> devguard.jobs.* (python-devops-nix CONVENTIONS.md,
-  # Job denylist), for one release.
+  # Job denylist), kept through 1.x (removed in 2.0.0).
   rename-crons = {
     expected = {
       jobs = {
@@ -165,7 +165,7 @@ in
       };
     };
   };
-  # The old names, for one release: mailcatch.enable is the mail guard's,
+  # The old names, kept through 1.x (removed in 2.0.0): mailcatch.enable is the mail guard's,
   # the rest the catcher's (the mailpit tree).
   rename-mailcatch = {
     expected = {

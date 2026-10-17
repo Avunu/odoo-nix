@@ -1,0 +1,7 @@
+# zizmor's settings for checks.workflows: every `uses:` is pinned by full commit
+# SHA, with its version in a trailing comment (python-devops-nix CONVENTIONS.md, CI).
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin

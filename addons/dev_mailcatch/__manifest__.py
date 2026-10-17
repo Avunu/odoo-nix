@@ -7,7 +7,7 @@ Deprecated. Outgoing-mail redirection moved into odoo-nix's dev guard rails
 guard-rails"), configured with ``odoo-nix.devguard.mail.*`` and overridable with
 ``ODOO_DEVGUARD_MAIL_HOST`` / ``ODOO_DEVGUARD_MAIL_PORT``.
 
-This module remains for one release as a no-op that logs a warning, so a
+This module remains through odoo-nix 1.x (removed in 2.0.0) as a no-op that logs a warning, so a
 ``server_wide_modules`` line naming it does not stop the server from starting.
 Remove it from ``server_wide_modules``.
 """,

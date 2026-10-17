@@ -90,7 +90,7 @@ def user_error(guard, message):
 
 # -- ODOO_DEVGUARD_CRONS_* (the cron guard's variables before the shared job
 # denylist, python-devops-nix CONVENTIONS.md), read as ODOO_DEVGUARD_JOBS_*
-# until odoo-nix's next minor release. Settings come from os.environ at call
+# through odoo-nix 1.x, removed in 2.0.0. Settings come from os.environ at call
 # time, so the old names are copied onto the new ones when the package loads
 # (the core imports this module first); a new name that is set wins.
 
@@ -116,7 +116,7 @@ def alias_old_env(environ=os.environ):
             action = "ignored: it is set too" if new in environ else "read as it"
             sys.stderr.write(
                 f"WARNING {__package__}[crons] {old} is deprecated; use {new} "
-                f"({action})\n"
+                f"({action}); the old name is kept through 1.x, removed in 2.0.0\n"
             )
         environ.setdefault(new, environ[old])
 

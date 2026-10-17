@@ -105,6 +105,22 @@ odoo db provision       # (another shell) create the DB + install modules.txt
 # → the banner prints the server's and Mailpit's URLs: the project's own ports (see Ports)
 ```
 
+## Versioning
+
+odoo-nix is released with [release-please](https://github.com/googleapis/release-please). Each `fix:` or `feat:` commit merged to `main` lands in a release pull request; merging that pull request tags `vX.Y.Z` and updates `CHANGELOG.md` and `version.txt`. A `fix:` makes a patch release (Dependabot's `fix(deps)` bumps of the flake inputs and the actions included) and a `feat:` a minor one. A major release is only ever deliberate: a `Release-As: N.0.0` footer on a commit. The `pr-policy` check refuses `!` and `BREAKING CHANGE`, so nothing becomes a major release by accident.
+
+Each `vN.*` tag also moves a `release-N` branch, which only ever fast-forwards. A project that wants every 1.x release, and nothing that breaks it, follows that branch:
+
+```nix
+odoo-nix.url = "github:Avunu/odoo-nix/release-1";
+```
+
+`nix flake update odoo-nix` then moves the project to the newest 1.x release. To pin one release, name its tag (`github:Avunu/odoo-nix/v1.0.0`); plain `github:Avunu/odoo-nix` follows `main`, unreleased changes included.
+
+Within a major release nothing a project sets is taken away. A renamed option, command-line flag or environment variable keeps its old name as an alias, with a warning, through every release of that major, and the aliases go in the next major release: the ones in [Renamed options](#renamed-options) are kept through 1.x and removed in 2.0.0. That release's changelog says what to change.
+
+Commits and pull request titles are [conventional commits](https://www.conventionalcommits.org/), checked by `committed` with `committed.toml` (its types and odoo-nix's scopes) in the `pr-policy` workflow. A pull request Dependabot opened skips only the 100-character subject limit: its titles for SHA-pinned actions carry two commit SHAs.
+
 ## Flake outputs
 
 | Output | Description |
@@ -172,7 +188,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | ide.languageServer.package | odoo-ls pinned to `odoo-ls-src`/`odoo-ls-typeshed` | the odoo_ls_server package to use |
 | restore.enable | `secrets.backupAccess.enable` | decrypt the backup-access secret for remote restores; offer `setup-backup-access` |
 | restore.sourceDatabase / restore.prefix | "" / "" | database folder to restore from (default: the target's name); bucket prefix when the secret has no `BACKUPS_PREFIX` |
-| restore.files | false | also download object-store attachments (`fs_attachment`) on a remote restore (`--files`); either way the restored copy's remote `fs.storage` records are pointed at local disk. Was `restore.attachments` (`"mirror"` is `true`), read with a warning for one release |
+| restore.files | false | also download object-store attachments (`fs_attachment`) on a remote restore (`--files`); either way the restored copy's remote `fs.storage` records are pointed at local disk. Was `restore.attachments` (`"mirror"` is `true`), read with a warning through 1.x, removed in 2.0.0 |
 | restore.neutralize | true | neutralize databases restored from the remote store |
 | restore.migrate | true | `odoo db migrate` the restored database to this checkout's modules (`--no-migrate`) |
 | restore.requireDevguard | true | refuse to restore while `devguard.enable` is false (`ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` overrides per command) |
@@ -181,7 +197,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 
 ### Renamed options
 
-odoo-nix and frappe-nix name the jobs they share the same way ([python-devops-nix CONVENTIONS.md](https://github.com/Avunu/python-devops-nix/blob/main/CONVENTIONS.md)). An old name still works until the next minor release: it sets the new option, and evaluating the shell prints a warning naming both.
+odoo-nix and frappe-nix name the jobs they share the same way ([python-devops-nix CONVENTIONS.md](https://github.com/Avunu/python-devops-nix/blob/main/CONVENTIONS.md)). An old name still works through 1.x and is removed in 2.0.0 (see [Versioning](#versioning)): it sets the new option, and evaluating the shell prints a warning naming both.
 
 | Old | New |
 | --- | --- |
@@ -194,7 +210,7 @@ odoo-nix and frappe-nix name the jobs they share the same way ([python-devops-ni
 | `devguard.crons.*` | `devguard.jobs.*` |
 | `restore.attachments` | `restore.files` (`"mirror"` is `true`) |
 
-The environment variables odoo-nix's own tools read or export are `ODOO_NIX_*` (Odoo's own, such as `ODOO_RC`, and the guard rails' `ODOO_DEVGUARD_*` keep their names). An old name is still read, with a warning, until the next minor release, and a new one that is set wins:
+The environment variables odoo-nix's own tools read or export are `ODOO_NIX_*` (Odoo's own, such as `ODOO_RC`, and the guard rails' `ODOO_DEVGUARD_*` keep their names). An old name is still read, with a warning, through 1.x (removed in 2.0.0), and a new one that is set wins:
 
 | Old | New |
 | --- | --- |
@@ -315,11 +331,11 @@ ODOO_DEVGUARD_ENABLED=0 odoo ...                                         # every
 
 or permanently with `devguard.egress.allowHosts`; the environment variable replaces that list for the one command rather than adding to it. A hostname entry is matched against the name a connection was resolved from, since clients resolve a name and then connect to the address, and a refusal names that host: `blocked connection to 104.16.246.239:443 (api-sandbox.gocardless.com)`. An address an allowlisted name shares with another host, as on a CDN, passes for both. Settings are baked into the environment from Nix and read at run time; `ODOO_DEVGUARD_<GUARD>_<KEY>` environment variables win, and a runtime file between the two (`$ODOO_DEVGUARD_RUNTIME`, else `$DEVENV_RUNTIME/devguard-runtime.json`, JSON in the baked shape) changes a setting for a running shell without a rebuild. The guard core is shared with frappe-nix ([python-devops-nix](https://github.com/Avunu/python-devops-nix), `lib.devguard`); odoo-nix supplies `_product.py` and the Odoo-facing guards.
 
-**Migrating from `devguard.crons.*`:** the options are now `devguard.jobs.{enable,extraBlocked}` (the old names still work, with a deprecation warning, until the next minor release). For one command, `ODOO_DEVGUARD_DISABLE=jobs` replaces `=crons` (still accepted, with a warning), and `ODOO_DEVGUARD_JOBS_ENABLE` / `ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED` replace `ODOO_DEVGUARD_CRONS_ENABLE` / `ODOO_DEVGUARD_CRONS_EXTRA_BLOCKED_CRONS`; the old variables are still read as the new ones, with a warning, and a new one that is set wins.
+**Migrating from `devguard.crons.*`:** the options are now `devguard.jobs.{enable,extraBlocked}` (the old names still work, with a deprecation warning, through 1.x; removed in 2.0.0). For one command, `ODOO_DEVGUARD_DISABLE=jobs` replaces `=crons` (still accepted, with a warning), and `ODOO_DEVGUARD_JOBS_ENABLE` / `ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED` replace `ODOO_DEVGUARD_CRONS_ENABLE` / `ODOO_DEVGUARD_CRONS_EXTRA_BLOCKED_CRONS`; the old variables are still read as the new ones, with a warning, and a new one that is set wins.
 
 **Restore interlock.** `devguard.enable = false` is a persistent decision about the whole project, not a per-command one, so `odoo db restore` and `odoo project restore` refuse to run while it is off (`ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` overrides for one command, `restore.requireDevguard = false` for the project). In the dev shell a file restore is neutralized and its remote `fs.storage` records are pointed at local disk exactly like a remote restore (see [Backups & restore](#backups--restore)).
 
-Open the mail catcher at the URL the banner prints (`mailpit.httpPort`). **Migrating from `mailcatch.*`:** `mailcatch.enable` is `devguard.mail.enable`, and `mailcatch.{host,port,httpPort}` are `mailpit.*` (the old names still work with a deprecation warning); remove `dev_mailcatch` from any `server_wide_modules` you set by hand — the addon is now a no-op stub that logs a warning, kept for one release so an old conf still starts. `ODOO_MAILCATCH_*` and the `[dev_mailcatch]` section are gone.
+Open the mail catcher at the URL the banner prints (`mailpit.httpPort`). **Migrating from `mailcatch.*`:** `mailcatch.enable` is `devguard.mail.enable`, and `mailcatch.{host,port,httpPort}` are `mailpit.*` (the old names still work with a deprecation warning); remove `dev_mailcatch` from any `server_wide_modules` you set by hand — the addon is now a no-op stub that logs a warning, kept through 1.x (removed in 2.0.0) so an old conf still starts. `ODOO_MAILCATCH_*` and the `[dev_mailcatch]` section are gone.
 
 ### The `odoo` CLI
 
@@ -407,9 +423,9 @@ age.secrets.odoo-backup.file = inputs.myproject.lib.secrets.files.odoo_backup_ac
 services.odoo-nix.environmentFiles = [ config.age.secrets.odoo-backup.path ];
 ```
 
-(`lib.odooSecrets` is the old name of `lib.secrets`, kept for one release.) Installing the bridge module creates an `odoo_backup` `fs.storage` whose options are `$BACKUPS_*` references (resolved from the process environment by `fs_storage`'s `eval_options_from_env` — no credentials in the database) and a daily `dump`-format job with 30-day retention. To give the server its own write-capable key and keep developers read-only, set `odoo-nix.secrets.backupAccess.hosts = false` and declare the server's file under `odoo-nix.secrets.extra`.
+(`lib.odooSecrets` is the old name of `lib.secrets`, kept through 1.x and removed in 2.0.0.) Installing the bridge module creates an `odoo_backup` `fs.storage` whose options are `$BACKUPS_*` references (resolved from the process environment by `fs_storage`'s `eval_options_from_env` — no credentials in the database) and a daily `dump`-format job with 30-day retention. To give the server its own write-capable key and keep developers read-only, set `odoo-nix.secrets.backupAccess.hosts = false` and declare the server's file under `odoo-nix.secrets.extra`.
 
-**3. Restoring.** `odoo db restore` with no file lists `<prefix>/<database>/`, takes the newest backup (or the newest within `--at`, which takes ISO 8601 — `2026-10-02`, `2026-10-02T03:00` — or a backup's own name, `2026_10_02_03_00_00`, or any leading part of either), downloads it to `.devenv/state/odoo-nix/restore/` (size-checked; the one just fetched and one other kept), then restores it **neutralized** (no outgoing mail, crons off; `--no-neutralize` to opt out). `--from` names the production database folder when it differs from the local name (`restore.sourceDatabase`). An existing database is replaced (`--no-force` refuses instead; `--force`, the old opt-in, is accepted and does nothing for one release), and the restored database is then migrated to the checkout's modules (`--no-migrate`, `restore.migrate`).
+**3. Restoring.** `odoo db restore` with no file lists `<prefix>/<database>/`, takes the newest backup (or the newest within `--at`, which takes ISO 8601 — `2026-10-02`, `2026-10-02T03:00` — or a backup's own name, `2026_10_02_03_00_00`, or any leading part of either), downloads it to `.devenv/state/odoo-nix/restore/` (size-checked; the one just fetched and one other kept), then restores it **neutralized** (no outgoing mail, crons off; `--no-neutralize` to opt out). `--from` names the production database folder when it differs from the local name (`restore.sourceDatabase`). An existing database is replaced (`--no-force` refuses instead; `--force`, the old opt-in, is accepted and does nothing through 1.x, removed in 2.0.0), and the restored database is then migrated to the checkout's modules (`--no-migrate`, `restore.migrate`).
 
 *Attachments in object storage.* If production runs `fs_attachment` with an S3 storage, the database dump holds only `<storage>://<path>` pointers and a restored copy would otherwise carry production's bucket credentials and write new attachments into the production bucket. So after every remote restore, each non-local `fs.storage` row is rewritten to a local directory (`.devenv/state/odoo-nix/attachments/<code>`; protocol `file`, options cleared, `eval_options_from_env` off). With `restore.files = true` (or `--files`) the bucket contents are mirrored there first — repeat runs copy only what changed — using the backup-access credentials, which then need read access to the attachment bucket. Without it, attachments are simply missing locally. Restoring never writes to any bucket.
 
@@ -649,6 +665,8 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `db-nocow` | `odoo-nix-db-nocow` (`tests/db-nocow.sh`): NOCOW arranged for a datadir `initdb` has yet to create and cleared from its parent after, an existing cluster reported, the stopped-server copy keeping mode 0700. Checks the real attribute on a btrfs builder, the no-op elsewhere (`TMPDIR=<btrfs dir>` to run it by hand; Linux only) |
 | `nix-lint` | python-devops-nix's `lib.checks.nixLint`: `nixfmt-rs --check` (what `nix fmt` writes), `statix` (`statix.toml`, compared with the base's copy) and `deadnix` over the repo's Nix files, `templates/` and `tests/fixtures/` excluded |
 | `shared-config` | python-devops-nix's `lib.checks.sharedConfig`: `.editorconfig`, `.pre-commit-config.yaml` and `ruff.toml` make every setting the base's copies make |
+| `pr-policy` | `lib/pr_policy.py`, the pull-request policy, against throwaway git repositories through the real `committed` and `committed.toml`: conventional titles and commits, odoo-nix's scopes, `!` and `BREAKING CHANGE` refused, a `Release-As` major let through, merge commits skipped, Dependabot's long titles let past the subject length (and only that rule), the base rule, and a dispatch's pull-request lookup |
+| `workflows` | `actionlint` (with `shellcheck` over each `run:`) and `zizmor` offline with `.github/zizmor.yml` over `.github/workflows`: every `uses:` pinned by commit SHA |
 | `journald-formatter` | the CLI's journald output without Odoo (`tests/test_journald.py`, on each series' interpreter): level → `<N>`, every line of a traceback prefixed, and the full `odoo` → sitecustomize → patched `init_logger` path against a stand-in `odoo.netsvc` |
 | `eval-module-*` | `services.odoo-nix` evaluated, nothing built (`tests/module-eval.nix`; includes `environmentFiles` reaching the units): `APP_SERVICE`/`APP_SITE` and `SyslogIdentifier` on every unit, `APP_SITE` left out without `dbName`, the journald switch and the `logging.file` warning, PostgreSQL's log settings, nginx's access log |
 | `module-nginx` | `services.odoo-nix`'s nginx/socket contract, with a stub Odoo that echoes headers; the journal fields on what the units log and nginx's JSON access log in the journal (needs KVM) |
@@ -725,9 +743,13 @@ lib/
   oca_sources.py             # generate uv path-sources (deps + sources blocks)
   init.nix / odoo-init.sh    # the scaffolder
   odoo-presets.json          # series → python / branch
+  pr_policy.py               # the pr-policy check: conventional commits, no `!` or BREAKING CHANGE
 data/
   oca-modules.json           # vendored OCA catalog (+ sync/extract scripts)
   oca-bundles.json           # hand-maintained "must-have" module bundles
+.github/workflows/           # check (flake), pr-policy, release (release-please, release-N), docs, Dependabot auto-merge
+release-please-config.json   # release-please: `simple`, version.txt, vX.Y.Z tags (.release-please-manifest.json)
+committed.toml               # the conventional-commit rules pr-policy checks
 templates/project/           # scaffolder template (thin flake + pyproject + README)
 tests/
   eval.nix                   # pure assertions over lib/addons.nix + lib/odoo-conf.nix
@@ -739,6 +761,7 @@ tests/
   test_backups.py            # odoo-nix's backup layout and names, without Odoo or a network
   secrets-module.nix         # odoo-nix.secrets evaluated through lib.mkFlake
   test_devguard.py           # the dev guard rails, without Odoo or a network
+  test_pr_policy.py          # lib/pr_policy.py against throwaway git repositories
   lock_fresh.py              # uv.lock ↔ pinned OCB consistency
   relock.nix                 # `nix run .#relock`
   relock-odoo-ls.nix         # `nix run .#relock-odoo-ls`

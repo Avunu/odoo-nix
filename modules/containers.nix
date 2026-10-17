@@ -92,12 +92,12 @@
 
         # Every variable this entrypoint reads is ODOO_NIX_* (python-devops-nix
         # CONVENTIONS.md, Tool-owned variables). The old ODOO_* name is still
-        # read, with a warning, until the next minor release; a new one that
+        # read, with a warning, through 1.x (removed in 2.0.0); a new one that
         # is set wins.
         for _new in ${lib.concatStringsSep " " (map (v: "ODOO_NIX_${v}") legacyEnv)}; do
           _old="ODOO_''${_new#ODOO_NIX_}"
           if [ -z "''${!_new+x}" ] && [ -n "''${!_old+x}" ]; then
-            echo "odoo-nix: \$$_old is deprecated, set \$$_new instead." >&2
+            echo "odoo-nix: \$$_old is deprecated, set \$$_new instead (the old name is kept through 1.x, removed in 2.0.0)." >&2
             export "$_new=''${!_old}"
           fi
         done

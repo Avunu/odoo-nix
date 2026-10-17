@@ -16,8 +16,8 @@ every tick and ``ir.cron.progress`` stays tidy. The ``WARNING`` line names it.
 The settings are the shared job denylist's (``jobs``: ``devguard.jobs.*``,
 ``ODOO_DEVGUARD_JOBS_*``, ``ODOO_DEVGUARD_DISABLE=jobs``); the log lines keep
 Odoo's word, ``odoo_devguard[crons]``. ``ODOO_DEVGUARD_DISABLE=crons``, the
-name before the shared one, still turns the guard off, with a warning, until
-odoo-nix's next minor release.
+name before the shared one, still turns the guard off, with a warning, through
+odoo-nix 1.x; it is removed in 2.0.0.
 """
 
 import functools
@@ -33,7 +33,7 @@ NAME = "jobs"
 LOG = "crons"
 
 #: The guard's name before the shared one (python-devops-nix CONVENTIONS.md,
-#: Job denylist), still accepted by ODOO_DEVGUARD_DISABLE for one release.
+#: Job denylist), still accepted by ODOO_DEVGUARD_DISABLE through 1.x, removed in 2.0.0.
 _OLD_NAME = "crons"
 
 _INSTALLED = False
@@ -49,7 +49,7 @@ def enabled():
             warn(
                 LOG,
                 f"{env_name('disable')}={_OLD_NAME} is deprecated; use "
-                f"{env_name('disable')}={NAME}",
+                f"{env_name('disable')}={NAME} (the old name is kept through 1.x, removed in 2.0.0)",
             )
         return False
     return st.guard_enabled(NAME)

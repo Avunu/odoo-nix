@@ -90,7 +90,7 @@ in
     actual = map (x: x.var) cfg.declared;
   };
 
-  # flake.lib.secrets, and flake.lib.odooSecrets for one release.
+  # flake.lib.secrets, and flake.lib.odooSecrets through 1.x (removed in 2.0.0).
   secrets-flake-lib = {
     expected = {
       names = [
