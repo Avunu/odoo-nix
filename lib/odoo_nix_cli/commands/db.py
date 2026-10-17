@@ -102,7 +102,7 @@ def db_provision(ctx, db_name, modules_file, no_backup):
     odoo_config = _load(ctx)
     target = odooenv.resolve_database(db_name, odoo_config)
     if not target:
-        raise click.UsageError("no database name given, and none configured (db_name / $ODOO_DB).")
+        raise click.UsageError("no database name given, and none configured (db_name / $ODOO_NIX_DB).")
 
     from odoo.service import db as odoo_db
 

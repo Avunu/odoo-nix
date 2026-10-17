@@ -69,7 +69,7 @@ def shell_cmd(ctx, database):
     odoo_config = odooenv.load_config(conf_path, db_args)
     target = odooenv.resolve_database(database or ctx.obj.get("database"), odoo_config)
     if not target:
-        raise click.UsageError("no database given, and none configured (db_name / $ODOO_DB).")
+        raise click.UsageError("no database given, and none configured (db_name / $ODOO_NIX_DB).")
     raw = odooenv.require_env("ODOO_NIX_RAW_ODOO")
     # A REPL serves nothing: no workers and no HTTP. Under a server conf with
     # workers > 0, `odoo-bin shell` otherwise starts the prefork server, which
@@ -100,7 +100,7 @@ def test_cmd(ctx, modules, database):
     odoo_config = odooenv.load_config(conf_path, db_args)
     target = odooenv.resolve_database(database or ctx.obj.get("database"), odoo_config)
     if not target:
-        raise click.UsageError("no database given, and none configured (db_name / $ODOO_DB).")
+        raise click.UsageError("no database given, and none configured (db_name / $ODOO_NIX_DB).")
 
     missing = []
     if importlib.util.find_spec("websocket") is None:
@@ -115,10 +115,10 @@ def test_cmd(ctx, modules, database):
             click.echo(f"  - {m}", err=True)
         click.echo(
             "\n  Refusing to run, because a skipped tour is reported exactly like a passing one. "
-            "Set ODOO_TEST_ALLOW_SKIP=1 to run anyway.",
+            "Set ODOO_NIX_TEST_ALLOW_SKIP=1 to run anyway.",
             err=True,
         )
-        if os.environ.get("ODOO_TEST_ALLOW_SKIP") != "1":
+        if odooenv.getenv("ODOO_NIX_TEST_ALLOW_SKIP", "ODOO_TEST_ALLOW_SKIP") != "1":
             sys.exit(1)
     else:
         click.echo(f"==> tours enabled (browser: {browser})")

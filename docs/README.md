@@ -187,6 +187,15 @@ odoo-nix and frappe-nix name the jobs they share the same way ([python-devops-ni
 | `devguard.crons.*` | `devguard.jobs.*` |
 | `restore.attachments` | `restore.files` (`"mirror"` is `true`) |
 
+The environment variables odoo-nix's own tools read or export are `ODOO_NIX_*` (Odoo's own, such as `ODOO_RC`, and the guard rails' `ODOO_DEVGUARD_*` keep their names). An old name is still read, with a warning, until the next minor release, and a new one that is set wins:
+
+| Old | New |
+| --- | --- |
+| `ODOO_DB` (the `odoo` CLI's default database) | `ODOO_NIX_DB` |
+| `ODOO_TEST_ALLOW_SKIP` | `ODOO_NIX_TEST_ALLOW_SKIP` |
+| `ODOO_HTTP_PORT`, `ODOO_GEVENT_PORT` (exported by the dev shell; the old names are still exported) | `ODOO_NIX_HTTP_PORT`, `ODOO_NIX_GEVENT_PORT` |
+| the container entrypoint's `ODOO_<NAME>` ([OCI containers](#production--oci-containers)) | `ODOO_NIX_<NAME>` |
+
 ## Development shell
 
 `devenv up` starts:
@@ -565,7 +574,7 @@ PostGIS (OCA `base_geoengine`): `database.extensions = ps: [ ps.postgis ];` buil
 
 ## Production — OCI containers
 
-Set `odoo-nix.containers.enable = true` to get `packages.<sys>.container-odoo`, an all-in-one image (`dockerTools.buildLayeredImage`) running `odoo-bin` with HTTP workers + gevent + cron, named `<name>-odoo:latest`, or `<registry>/<name>-odoo:latest` with `containers.registry` set (a trailing slash is dropped). The entrypoint synthesizes `/etc/odoo/odoo.conf` from env-var defaults and merges secrets from mounted files:
+Set `odoo-nix.containers.enable = true` to get `packages.<sys>.container-odoo`, an all-in-one image (`dockerTools.buildLayeredImage`) running `odoo-bin` with HTTP workers + gevent + cron, named `<name>-odoo:latest`, or `<registry>/<name>-odoo:latest` with `containers.registry` set (a trailing slash is dropped). The entrypoint synthesizes `/etc/odoo/odoo.conf` from environment variables, each with a default (`ODOO_NIX_DB_HOST`, `_DB_PORT`, `_DB_USER`, `_DB_NAME`, `_HTTP_PORT`, `_GEVENT_PORT`, `_WORKERS`, `_MAX_CRON_THREADS`, `_PROXY_MODE`, `_LIST_DB`, `_WITHOUT_DEMO`, `_LOG_LEVEL`, `_LOG_HANDLER`, `_LOG_DB`, `_LOG_DB_LEVEL`; formerly `ODOO_*`, see [Renamed options](#renamed-options)), and merges secrets from mounted files:
 
 -   `/var/lib/odoo/data` — persistent filestore (volume),
 -   `/secrets/db_password`, `/secrets/admin_passwd`, `/secrets/*.conf` — secrets,

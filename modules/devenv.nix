@@ -1298,6 +1298,10 @@ in
               # service — do not set them here (it causes an option conflict).
               # Odoo connects via odoo.conf (db_host/db_port/db_user), not PG*.
 
+              ODOO_NIX_HTTP_PORT = toString cfg.settings.httpPort;
+              ODOO_NIX_GEVENT_PORT = toString cfg.settings.geventPort;
+              # The old names (Tool-owned variables), exported until the next
+              # minor release.
               ODOO_HTTP_PORT = toString cfg.settings.httpPort;
               ODOO_GEVENT_PORT = toString cfg.settings.geventPort;
               # Single source of truth: the same values are baked into the
