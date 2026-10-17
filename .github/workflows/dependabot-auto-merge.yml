@@ -19,8 +19,15 @@ jobs:
       pull-requests: write # gh pr merge --auto
     # Updates of the actions pinned in the workflows (github-actions pull requests), the shared
     # documentation check of Avunu/site-docs included, are reviewed by a person.
+    # So are the OCB pins (the `ocb` group, dependabot/nix/ocb-*): a bump can legitimately go
+    # red and need `nix run .#relock` (.github/dependabot.yml), and the one in #63 pinned
+    # odoo/odoo commits without OCB's pyproject.toml. With nothing required on `main`,
+    # auto-merge merged it before its `flake` check failed.
     # The PR's author, not github.actor (which a re-run by a person changes).
-    if: github.event.pull_request.user.login == 'dependabot[bot]' && !startsWith(github.head_ref, 'dependabot/github_actions/')
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]'
+      && !startsWith(github.head_ref, 'dependabot/github_actions/')
+      && !startsWith(github.head_ref, 'dependabot/nix/ocb-')
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
