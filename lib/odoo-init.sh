@@ -175,22 +175,17 @@ fi
 git init -q
 
 add_submodule() {  # $1=url  $2=path
-  local url="$1" path="$2"
-  if git ls-remote --heads "$url" "$branch" 2>/dev/null | grep -q .; then
-    echo "  + $path ($branch)"
-    # A partial clone of the one branch, as shell entry makes them
-    # (lib/submodules-init.nix): every commit and folder, the files of the
-    # checkout -- OCB with its commits alone, its folder history being
-    # enormous. Shell entry adds every other branch the same way.
-    local filter=blob:none
-    [ "$path" != odoo ] || filter=tree:0
-    git clone -q --filter="$filter" --single-branch --branch "$branch" -- "$url" "$path"
-    git submodule add -q --force -b "$branch" -- "$url" "$path"
-    git config -f .gitmodules "submodule.$path.shallow" true
-    return 0
-  fi
-  echo "  ⚠  $url has no '$branch' branch — skipped" >&2
-  return 1
+  local url="$1" path="$2" treeless=()
+  # A partial clone of the one branch, as shell entry makes them
+  # (odoo-nix-sources, python-devops-nix's lib.sources): every commit and
+  # folder, the files of the checkout -- OCB with its commits alone, its
+  # folder history being enormous. A remote with no such branch is skipped
+  # (the tool says so, and exits 3).
+  [ "$path" != odoo ] || treeless=(--treeless)
+  odoo-nix-sources clone --branch "$branch" --require-branch "${treeless[@]}" "$url" "$path" || return 1
+  echo "  + $path ($branch)"
+  git submodule add -q --force -b "$branch" -- "$url" "$path"
+  git config -f .gitmodules "submodule.$path.shallow" true
 }
 
 echo "Adding OCB (Odoo $series) at odoo/…"

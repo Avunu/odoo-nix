@@ -35,9 +35,12 @@ pkgs.writeShellApplication {
   name = "odoo-init";
   inherit text;
   # The script without the PATH writeShellApplication pins, so a test can
-  # put stand-ins for git and uv in front (tests/odoo-init.sh).
+  # put stand-ins for git, uv and odoo-nix-sources in front
+  # (tests/odoo-init.sh).
   passthru.script = pkgs.writeText "odoo-init.sh" text;
   runtimeInputs = with pkgs; [
+    # odoo-nix-sources: the first clone of OCB and each OCA repo.
+    (import ./shell-tools.nix { inherit pkgs base; }).sources
     git
     uv
     gum

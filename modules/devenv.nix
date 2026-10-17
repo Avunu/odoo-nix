@@ -212,12 +212,6 @@ let
     dbPort = "db";
   };
 
-  # Per-project TCP ports: one offset, 0..899, hashed from the project's
-  # name (lib/ports.nix). ODOO_NIX_PORT_OFFSET picks one by hand for a
-  # shell, over the `ports.offset` option.
-  portsLib = import ../lib/ports.nix { inherit lib; };
-  envPortOffset = portsLib.parseEnvOffset (builtins.getEnv "ODOO_NIX_PORT_OFFSET");
-
   # Every option under settings, as a path: odooConf.<path> is renamed to
   # settings.<path> one option at a time. A doRename of the block as a whole
   # would not carry a priority set inside it (odooConf.dbPort = mkForce ...).
@@ -411,7 +405,7 @@ in
               such write into a new extent — compressed first, on the
               compressed mounts btrfs desktops usually have — and every fsync
               into a filesystem transaction that other programs' saves wait
-              behind. See lib/db-nocow.nix.
+              behind. See python-devops-nix's lib.dbNocow (strategy "parent").
 
               The attribute only reaches files created after it is set, so
               shell entry arranges it for a datadir that does not exist yet.
@@ -481,81 +475,33 @@ in
         };
 
         # One offset for every TCP port the shell binds, so several projects
-        # (and linked worktrees of one, with worktreeSalt) run at once.
-        ports =
-          let
-            offset = if envPortOffset != null then envPortOffset else config.odoo-nix.ports.offset;
-            bases = portsLib.basesFor offset;
-            derived =
-              name: what:
-              mkOption {
-                type = types.port;
-                default = bases.${name};
-                defaultText = lib.literalMD "`${toString (portsLib.basesFor 0).${name}}` + `ports.offset`";
-                description = ''
-                  ${what}. Derived from `ports.offset`, and read by the rest of
-                  the module; pin it with `lib.mkForce` for the rare fixed-port
-                  case.
-                '';
-              };
-          in
-          {
-            worktreeSalt = mkOption {
-              type = types.bool;
-              default = true;
-              description = ''
-                Salt `ports.offset` with the checkout's path in a linked
-                worktree (`git worktree add`, whose `.git` is a file), so a
-                second worktree of the same project gets its own ports. The
-                primary checkout keeps the name's hash either way.
-              '';
-            };
-
-            offset = mkOption {
-              type = types.ints.between 0 899;
-              default = portsLib.offsetFor (
-                portsLib.seed {
-                  inherit (config.odoo-nix) name;
-                  salt = config.odoo-nix.ports.worktreeSalt;
-                  pwd = builtins.getEnv "PWD";
-                  gitKind = portsLib.gitKindAt (builtins.getEnv "PWD");
-                }
-              );
-              defaultText = lib.literalMD "a hash of `name`, salted with the checkout's path in a linked worktree when `ports.worktreeSalt` is on";
-              description = ''
-                The offset every TCP port of the shell is derived from: the
-                HTTP port is `10000 + offset`, gevent's `11000`, PostgreSQL's
-                `12000`, and Mailpit's SMTP and web UI ports `13000` and `14000
-                + offset`.
-
-                By default it is a hash of `name`, so every project lands
-                somewhere different and every clone of one lands in the same
-                place. The ports are fixed when the shell is evaluated: nothing
-                moves one that is taken. `ODOO_NIX_PORT_OFFSET` (0 to 899) picks
-                another offset for the shell and wins over this option.
-              '';
-              example = 123;
-            };
-
-            base = mkOption {
-              type = types.nullOr types.port;
-              default = null;
-              description = ''
-                The HTTP port, overriding `10000 + ports.offset`. Only the HTTP
-                port: the others keep theirs from the offset.
-              '';
-              example = 8069;
-            };
-
-            http = derived "http" "Odoo's HTTP port (http_port)" // {
-              default = if config.odoo-nix.ports.base != null then config.odoo-nix.ports.base else bases.http;
-              defaultText = lib.literalMD "`ports.base`, else `10000` + `ports.offset`";
-            };
-            gevent = derived "gevent" "Odoo's websocket/longpolling port (gevent_port)";
-            db = derived "db" "PostgreSQL's port (db_port)";
-            smtp = derived "smtp" "Mailpit's SMTP port (`mailpit.port`'s default)";
-            mailUi = derived "mailUi" "Mailpit's web UI port (`mailpit.httpPort`'s default)";
+        # (and linked worktrees of one, with worktreeSalt) run at once:
+        # python-devops-nix's lib.ports (CONVENTIONS.md, Ports). The offset is
+        # a hash of the project's name; ODOO_NIX_PORT_OFFSET picks one by hand
+        # for a shell, over `ports.offset`. The bases are clear of
+        # frappe-nix's (8000, 3306, 9000, 19000-21000 + offset), so a bench and
+        # a project never meet.
+        ports = inputs.python-devops-nix.lib.ports.options {
+          cfg = config.odoo-nix.ports;
+          inherit (config.odoo-nix) name;
+          label = "odoo-nix";
+          variable = "ODOO_NIX_PORT_OFFSET";
+          bases = {
+            http = 10000;
+            gevent = 11000;
+            db = 12000;
+            smtp = 13000;
+            mailUi = 14000;
           };
+          descriptions = {
+            http = "Odoo's HTTP port (http_port)";
+            gevent = "Odoo's websocket/longpolling port (gevent_port)";
+            db = "PostgreSQL's port (db_port)";
+            smtp = "Mailpit's SMTP port (`mailpit.port`'s default)";
+            mailUi = "Mailpit's web UI port (`mailpit.httpPort`'s default)";
+          };
+          baseService = "http";
+        };
 
         # Guard rails for the development environment: stop a database restored
         # from production (with its live credentials) from reaching the outside
@@ -1086,7 +1032,7 @@ in
 
         cliScripts = import ../lib/cli-scripts.nix {
           inherit lib pkgs;
-          submodulesInitBin = "${submodulesInit}/bin/odoo-nix-submodules-init";
+          sourcesBin = lib.getExe sources;
           buildDeps = import ../lib/build-deps.nix {
             inherit pkgs;
             base = inputs.python-devops-nix.lib;
@@ -1149,18 +1095,92 @@ in
           base = inputs.python-devops-nix.lib;
         };
 
-        # The dev-shell welcome banner (rich-rendered, lib/banner.py) --
-        # shares python-devops-nix's lib.python.rich with lib/cli.nix rather than hand-drawn
-        # box-drawing-character `echo` lines, which are fragile to keep
-        # column-aligned by hand and degrade ungracefully (no width
-        # awareness) compared to a real renderer.
-        submodulesInit = import ../lib/submodules-init.nix { inherit pkgs; };
-
-        # lib/db-nocow.nix and the postgres.noCow option.
-        dbNocow = import ../lib/db-nocow.nix { inherit pkgs; };
-
-        richPython = pythonLib.rich {
+        # python-devops-nix's shell pieces (PLAN.md, Phase 5), configured in
+        # lib/shell-tools.nix: odoo-nix-sources (submodule checkout on entry),
+        # odoo-nix-db-nocow (the postgres.noCow option) and odoo-nix-banner,
+        # on the project's interpreter so the shell carries no second one.
+        shellTools = import ../lib/shell-tools.nix {
+          inherit pkgs;
+          base = inputs.python-devops-nix.lib;
           inherit (cfg) python;
+        };
+        inherit (shellTools) sources dbNocow;
+
+        # CI mode (CONVENTIONS.md, CI mode): ODOO_NIX_CI set to anything but
+        # "", 0 or false skips the interactive steps, turns process-compose's
+        # TUI off and prints a one-line banner.
+        ciMode = inputs.python-devops-nix.lib.ciMode {
+          label = "odoo-nix";
+          envPrefix = "ODOO";
+        };
+
+        # The welcome banner's spec: rendered with rich by odoo-nix-banner,
+        # never hand-aligned `echo` lines.
+        bannerSpec = {
+          title = "${cfg.name} — Odoo ${cfg.odooSeries} (OCB + OCA) dev environment";
+          commands =
+            map
+              (c: {
+                command = builtins.elemAt c 0;
+                description = builtins.elemAt c 1;
+              })
+              [
+                [
+                  "devenv up"
+                  "start postgres + odoo + mailpit"
+                ]
+                [
+                  "odoo db provision"
+                  "create DB + install modules.txt"
+                ]
+                [
+                  "odoo db migrate"
+                  "upgrade all modules, with progress"
+                ]
+                [
+                  "odoo module add"
+                  "pick + wire in more OCA modules"
+                ]
+                [
+                  "odoo module add-bundle"
+                  "add a curated OCA module bundle"
+                ]
+                [
+                  "odoo project update"
+                  "pull submodules + refresh deps"
+                ]
+                [
+                  "odoo test <mod> [db]"
+                  "run a module's tests"
+                ]
+                [
+                  "odoo shell"
+                  "Odoo REPL"
+                ]
+              ];
+          urls = [
+            {
+              label = "Odoo server";
+              url = "http://127.0.0.1:${toString cfg.ports.http}";
+            }
+          ];
+          facts = [
+            {
+              label = "addons_path entries";
+              value = toString (builtins.length addons.addonsPathList);
+            }
+          ];
+          guard = {
+            inherit (cfg.devguard) enable;
+            egress = {
+              inherit (cfg.devguard.egress) enable;
+              allow = cfg.devguard.egress.allowHosts;
+            };
+            mail = {
+              inherit (cfg.devguard.mail) enable;
+              url = "http://127.0.0.1:${toString cfg.mailpit.httpPort}";
+            };
+          };
         };
 
         # ── Editor / language-server integration ──────────────────────────
@@ -1531,10 +1551,12 @@ in
             ++ lib.optional cfg.mailpit.enable "devenv:processes:mailpit@started";
 
             enterShell = ''
+              ${ciMode.exports}
               ${lib.optionalString (cfg.postgres.noCow && pkgs.stdenv.hostPlatform.isLinux) ''
                 # Before `devenv up` runs initdb: the btrfs NOCOW attribute only
-                # reaches files created after it is set. See lib/db-nocow.nix.
-                ${dbNocow}/bin/odoo-nix-db-nocow prepare "''${PGDATA:-$DEVENV_STATE/postgres}" || true
+                # reaches files created after it is set (python-devops-nix's
+                # lib.dbNocow, strategy "parent").
+                ${lib.getExe dbNocow} prepare "''${PGDATA:-$DEVENV_STATE/postgres}" || true
               ''}
               ${lib.optionalString (cfg.coreSource != null) ''
                 # OCB comes from a flake input: keep <coreSrc> a symlink to it so
@@ -1561,8 +1583,11 @@ in
               # silently reset it back on every shell entry. Nor is one that
               # was set up and has since been removed or deinitialized brought
               # back: submodules should only ever move via an explicit `odoo
-              # project update`. See lib/submodules-init.nix.
-              ${submodulesInit}/bin/odoo-nix-submodules-init --core ${lib.escapeShellArg cfg.layout.coreSrc} "$DEVENV_ROOT" || true
+              # project update`. python-devops-nix's lib.sources; skipped in CI
+              # mode, where the job checks out what it needs.
+              ${ciMode.unlessCi ''
+                ${lib.getExe sources} enter --treeless ${lib.escapeShellArg cfg.layout.coreSrc} "$DEVENV_ROOT" || true
+              ''}
 
               # Symlink the Nix-synthesized odoo.conf into place (read-only store
               # target; odoo-bin -c consumes it, never rewrites it).
@@ -1600,13 +1625,15 @@ in
                 fi
               ''}
 
-              ${richPython}/bin/python ${../lib/banner.py} \
-                "${cfg.name}" "${cfg.odooSeries}" \
-                "${toString (builtins.length addons.addonsPathList)}" "${toString cfg.ports.http}" \
-                "${if cfg.devguard.enable then "1" else "0"}" "${toString cfg.mailpit.httpPort}" \
-                "${lib.concatStringsSep "," cfg.devguard.egress.allowHosts}" \
-                "${if cfg.devguard.enable && cfg.devguard.mail.enable then "1" else "0"}" \
-                "${if cfg.devguard.enable && cfg.devguard.egress.enable then "1" else "0"}"
+              ${ciMode.banner {
+                inherit (cfg) name;
+                details = "Odoo ${cfg.odooSeries}, http ${toString cfg.ports.http}";
+                interactive = inputs.python-devops-nix.lib.banner.script {
+                  inherit pkgs;
+                  inherit (shellTools) banner;
+                  spec = bannerSpec;
+                };
+              }}
             '';
 
             # odoo-nix's own site-maintenance commands are the `odoo` CLI

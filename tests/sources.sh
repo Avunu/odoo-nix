@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# Checks for `odoo-nix-submodules-init` -- what the dev shell does about the
+# Checks for `odoo-nix-sources enter` -- what the dev shell does about the
 # project's git submodules on entry. On a fresh clone it checks out every
 # submodule, once. After that it touches none: checking out whatever it found
 # without a checkout is how a submodule removed by hand came back, re-cloned,
 # on the next direnv reload.
 #
-# Usage: submodules-init.sh <path-to-odoo-nix-submodules-init>
+# The command is python-devops-nix's lib.sources, configured for odoo-nix in
+# lib/shell-tools.nix; the base tests the command itself in a stub product's
+# shape. This is the acceptance test of odoo-nix's configuration of it: the
+# label, the hints, OCB (odoo/) cloned commits-only, and recursion.
+#
+# Usage: sources.sh <path-to-odoo-nix-sources>
 set -euo pipefail
 
 TOOL="$1"
@@ -45,7 +50,7 @@ check_eq() { # <description> <expected> <actual>
 }
 says() { grep -qF -- "$1" <<< "$OUT"; }
 silent_on() { ! grep -qF -- "$1" <<< "$OUT"; }
-run() { OUT="$("$TOOL" --core odoo "$PWD" 2>&1)" && RC=0 || RC=$?; }
+run() { OUT="$("$TOOL" enter --treeless odoo "$PWD" 2>&1)" && RC=0 || RC=$?; }
 
 # Whether an object is on disk, without the lazy fetch a partial clone would
 # otherwise make to answer the question.
@@ -155,11 +160,12 @@ check_eq "exits 0" 0 "$RC"
 check_eq "changes nothing -- no checkout, no clone, no index or config edit" "$before" "$after"
 check "…so modules/fresh is still empty" empty modules/fresh
 check "…and the ones removed by hand are still gone" test ! -e modules/taken -a ! -e modules/inplace
-check "says it is initializing nothing" silent_on "Initializing"
-check "names the submodules taken out since" says "registered but not checked out: modules/fresh modules/taken modules/inplace"
-check "…with the command that checks out their pinned commits" says "git submodule update --init --recursive -- modules/fresh modules/taken modules/inplace"
+check "says it is checking nothing out" silent_on "checking out"
+check "names the submodules taken out since, in path order" says "odoo-nix: registered but not checked out: modules/fresh modules/inplace modules/taken"
+check "…with the command that checks out their pinned commits" says "git submodule update --init --recursive -- modules/fresh modules/inplace modules/taken"
 check "…and the one that pulls them" says "odoo project update"
 check "says nothing of a checked-out submodule" silent_on "modules/present"
+check_eq "…and all of it on stderr" "" "$("$TOOL" enter --treeless odoo "$PWD" 2> /dev/null)"
 
 echo "── a project with nothing to say ────────────────────────────────"
 git submodule update -q --init -- modules/fresh modules/taken modules/inplace
@@ -193,7 +199,7 @@ git -C modules/present config --replace-all remote.origin.fetch '+refs/heads/mai
 git -C modules/present branch -q -D other
 git -C modules/present update-ref -d refs/remotes/origin/other
 check "…past a gitlink with no .gitmodules entry" empty modules/stray
-check "says so" says "Initializing git submodule odoo (first shell entry in this clone)"
+check "says so" says "odoo-nix: checking out odoo (first shell entry in this clone)"
 check "names a submodule whose directory is in the way" says "modules/taken is not checked out, but its directory is not empty"
 check "…and what is in it" says "leftover"
 check "…leaves that directory as it was" test -d modules/taken/leftover -a ! -e modules/taken/.git
@@ -204,14 +210,14 @@ before="$(snapshot)"
 run
 after="$(snapshot)"
 check_eq "a second entry changes nothing" "$before" "$after"
-check "…and initializes nothing" silent_on "Initializing"
+check "…and checks nothing out" silent_on "checking out"
 
 rm -rf modules/present
 git submodule deinit -q -f -- modules/fresh
 run
 check "a submodule removed by hand after the first entry stays removed" test ! -e modules/present
 check "…as does a deinitialized one" empty modules/fresh
-check "…and both are reported" says "registered but not checked out: modules/present modules/fresh"
+check "…and both are reported" says "registered but not checked out: modules/fresh modules/present"
 
 rmdir modules/taken/leftover
 run
@@ -284,6 +290,9 @@ cd "$ROOT/nestclone"
 run
 check_eq "exits 0" 0 "$RC"
 check "checks it out as a partial clone of its branch" partial_one_branch modules/nested
+# `git submodule update --recursive` without --init, as odoo-nix's bash copy
+# ran it, never checked a nested submodule out.
+check "…and its own submodule with it" test -f modules/nested/ui/README
 # A clone an earlier odoo-nix made: commits without their folders, which is
 # where the on-demand check is a lazy fetch per commit.
 git -C modules/nested config remote.origin.partialclonefilter tree:0
@@ -412,7 +421,7 @@ check_eq "a filter set by hand is left as it is" 'blob:limit=1k' "$(git -C modul
 
 echo "── no submodules ────────────────────────────────────────────────"
 mkdir -p "$ROOT/plain"
-OUT="$("$TOOL" "$ROOT/plain" 2>&1)" && RC=0 || RC=$?
+OUT="$("$TOOL" enter "$ROOT/plain" 2>&1)" && RC=0 || RC=$?
 check_eq "exits 0" 0 "$RC"
 check_eq "and prints nothing" "" "$OUT"
 

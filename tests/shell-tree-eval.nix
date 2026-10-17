@@ -1,7 +1,7 @@
 # Evaluation-level assertions over the dev shell's option tree
 # (python-devops-nix CONVENTIONS.md, The development shell option tree):
 # `watch`, `devguard`, `mailpit` and `ports`, their defaults, and the ports
-# a project derives from its name (lib/ports.nix). A consumer's flake is
+# a project derives from its name (python-devops-nix's lib.ports). A consumer's flake is
 # evaluated through lib.mkFlake and nothing is built. Same `pairs` shape as
 # eval.nix; flake.nix turns each into a named mkEvalCheck. The old names are
 # tests/renames-eval.nix's.
@@ -13,7 +13,7 @@
 }:
 let
   inherit (pkgs.stdenv.hostPlatform) system;
-  ports = import ../lib/ports.nix { inherit lib; };
+  inherit (inputs.python-devops-nix.lib) ports;
 
   perSystem =
     odoo-nix:
@@ -211,12 +211,18 @@ in
       899
       null
     ];
-    actual = map ports.parseEnvOffset [
-      ""
-      "12"
-      "899"
-      "900"
-    ];
+    actual =
+      map
+        (ports.parseEnvOffset {
+          label = "odoo-nix";
+          variable = "ODOO_NIX_PORT_OFFSET";
+        })
+        [
+          ""
+          "12"
+          "899"
+          "900"
+        ];
   };
   # Mailpit runs, and the server starts after it, whether or not the mail
   # guard (or the whole devguard) is on.
@@ -251,6 +257,31 @@ in
       actual = {
         process = off.processes ? mailpit;
         after = lib.elem "devenv:processes:mailpit@started" off.processes.odoo.after;
+      };
+    };
+  # CI mode (python-devops-nix's lib.ciMode, CONVENTIONS.md, CI mode):
+  # enterShell exports PC_TUI_ENABLED=0 before anything else of odoo-nix's
+  # runs, skips the submodule checkout, and prints one line for its banner.
+  ci-mode =
+    let
+      es = (shell { }).enterShell;
+      before = marker: builtins.head (lib.splitString marker es);
+      lastLines = n: text: lib.concatStringsSep "\n" (lib.takeEnd n (lib.splitString "\n" text));
+    in
+    {
+      expected = {
+        exportsFirst = true;
+        sourcesUnlessCi = true;
+        oneLine = true;
+        bannerOutsideCi = true;
+      };
+      actual = {
+        exportsFirst = lib.hasInfix "PC_TUI_ENABLED=0" (before "/bin/odoo-nix-db-nocow prepare");
+        sourcesUnlessCi = lib.hasInfix ''if ! case "''${ODOO_NIX_CI:-}"'' (
+          lastLines 4 (before "/bin/odoo-nix-sources enter")
+        );
+        oneLine = lib.hasInfix ''echo "odoo-nix: CI mode (acme, Odoo 19.0, http ${toString (10000 + offset)})"'' es;
+        bannerOutsideCi = lib.hasInfix "/bin/odoo-nix-banner /nix/store/" es;
       };
     };
   # watch.python is on by default: the server gets the watchdog fallback.
