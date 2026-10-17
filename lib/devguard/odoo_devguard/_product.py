@@ -26,6 +26,9 @@ dev and test environments and never into the production one, so
 (checks.odoo-init-<major> asserts it).
 """
 
+import os
+import sys
+
 #: ``<P>``: the settings variables are ``ODOO_DEVGUARD_*``.
 ENV_PREFIX = "ODOO"
 
@@ -83,3 +86,39 @@ def user_error(guard, message):
     from odoo.exceptions import UserError
 
     raise UserError(f"Blocked by odoo-devguard: {message}")
+
+
+# -- ODOO_DEVGUARD_CRONS_* (the cron guard's variables before the shared job
+# denylist, python-devops-nix CONVENTIONS.md), read as ODOO_DEVGUARD_JOBS_*
+# until odoo-nix's next minor release. Settings come from os.environ at call
+# time, so the old names are copied onto the new ones when the package loads
+# (the core imports this module first); a new name that is set wins.
+
+_OLD_ENV = "ODOO_DEVGUARD_CRONS_"
+_NEW_ENV = "ODOO_DEVGUARD_JOBS_"
+
+#: Keys that changed with the guard: the rest map one to one.
+_OLD_KEYS = {"BLOCKED_CRONS": "BLOCKED_JOBS", "EXTRA_BLOCKED_CRONS": "EXTRA_BLOCKED"}
+
+_WARNED_ENV = set()
+
+
+def alias_old_env(environ=os.environ):
+    """Read each ODOO_DEVGUARD_CRONS_<KEY> as ODOO_DEVGUARD_JOBS_<KEY>.
+
+    Warns once per process for each old variable, naming the new one.
+    """
+    for old in sorted(name for name in environ if name.startswith(_OLD_ENV)):
+        key = old[len(_OLD_ENV):]
+        new = _NEW_ENV + _OLD_KEYS.get(key, key)
+        if old not in _WARNED_ENV:
+            _WARNED_ENV.add(old)
+            action = "ignored: it is set too" if new in environ else "read as it"
+            sys.stderr.write(
+                f"WARNING {__package__}[crons] {old} is deprecated; use {new} "
+                f"({action})\n"
+            )
+        environ.setdefault(new, environ[old])
+
+
+alias_old_env()

@@ -254,6 +254,36 @@ class JobGuardTest(unittest.TestCase):
             ir_cron(5, "auto_backup.ir_cron_backup_scheduler_0")._callback("backup", 3)
         self.assertIn("WARNING odoo_devguard[crons] skipping cron auto_backup.ir_cron_backup_scheduler_0", err.getvalue())
 
+    def test_old_variables_are_read_as_the_new_ones(self):
+        environ = {"ODOO_DEVGUARD_CRONS_EXTRA_BLOCKED_CRONS": "old.sync",
+                   "ODOO_DEVGUARD_CRONS_ENABLE": "0"}
+        _product._WARNED_ENV.clear()  # a fresh process
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            _product.alias_old_env(environ)
+            _product.alias_old_env(environ)  # warned once only
+        self.assertEqual(environ["ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED"], "old.sync")
+        self.assertEqual(environ["ODOO_DEVGUARD_JOBS_ENABLE"], "0")
+        lines = err.getvalue().splitlines()
+        self.assertEqual(len(lines), 2, lines)
+        self.assertIn("WARNING odoo_devguard[crons] ODOO_DEVGUARD_CRONS_EXTRA_BLOCKED_CRONS is "
+                      "deprecated; use ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED", err.getvalue())
+        # ...and the guard honours the result.
+        with unittest.mock.patch.dict(os.environ, environ):
+            self.assertFalse(jobs.enabled())
+        with unittest.mock.patch.dict(os.environ, {"ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED": "old.sync"}):
+            self.assertIsNone(ir_cron(6, "old.sync")._callback("sync", 1))
+
+    def test_a_new_variable_wins_over_the_old(self):
+        environ = {"ODOO_DEVGUARD_CRONS_EXTRA_BLOCKED_CRONS": "old.sync",
+                   "ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED": "new.sync"}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            _product._WARNED_ENV.clear()  # a fresh process
+            _product.alias_old_env(environ)
+        self.assertEqual(environ["ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED"], "new.sync")
+        self.assertIn("use ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED (ignored: it is set too)", err.getvalue())
+
     def test_the_old_name_still_disables_with_a_warning(self):
         err = io.StringIO()
         with env(DISABLE="crons"), contextlib.redirect_stderr(err):
