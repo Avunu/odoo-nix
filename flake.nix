@@ -239,6 +239,7 @@
       #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
       #   eval-container-name*                                the OCI image's name (Linux only)
       #   eval-python-default-*                               the series' default interpreter (Linux only)
+      #   eval-rename-*                                       renamed dev-shell options (Linux only)
       #   eval-*-<major>, lock-fresh-<major>                  per-series, no Odoo run (all systems)
       #   builtOdoo-<major>, odoo-init-<major>, odoo-test-<major>,
       #   module-odoo-<major>, module-nginx                   run Odoo / a VM (Linux only)
@@ -437,6 +438,14 @@
           evalChecks "" (
             import ./tests/python-default-eval.nix {
               inherit pkgs inputs;
+              inherit (self.lib) mkFlake;
+            }
+          )
+        )
+        // lib.optionalAttrs isLinux (
+          evalChecks "" (
+            import ./tests/renames-eval.nix {
+              inherit pkgs lib inputs;
               inherit (self.lib) mkFlake;
             }
           )
