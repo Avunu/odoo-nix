@@ -6,19 +6,7 @@
 # catalog), a generated pyproject.toml, and a uv.lock.
 { pkgs }:
 
-pkgs.writeShellApplication {
-  name = "odoo-init";
-  runtimeInputs = with pkgs; [
-    git
-    uv
-    gum
-    jq
-    gawk
-    gnused
-    gnugrep
-    coreutils
-    python3
-  ];
+let
   # Bake the presets, template dir, OCA dataset + bundles, shared helper lib,
   # and the python-dep tool store paths into the placeholders.
   text =
@@ -42,4 +30,22 @@ pkgs.writeShellApplication {
         "${./uv_build_deps.py}"
       ]
       (builtins.readFile ./odoo-init.sh);
+in
+pkgs.writeShellApplication {
+  name = "odoo-init";
+  inherit text;
+  # The script without the PATH writeShellApplication pins, so a test can
+  # put stand-ins for git and uv in front (tests/odoo-init.sh).
+  passthru.script = pkgs.writeText "odoo-init.sh" text;
+  runtimeInputs = with pkgs; [
+    git
+    uv
+    gum
+    jq
+    gawk
+    gnused
+    gnugrep
+    coreutils
+    python3
+  ];
 }

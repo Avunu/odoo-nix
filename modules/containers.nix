@@ -105,7 +105,7 @@ _: {
       '';
 
       odooImage = pkgs.dockerTools.buildLayeredImage {
-        name = imageName "${cfg.projectName}-odoo";
+        name = imageName "${cfg.name}-odoo";
         tag = "latest";
         contents = [ odooPkg ] ++ runtimeDeps;
         config = {

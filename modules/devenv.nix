@@ -81,6 +81,10 @@ in
         ++ map renamedCrons [
           "enable"
           "extraBlocked"
+        ]
+        # python-devops-nix CONVENTIONS.md, Identity options.
+        ++ [
+          (renamed [ "odoo-nix" "projectName" ] [ "odoo-nix" "name" ])
         ];
 
       options.odoo-nix = {
@@ -93,9 +97,13 @@ in
           description = "Deprecated options in use, each warned about (lib.warn) when the shell's config is evaluated.";
         };
 
-        projectName = mkOption {
+        name = mkOption {
           type = types.str;
-          description = "Project identifier used for env/package/container names.";
+          description = ''
+            The project's identity: a slug that names its Python environments,
+            packages, container image and dev-shell banner, and devenv's own
+            top-level `name` (by default). Was `projectName`.
+          '';
           example = "avunu-accounting";
         };
 
@@ -764,7 +772,7 @@ in
             type = types.str;
             default = "";
             example = "ghcr.io/avunu";
-            description = "Registry prefix for the image name: \"ghcr.io/avunu\" names the image ghcr.io/avunu/<projectName>-odoo. A trailing slash is dropped; empty leaves the name bare.";
+            description = "Registry prefix for the image name: \"ghcr.io/avunu\" names the image ghcr.io/avunu/<name>-odoo. A trailing slash is dropped; empty leaves the name bare.";
           };
         };
       };
@@ -837,9 +845,9 @@ in
           inherit (cfg)
             python
             workspaceRoot
-            projectName
             coreSource
             ;
+          projectName = cfg.name;
           devguard = if dg.enable then devguardPkg else null;
           pythonLib = inputs.python-devops-nix.lib.python;
           inherit (inputs) pyproject-nix pyproject-build-systems uv2nix;
@@ -947,10 +955,10 @@ in
           inherit (cfg)
             workspaceRoot
             layout
-            projectName
             odooSeries
             coreSource
             ;
+          projectName = cfg.name;
           inherit (pythonEnvs) odooPythonEnv;
         };
 
@@ -974,7 +982,7 @@ in
           inherit pkgs lib;
           inherit (cfg) python;
           inherit cliScripts;
-          name = "${cfg.projectName}-odoo-cli-dev";
+          name = "${cfg.name}-odoo-cli-dev";
           rawOdooBin = devRawOdooBin;
           targetPythonEnv = pythonEnvs.devPythonEnv;
           inherit mcBin;
@@ -985,7 +993,7 @@ in
         odooCliProd = import ../lib/cli.nix {
           inherit pkgs lib;
           inherit (cfg) python;
-          name = "${cfg.projectName}-odoo-cli";
+          name = "${cfg.name}-odoo-cli";
           rawOdooBin = "${builtOdoo}/bin/odoo";
           mirrorTree = builtOdoo;
           targetPythonEnv = pythonEnvs.odooPythonEnv;
@@ -1197,6 +1205,10 @@ in
             # while a flake-integrated shell falls back to off, and a
             # consumer can still override either way.
             dotenv.enable = lib.mkDefault (!config.devenv.flakesIntegration);
+
+            # devenv's "Name of the project": the shell and the product agree
+            # (python-devops-nix CONVENTIONS.md, Identity options).
+            name = lib.mkDefault cfg.name;
 
             packages =
               with pkgs;
@@ -1431,7 +1443,7 @@ in
               ''}
 
               ${richPython}/bin/python ${../lib/banner.py} \
-                "${cfg.projectName}" "${cfg.odooSeries}" \
+                "${cfg.name}" "${cfg.odooSeries}" \
                 "${toString (builtins.length addons.addonsPathList)}" "${toString cfg.odooConf.httpPort}" \
                 "${if cfg.devguard.enable then "1" else "0"}" "${toString cfg.devguard.mail.httpPort}" \
                 "${lib.concatStringsSep "," cfg.devguard.egress.allowHosts}" \

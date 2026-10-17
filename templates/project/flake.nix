@@ -53,7 +53,7 @@
           {
             odoo-nix = {
               enable = true;
-              projectName = "@PROJECT_NAME@";
+              name = "@PROJECT_NAME@";
               workspaceRoot = ./.;
               odooSeries = "@SERIES@";
               python = pkgs.@PYTHON@;

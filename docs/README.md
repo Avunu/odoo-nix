@@ -86,7 +86,7 @@ A consuming `flake.nix` is just configuration:
       perSystem = { pkgs, ... }: {
         odoo-nix = {
           enable = true;
-          projectName = "acme";
+          name = "acme";
           workspaceRoot = ./.;
           odooSeries = "18.0";
           python = pkgs.python311;
@@ -127,7 +127,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | Option | Default | Description |
 | --- | --- | --- |
 | enable | false | enable the dev shell + packages |
-| projectName | — | identifier for env / package / container names |
+| name | — | the project's identity, a slug: names its environments, packages and container image, and devenv's own `name` (was `projectName`) |
 | workspaceRoot | — | project root (where pyproject.toml, odoo.conf, odoo/ live) |
 | coreSource | null | OCB from a non-flake input instead of the `odoo/` submodule — see [OCB as a flake input](#ocb-as-a-flake-input) |
 | odooSeries | "18.0" | Odoo series — the OCB/OCA branch + catalog filter (does not select a nixpkgs package) |
@@ -173,7 +173,18 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | restore.migrate | true | `odoo db migrate` the restored database to this checkout's modules (`--no-migrate`) |
 | restore.requireDevguard | true | refuse to restore while `devguard.enable` is false (`ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` overrides per command) |
 | extraDevPackages / extraLibraryPaths / extraScripts / extraEnv | [] / [] / {} / {} | dev-shell extras |
-| containers.enable / containers.registry | false / "" | build the OCI image; a non-empty registry prefixes its name (`ghcr.io/avunu` → `ghcr.io/avunu/<projectName>-odoo`) |
+| containers.enable / containers.registry | false / "" | build the OCI image; a non-empty registry prefixes its name (`ghcr.io/avunu` → `ghcr.io/avunu/<name>-odoo`) |
+
+### Renamed options
+
+odoo-nix and frappe-nix name the jobs they share the same way ([python-devops-nix CONVENTIONS.md](https://github.com/Avunu/python-devops-nix/blob/main/CONVENTIONS.md)). An old name still works until the next minor release: it sets the new option, and evaluating the shell prints a warning naming both.
+
+| Old | New |
+| --- | --- |
+| `projectName` | `name`, which also sets devenv's own `name` (`lib.mkDefault`) |
+| `mailcatch.*` | `devguard.mail.*` |
+| `devguard.crons.*` | `devguard.jobs.*` |
+| `restore.attachments` | `restore.files` (`"mirror"` is `true`) |
 
 ## Development shell
 
@@ -455,7 +466,7 @@ needs OCB only for its own dev shell and test checks, so it takes it as a plain 
       perSystem = { pkgs, ... }: {
         odoo-nix = {
           enable = true;
-          projectName = "my-addons";
+          name = "my-addons";
           workspaceRoot = ./.;
           coreSource = inputs.ocb;      # no self.submodules, no odoo/ submodule
           layout.customDir = ".";       # the repo root is the addons directory
@@ -553,7 +564,7 @@ PostGIS (OCA `base_geoengine`): `database.extensions = ps: [ ps.postgis ];` buil
 
 ## Production — OCI containers
 
-Set `odoo-nix.containers.enable = true` to get `packages.<sys>.container-odoo`, an all-in-one image (`dockerTools.buildLayeredImage`) running `odoo-bin` with HTTP workers + gevent + cron, named `<projectName>-odoo:latest`, or `<registry>/<projectName>-odoo:latest` with `containers.registry` set (a trailing slash is dropped). The entrypoint synthesizes `/etc/odoo/odoo.conf` from env-var defaults and merges secrets from mounted files:
+Set `odoo-nix.containers.enable = true` to get `packages.<sys>.container-odoo`, an all-in-one image (`dockerTools.buildLayeredImage`) running `odoo-bin` with HTTP workers + gevent + cron, named `<name>-odoo:latest`, or `<registry>/<name>-odoo:latest` with `containers.registry` set (a trailing slash is dropped). The entrypoint synthesizes `/etc/odoo/odoo.conf` from env-var defaults and merges secrets from mounted files:
 
 -   `/var/lib/odoo/data` — persistent filestore (volume),
 -   `/secrets/db_password`, `/secrets/admin_passwd`, `/secrets/*.conf` — secrets,
@@ -595,7 +606,8 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `cli-remote-restore-<18\|19>` | `odoo db restore` from a directory store: `--list`; the newest backup restored neutralized and migrated; an existing database overwritten, refused with `--no-force`, `--force` a warned no-op; `--no-neutralize`, `--no-migrate` and `ODOO_NIX_RESTORE_MIGRATE=0`; `--files` and the deprecated `--attachments`; refused without the devguard unless overridden or `restore.requireDevguard` is off; `--at` in ISO 8601 and odoo-nix's naming, whole or a leading part, and a non-matching or malformed `--at` fails; `odoo project restore --no-force` |
 | `eval-restore-*` | the dev shell's `restore.*` options reaching the CLI's environment, and `restore.attachments` read as `restore.files` |
 | `eval-python-default-*` | a consumer that sets only `odooSeries` gets that series' interpreter from `lib/odoo-presets.json`, and its container image evaluates |
-| `eval-rename-*` | the old `mailcatch.*` names reaching `devguard.mail.*` and the shell's env, each announced with a deprecation warning |
+| `eval-rename-*`, `eval-identity-*` | each [renamed option](#renamed-options) reaching its new name (and the shell's env, the packages' names), announced with a deprecation warning; the identity as devenv's `name` |
+| `scaffold` | `odoo-init` offline (`tests/odoo-init.sh`, git and uv stood in): the generated flake sets `odoo-nix.name` and the database |
 | `db-nocow` | `odoo-nix-db-nocow` (`tests/db-nocow.sh`): NOCOW arranged for a datadir `initdb` has yet to create and cleared from its parent after, an existing cluster reported, the stopped-server copy keeping mode 0700. Checks the real attribute on a btrfs builder, the no-op elsewhere (`TMPDIR=<btrfs dir>` to run it by hand; Linux only) |
 | `nix-lint` | python-devops-nix's `lib.checks.nixLint`: `nixfmt-rs --check` (what `nix fmt` writes), `statix` (`statix.toml`, compared with the base's copy) and `deadnix` over the repo's Nix files, `templates/` and `tests/fixtures/` excluded |
 | `shared-config` | python-devops-nix's `lib.checks.sharedConfig`: `.editorconfig`, `.pre-commit-config.yaml` and `ruff.toml` make every setting the base's copies make |
