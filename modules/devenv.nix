@@ -371,8 +371,10 @@ in
             Native libraries to expose to a Python package's build, keyed by
             package name. Each library's headers (its `.dev` output) and
             pkg-config are added to the build — the declarative way to satisfy a
-            C-extension dependency (e.g. pycups) without writing a Nix override.
-            Merged with odoo-nix's built-in set (which already covers pycups).
+            C-extension dependency (e.g. python-snappy) without writing a Nix
+            override. psycopg2, python-ldap, lxml, pycups, python-magic, pyvips
+            and cairocffi need no entry: python-devops-nix's lib.python.overrides
+            fixes them.
           '';
           example = lib.literalExpression "{ python-snappy = [ pkgs.snappy ]; }";
         };
@@ -942,21 +944,11 @@ in
         # (perSystem has no `warnings` option to collect them).
         cfg = lib.foldr lib.warn config.odoo-nix config.odoo-nix.deprecations;
 
-        inherit (import ../lib/env.nix) blasThreadCaps;
-
-        overrides = import ../lib/overrides.nix;
-
-        # Odoo always needs these native builds; wire them as defaults.
-        builtinOverrides = lib.composeManyExtensions [
-          (overrides.psycopg2 { inherit pkgs; })
-          (overrides.python-ldap { inherit pkgs; })
-        ];
-
-        # Built-in native-library exposures (merged with the user's). Add common
-        # C-extension deps here so they work out of the box.
-        builtinPythonLibraries = {
-          pycups = [ pkgs.cups ];
-        };
+        # python-devops-nix's Python pieces: the BLAS thread caps, rich for
+        # the banner, and (in lib/python.nix) the package fixes and the
+        # stale-lock audit.
+        pythonLib = inputs.python-devops-nix.lib.python;
+        inherit (pythonLib) threadCaps;
 
         # The guard rails, with this project's settings baked in. Only the dev and
         # test environments get it (lib/python.nix), never the production one.
@@ -999,13 +991,10 @@ in
             ;
           projectName = cfg.name;
           devguard = if dg.enable then devguardPkg else null;
-          pythonLib = inputs.python-devops-nix.lib.python;
+          inherit pythonLib;
           inherit (inputs) pyproject-nix pyproject-build-systems uv2nix;
-          pythonLibraries = builtinPythonLibraries // cfg.pythonLibraries;
-          extraOverrides = lib.composeManyExtensions [
-            builtinOverrides
-            cfg.pythonOverrides
-          ];
+          inherit (cfg) pythonLibraries;
+          extraOverrides = cfg.pythonOverrides;
         };
 
         # odoo-nix's own addons, served straight from the store — never copied
@@ -1098,6 +1087,10 @@ in
         cliScripts = import ../lib/cli-scripts.nix {
           inherit lib pkgs;
           submodulesInitBin = "${submodulesInit}/bin/odoo-nix-submodules-init";
+          buildDeps = import ../lib/build-deps.nix {
+            inherit pkgs;
+            base = inputs.python-devops-nix.lib;
+          };
           python = "${pythonEnvs.devPythonEnv}/bin/python";
           inherit (cfg) odooSeries layout coreSource;
           ocaDataset = ../data/oca-modules.json;
@@ -1157,7 +1150,7 @@ in
         };
 
         # The dev-shell welcome banner (rich-rendered, lib/banner.py) --
-        # shares lib/rich-python.nix with lib/cli.nix rather than hand-drawn
+        # shares python-devops-nix's lib.python.rich with lib/cli.nix rather than hand-drawn
         # box-drawing-character `echo` lines, which are fragile to keep
         # column-aligned by hand and degrade ungracefully (no width
         # awareness) compared to a real renderer.
@@ -1166,7 +1159,7 @@ in
         # lib/db-nocow.nix and the postgres.noCow option.
         dbNocow = import ../lib/db-nocow.nix { inherit pkgs; };
 
-        richPython = import ../lib/rich-python.nix {
+        richPython = pythonLib.rich {
           inherit (cfg) python;
         };
 
@@ -1441,7 +1434,7 @@ in
               UV_PROJECT_ENVIRONMENT = config.env.DEVENV_STATE + "/uv-env";
               LD_LIBRARY_PATH = libraryPath;
             }
-            // blasThreadCaps
+            // threadCaps
             // {
               ODOO_NIX_RESTORE_PREFIX = cfg.restore.prefix;
               ODOO_NIX_RESTORE_SOURCE_DB = cfg.restore.sourceDatabase;

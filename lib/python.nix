@@ -18,6 +18,10 @@
 #     pythonLib = inputs.python-devops-nix.lib.python;
 #     extraOverrides = final: prev: { ... };
 #   }
+#
+# The package set is uv2nix's, then python-devops-nix's shared package fixes
+# (lib.python.overrides), then odoo-nix's own, then `extraOverrides`. Every
+# virtualenv goes through python-devops-nix's stale-lock audit first.
 
 {
   pkgs,
@@ -38,7 +42,8 @@
   # TEST virtualenvs only -- never odooPythonEnv, which is what builtOdoo,
   # services.odoo-nix and the container image run. null = none.
   devguard ? null,
-  # inputs.python-devops-nix.lib.python, for withGrafts.
+  # inputs.python-devops-nix.lib.python: the shared package fixes
+  # (overrides), the stale-lock audit (lockAudit) and withGrafts.
   pythonLib,
 }:
 
@@ -150,31 +155,11 @@ let
       }
     );
 
-  # python-magic (pulled in by OCA modules, and used by Odoo's own
-  # guess_mimetype when importable) finds libmagic with ctypes.util.
-  # find_library, which on NixOS finds nothing: it only worked in the dev
-  # shell, whose LD_LIBRARY_PATH carries `file`'s lib, and fell back or failed
-  # under services.odoo-nix and in the container. Point it at nixpkgs'
-  # libmagic first, as nixpkgs' own python-magic does; the stock lookup stays
-  # behind it.
-  pythonMagicOverlay =
-    _final: prev:
-    lib.optionalAttrs (prev ? python-magic) {
-      python-magic = prev.python-magic.overrideAttrs (old: {
-        postInstall = (old.postInstall or "") + ''
-          for f in $(find "$out" -path '*/magic/loader.py'); do
-            substituteInPlace "$f" --replace-fail \
-              'for lib in _lib_candidates():' \
-              'for lib in ["${pkgs.file}/lib/libmagic${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}", *_lib_candidates()]:'
-          done
-        '';
-      });
-    };
-
   # Declarative native-library exposure: for each `<python package> = [ libs ]`,
   # add the libs' headers (their `.dev` output) + pkg-config to that package's
   # build, and the libs to its buildInputs. Lets a C-extension dep (e.g. pycups
-  # -> cups, python-snappy -> snappy) build without a bespoke override.
+  # -> cups, python-snappy -> snappy) build without a bespoke override. pycups needs no entry: it is one of
+  # python-devops-nix's shared fixes.
   pythonLibsOverlay =
     final: prev:
     builtins.mapAttrs (
@@ -199,13 +184,41 @@ let
         lib.composeManyExtensions [
           pyproject-build-systems.overlays.default
           overlay
+          # The package fixes both products share (psycopg2, python-ldap,
+          # lxml, pycups, python-magic, pyvips, cairocffi), right after
+          # uv2nix's overlay; odoo-nix's own go on top (python-devops-nix
+          # CONVENTIONS.md, Package fixes).
+          (pythonLib.overrides { inherit pkgs; })
           odooBackendOverlay
           pythonLibsOverlay
           lxmlHtmlCleanOverlay
-          pythonMagicOverlay
           extraOverrides
         ]
       );
+
+  # A dependency pyproject.toml declares and uv.lock predates (a module added
+  # to modules.txt, whose install set lib/oca_sources.py writes into
+  # [project].dependencies, without the re-lock that normally follows) is
+  # not an error to uv2nix: it resolves the root's dependencies from the
+  # lock, so the environment builds without the new one and Odoo fails later
+  # on a missing module. python-devops-nix's stale-lock audit compares the two
+  # first and fails evaluation with a sentence naming the dependency and the
+  # fix. Every virtualenv below goes through it. (An OCA addon's own
+  # requirements are whool's, computed at build time, so they reach uv only
+  # through `uv lock` and are not something the audit can see.)
+  lockAudit = pythonLib.lockAudit {
+    inherit workspaceRoot rootPyproject;
+    label = "odoo-nix";
+    hasPackage = name: pythonSet ? ${name};
+    relock = ''
+
+      pyproject.toml gained a dependency (a module added to modules.txt, or an
+      edit) and uv.lock was not regenerated. The development shell cannot
+      start until it is, so re-lock from the project root:
+
+          uv lock
+    '';
+  };
 
   # Editable overlay (DEV): local path-source packages (every OCA module) install
   # editable, resolving against $REPO_ROOT at runtime so source edits are live.
@@ -235,14 +248,16 @@ let
 
   # Production: real wheels for odoo + all modules — self-contained (no
   # $REPO_ROOT), for builtOdoo / containers / NixOS.
-  odooPythonEnv = pythonSet.mkVirtualEnv "${projectName}-odoo-env" (
-    withLxmlHtmlClean workspace.deps.default
+  odooPythonEnv = lockAudit.assertCurrent (
+    pythonSet.mkVirtualEnv "${projectName}-odoo-env" (withLxmlHtmlClean workspace.deps.default)
   );
 
   # Development: modules installed editable (+ dev-group tools), live source.
-  devPythonEnv = withDevguard (
-    editableSet.mkVirtualEnv "${projectName}-odoo-dev-env" (
-      withLxmlHtmlClean (workspace.deps.default // workspace.deps.groups)
+  devPythonEnv = lockAudit.assertCurrent (
+    withDevguard (
+      editableSet.mkVirtualEnv "${projectName}-odoo-dev-env" (
+        withLxmlHtmlClean (workspace.deps.default // workspace.deps.groups)
+      )
     )
   );
 
@@ -252,9 +267,11 @@ let
   # OCB (they are its tests_require, which uv never installs). Non-editable,
   # so it needs no $REPO_ROOT: for sandboxed `nix flake check`-style runs. Like
   # the dev env it carries the devguard, so those runs exercise the guard rails.
-  testPythonEnv = withDevguard (
-    pythonSet.mkVirtualEnv "${projectName}-odoo-test-env" (
-      withLxmlHtmlClean (workspace.deps.default // workspace.deps.groups)
+  testPythonEnv = lockAudit.assertCurrent (
+    withDevguard (
+      pythonSet.mkVirtualEnv "${projectName}-odoo-test-env" (
+        withLxmlHtmlClean (workspace.deps.default // workspace.deps.groups)
+      )
     )
   );
 in
@@ -268,5 +285,6 @@ in
     workspace
     rootPyproject
     rootPkgName
+    lockAudit
     ;
 }

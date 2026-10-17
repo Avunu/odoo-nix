@@ -12,7 +12,8 @@
 #   /var/lib/odoo/data   persistent filestore
 #   /secrets/db_password, /secrets/admin_passwd, /secrets/*.conf   secrets
 # PostgreSQL is external.
-_: {
+{ inputs, ... }:
+{
   # Options live in ./devenv.nix (odoo-nix.containers.*). This module only adds
   # config, gated on enable + containers.enable.
   config.perSystem =
@@ -26,7 +27,9 @@ _: {
       cfg = config.odoo-nix;
       odooPkg = config.packages.default or null;
 
-      inherit (import ../lib/env.nix) blasThreadCaps;
+      # BLAS and OpenMP pools capped at one thread, as in the dev shell and
+      # services.odoo-nix (python-devops-nix lib.python.threadCaps).
+      inherit (inputs.python-devops-nix.lib.python) threadCaps;
 
       # containers.registry prefixes the image name: "ghcr.io/avunu" (or
       # "ghcr.io/avunu/") names it ghcr.io/avunu/<name>; "" leaves it bare.
@@ -158,7 +161,7 @@ _: {
             "LANG=C.UTF-8"
             "LD_LIBRARY_PATH=${libraryPath}"
           ]
-          ++ (lib.mapAttrsToList (name: value: "${name}=${value}") blasThreadCaps);
+          ++ (lib.mapAttrsToList (name: value: "${name}=${value}") threadCaps);
           Volumes = {
             "/var/lib/odoo/data" = { };
           };

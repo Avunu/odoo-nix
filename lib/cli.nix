@@ -22,8 +22,8 @@
 #     and nothing in the dev shell reads this package's passthru (odoo.conf's
 #     addons_path is synthesized independently), so $out is just bin/ + lib/.
 #
-# click/rich are nixpkgs packages (lib/rich-python.nix), not part of the
-# *consuming* project's own uv-managed pyproject.toml/uv.lock (which
+# click/rich are nixpkgs packages (python-devops-nix's lib.python.rich), not
+# part of the *consuming* project's own uv-managed pyproject.toml/uv.lock (which
 # lib/oca_sources.py auto-generates around OCA module deps only, and which
 # the CLI's own tooling deps have no business coupling to). `cliPython` uses
 # the SAME interpreter passed into lib/python.nix, so PYTHONPATH-prefixing
@@ -66,7 +66,7 @@
 }:
 
 let
-  cliPython = import ./rich-python.nix {
+  cliPython = base.python.rich {
     inherit python;
     extraPackages = ps: [ ps.click ];
   };

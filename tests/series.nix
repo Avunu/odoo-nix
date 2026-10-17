@@ -38,7 +38,10 @@ let
     extraAddons = [ ];
   };
 
-  overrides = import ../lib/overrides.nix;
+  buildDeps = import ../lib/build-deps.nix {
+    inherit pkgs;
+    base = inputs.python-devops-nix.lib;
+  };
 
   # The dev guard rails, as a project would bake them: only the test env gets
   # them (lib/python.nix); odooPythonEnv -- what builtOdoo runs -- must not.
@@ -59,16 +62,9 @@ let
       ;
     pythonLib = inputs.python-devops-nix.lib.python;
     coreSource = ocb;
+    # The package fixes (python-devops-nix's lib.python.overrides) are
+    # lib/python.nix's own, so the fixture env is built the way a consumer's is.
     inherit (inputs) pyproject-nix pyproject-build-systems uv2nix;
-    # What modules/devenv.nix wires by default (builtinPythonLibraries,
-    # builtinOverrides), so the fixture env is built the way a consumer's is.
-    pythonLibraries = {
-      pycups = [ pkgs.cups ];
-    };
-    extraOverrides = lib.composeManyExtensions [
-      (overrides.psycopg2 { inherit pkgs; })
-      (overrides.python-ldap { inherit pkgs; })
-    ];
   };
 
   builtOdoo = import ../lib/odoo.nix {
@@ -231,6 +227,12 @@ in
       expected = series;
       actual = builtOdoo.passthru.odooVersion;
     };
+    # uv.lock covers every dependency pyproject.toml declares (the audit
+    # every virtualenv goes through; tests/lock-audit.nix has a stale one).
+    lock-audit = {
+      expected = [ ];
+      actual = pythonEnvs.lockAudit.missing;
+    };
   };
 
   all = {
@@ -243,6 +245,13 @@ in
         ''
           python3 ${./lock_fresh.py} ${workspaceRoot + "/uv.lock"} ${ocb} ${series}
         '';
+
+    # The managed [tool.uv.extra-build-dependencies] block is what
+    # odoo-nix-build-deps derives from this uv.lock (`nix run .#relock` keeps
+    # it so).
+    build-deps = mkCheck "build-deps-${major}" { } ''
+      ${lib.getExe buildDeps} check ${workspaceRoot + "/pyproject.toml"} ${workspaceRoot + "/uv.lock"}
+    '';
   };
 
   linux = {
@@ -609,7 +618,7 @@ in
       inherit pkgs series odooCli;
       odooCliV2 = v2.cli;
       odooCliV3 = v3.cli;
-      odooModule = ../modules/nixos.nix;
+      odooModule = inputs.self.nixosModules.default;
     };
   };
 }

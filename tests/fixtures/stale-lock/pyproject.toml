@@ -1,0 +1,37 @@
+# odoo-nix's stale-lock fixture (checks.eval-lock-audit-*): tests/fixtures/
+# 18.0 after a module was added to the install set without re-locking.
+# pyproject.toml declares odoo-addon-queue_job; uv.lock is 18.0's, which
+# predates it. Never re-locked: `nix run .#relock` leaves it alone.
+[project]
+name = "odoo-nix-fixture-18"
+version = "0.1.0"
+description = "odoo-nix test fixture for Odoo 18.0"
+requires-python = ">=3.11"
+dependencies = ["odoo", "python-magic", "odoo-addon-queue_job"]
+
+[dependency-groups]
+# What odoo.tests needs beyond OCB's install_requires (its tests_require, which
+# uv does not install). Lands in testPythonEnv, never in builtOdoo.
+dev = [
+    "freezegun",
+    "websocket-client",
+]
+
+[tool.uv]
+# Virtual root: no Python code of its own.
+package = false
+
+[tool.uv.sources]
+# OCB as a non-editable path source -- the shape lib/oca_sources.py emits.
+odoo = { path = "odoo" }
+
+# 18.0's block, which matches the uv.lock this fixture shares with it.
+[tool.uv.extra-build-dependencies]
+# >>> odoo-nix: sdist build deps (managed) >>>
+"docopt" = ["setuptools"]
+"odoo" = ["setuptools"]
+"ofxparse" = ["setuptools"]
+"python-ldap" = ["setuptools"]
+"rjsmin" = ["setuptools"]
+"vobject" = ["setuptools"]
+# <<< odoo-nix: sdist build deps (managed) <<<

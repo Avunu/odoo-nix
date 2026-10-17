@@ -106,7 +106,7 @@
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
-      odooInit = pkgs: import ./lib/init.nix { inherit pkgs; };
+      odooInit = pkgs: import ./lib/init.nix { inherit pkgs base; };
 
       # Series -> pinned OCB. The interpreter per series comes from the same
       # presets file odoo-init uses, so the fixtures cannot disagree with it.
@@ -214,12 +214,25 @@
         import ./lib/devguard.nix { inherit pkgs base settings; };
       cliPackage = pkgs: import ./lib/cli-package.nix { inherit pkgs base; };
 
-      relock = pkgs: import ./tests/relock.nix { inherit pkgs ocbInputs presets; };
+      relock =
+        pkgs:
+        import ./tests/relock.nix {
+          inherit pkgs ocbInputs presets;
+          buildDeps = import ./lib/build-deps.nix { inherit pkgs base; };
+        };
+
+      # services.odoo-nix, with python-devops-nix's library as the module
+      # argument `odooNixBase` (modules/nixos.nix takes the thread caps from
+      # it). The checks import this, not ./modules/nixos.nix alone.
+      nixosModule = {
+        imports = [ ./modules/nixos.nix ];
+        _module.args.odooNixBase = base;
+      };
     in
     {
       flakeModules.default = ./modules/flake-module.nix;
 
-      nixosModules.default = ./modules/nixos.nix;
+      nixosModules.default = nixosModule;
 
       lib = {
         # Wrapper around flake-parts.lib.mkFlake that merges odoo-nix's own inputs
@@ -235,8 +248,9 @@
             inputs = self.inputs // inputs;
           } config;
 
-        # Composable Python package overrides for native-build packages.
-        overrides = import ./lib/overrides.nix;
+        # Composable Python package overrides for native-build packages:
+        # python-devops-nix's shared fixes one by one, and libsass.
+        overrides = import ./lib/overrides.nix { pythonLib = base.python; };
 
         # The addons_path synthesis core, exposed for testing / advanced use.
         addons = import ./lib/addons.nix;
@@ -255,13 +269,15 @@
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   eval-secrets-*                                      odoo-nix's secrets module (all systems)
+      #   eval-lock-audit-*                                   the stale-lock audit on a stale fixture (all systems)
       #   eval-restore-*                                      the dev shell's restore options (Linux only)
       #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
       #   eval-container-name*                                the OCI image's name (Linux only)
       #   eval-python-default-*                               the series' default interpreter (Linux only)
       #   eval-rename-*                                       renamed dev-shell options (Linux only)
       #   eval-{ports,mailpit,watch}-*, eval-tree              the dev shell's option tree and its ports (Linux only)
-      #   eval-*-<major>, lock-fresh-<major>                  per-series, no Odoo run (all systems)
+      #   eval-*-<major>, lock-fresh-<major>, build-deps-<major>
+      #                                                       per-series, no Odoo run (all systems)
       #   builtOdoo-<major>, odoo-init-<major>, odoo-test-<major>,
       #   module-odoo-<major>, module-nginx                   run Odoo / a VM (Linux only)
       checks = forAllSystems (
@@ -458,6 +474,12 @@
         }
         // perSeries
         // evalChecks "" (
+          import ./tests/lock-audit.nix {
+            inherit pkgs lib inputs;
+            python = pkgs.${presets."18.0".python};
+          }
+        )
+        // evalChecks "" (
           import ./tests/secrets-module.nix {
             inherit pkgs lib inputs;
             inherit (self.lib) mkFlake;
@@ -467,7 +489,7 @@
           evalChecks "" (
             import ./tests/module-eval.nix {
               inherit pkgs;
-              odooModule = ./modules/nixos.nix;
+              odooModule = nixosModule;
             }
           )
         )
@@ -516,7 +538,7 @@
           # header). Real-Odoo module tests are module-odoo-<major>.
           module-nginx = import ./tests/module-nginx.nix {
             inherit pkgs;
-            odooModule = ./modules/nixos.nix;
+            odooModule = nixosModule;
           };
         }
       );

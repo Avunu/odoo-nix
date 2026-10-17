@@ -4,7 +4,7 @@
 # new project: a thin odoo-nix wrapper flake, OCB + selected OCA repos as git
 # submodules (with their transitive dependency repos resolved from the OCA
 # catalog), a generated pyproject.toml, and a uv.lock.
-{ pkgs }:
+{ pkgs, base }:
 
 let
   # Bake the presets, template dir, OCA dataset + bundles, shared helper lib,
@@ -27,7 +27,7 @@ let
         "${../data/oca-bundles.json}"
         "${./oca-lib.sh}"
         "${./oca_sources.py}"
-        "${./uv_build_deps.py}"
+        "${pkgs.lib.getExe (import ./build-deps.nix { inherit pkgs base; })}"
       ]
       (builtins.readFile ./odoo-init.sh);
 in

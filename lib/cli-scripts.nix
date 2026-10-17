@@ -38,6 +38,9 @@
   # lib/submodules-init.nix's tool: projectUpdate checks out a submodule this
   # clone has never had the way shell entry does, as a partial clone.
   submodulesInitBin ? null,
+  # lib/build-deps.nix: odoo-nix-build-deps, which keeps pyproject.toml's
+  # sdist build dependencies in step with uv.lock after each `uv lock`.
+  buildDeps,
 }:
 
 let
@@ -87,7 +90,7 @@ let
       trap 'core_shadow_end "${layout.coreSrc}" "${toString coreSource}" "$_shadow"' EXIT
     ''}
     if ${pkgs.uv}/bin/uv lock; then
-      ${python} ${./uv_build_deps.py} update pyproject.toml uv.lock || true
+      ${lib.getExe buildDeps} update pyproject.toml uv.lock || true
       ${pkgs.uv}/bin/uv lock || true
     else
       echo "⚠  uv lock failed — resolve in pyproject.toml and re-run." >&2

@@ -216,7 +216,7 @@ python3 "$OCA_SOURCES" update pyproject.toml modules.txt modules custom odoo || 
 echo "Resolving Python environment (uv lock)…"
 if uv lock; then
   # Grant setuptools to sdist-only packages so uv2nix can build them.
-  python3 "$UV_BUILD_DEPS" update pyproject.toml uv.lock || true
+  "$UV_BUILD_DEPS" update pyproject.toml uv.lock || true
   uv lock || true
 else
   echo "" >&2
