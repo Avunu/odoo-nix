@@ -86,12 +86,12 @@ A consuming `flake.nix` is just configuration:
       perSystem = { pkgs, ... }: {
         odoo-nix = {
           enable = true;
-          projectName = "acme";
+          name = "acme";
           workspaceRoot = ./.;
           odooSeries = "18.0";
           python = pkgs.python311;
-          odooConf.dbName = "acme";
-          odooConf.adminPasswd = "change-me";  # dev only
+          settings.dbName = "acme";
+          settings.adminPasswd = "change-me";  # dev only
         };
       };
     });
@@ -127,7 +127,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | Option | Default | Description |
 | --- | --- | --- |
 | enable | false | enable the dev shell + packages |
-| projectName | — | identifier for env / package / container names |
+| name | — | the project's identity, a slug: names its environments, packages and container image, and devenv's own `name` (was `projectName`) |
 | workspaceRoot | — | project root (where pyproject.toml, odoo.conf, odoo/ live) |
 | coreSource | null | OCB from a non-flake input instead of the `odoo/` submodule — see [OCB as a flake input](#ocb-as-a-flake-input) |
 | odooSeries | "18.0" | Odoo series — the OCB/OCA branch + catalog filter (does not select a nixpkgs package) |
@@ -146,20 +146,20 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | devguard.mail.httpPort | 8025 | Mailpit web UI port (was `mailcatch.httpPort`) |
 | devguard.jobs.enable / devguard.jobs.extraBlocked | true / [ ] | skip denylisted crons (auto_backup, currency rates, bank-statement pulls, EDI send, fetchmail, …); more external ids to skip. Formerly `devguard.crons.*` |
 | devguard.objectstore.enable / backups.enable / webhooks.enable / iap.enable | true | refuse remote `fs.storage`; skip remote `auto_backup` jobs; no-op webhook actions; fail IAP calls readably |
-| odooConf.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
-| odooConf.dataDir | "./.devenv/state/odoo" | Odoo filestore (gitignored under .devenv) |
-| odooConf.adminPasswd | "admin" | DB-manager master password (dev) |
-| odooConf.httpInterface | "127.0.0.1" | interface the dev server binds (http_interface); "0.0.0.0" to reach it from another host/container |
-| odooConf.httpPort/geventPort | 8069 / 8072 | HTTP + websocket/longpolling ports |
-| odooConf.workers | 0 | worker processes (0 = threaded dev mode) |
-| odooConf.devMode | "all" | --dev flag for the dev process |
-| odooConf.logging.level | "info" | root logging verbosity (log_level) |
-| odooConf.logging.handlers | [ ] | per-logger level overrides, e.g. [ "werkzeug:WARNING" ] (log_handler) |
-| odooConf.logging.db/dbLevel | false / "warning" | mirror logs into a database (log_db/log_db_level): `true` = the request's own database (`%d`), a string = that database |
-| odooConf.logging.file | null | write logs to this file instead of stderr (logfile); production logging is [`services.odoo-nix`'s](#logging) |
+| settings.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
+| settings.dataDir | "./.devenv/state/odoo" | Odoo filestore (gitignored under .devenv) |
+| settings.adminPasswd | "admin" | DB-manager master password (dev) |
+| settings.httpInterface | "127.0.0.1" | interface the dev server binds (http_interface); "0.0.0.0" to reach it from another host/container |
+| settings.httpPort/geventPort | 8069 / 8072 | HTTP + websocket/longpolling ports |
+| settings.workers | 0 | worker processes (0 = threaded dev mode) |
+| settings.devMode | "all" | --dev flag for the dev process |
+| settings.logging.level | "info" | root logging verbosity (log_level) |
+| settings.logging.handlers | [ ] | per-logger level overrides, e.g. [ "werkzeug:WARNING" ] (log_handler) |
+| settings.logging.db/dbLevel | false / "warning" | mirror logs into a database (log_db/log_db_level): `true` = the request's own database (`%d`), a string = that database |
+| settings.logging.file | null | write logs to this file instead of stderr (logfile); production logging is [`services.odoo-nix`'s](#logging) |
 | dev.autoReload | true | make Odoo's --dev=reload watcher functional (see Live code reload) |
-| odooConf.extra | { } | arbitrary extra [options] keys merged last |
-| odooConf.withoutDemo | false | skip demo data for every module (without_demo = True) |
+| settings.extra | { } | arbitrary extra [options] keys merged last |
+| settings.withoutDemo | false | skip demo data for every module (without_demo = True) |
 | postgres.extensions | _: [ ] | extensions built into the dev PostgreSQL, e.g. ps: [ ps.postgis ] (base_geoengine) |
 | postgres.noCow | true | on btrfs, keep the dev datadir off copy-on-write (`chattr +C`); an existing cluster is reported with the `odoo-nix-db-nocow migrate "$PGDATA"` that fixes it (Linux) |
 | ide.enable | true | expose the env to editors: ./.venv symlink + merged odoo analysis root |
@@ -173,7 +173,28 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | restore.migrate | true | `odoo db migrate` the restored database to this checkout's modules (`--no-migrate`) |
 | restore.requireDevguard | true | refuse to restore while `devguard.enable` is false (`ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` overrides per command) |
 | extraDevPackages / extraLibraryPaths / extraScripts / extraEnv | [] / [] / {} / {} | dev-shell extras |
-| containers.enable / containers.registry | false / "" | build the OCI image; a non-empty registry prefixes its name (`ghcr.io/avunu` → `ghcr.io/avunu/<projectName>-odoo`) |
+| containers.enable / containers.registry | false / "" | build the OCI image; a non-empty registry prefixes its name (`ghcr.io/avunu` → `ghcr.io/avunu/<name>-odoo`) |
+
+### Renamed options
+
+odoo-nix and frappe-nix name the jobs they share the same way ([python-devops-nix CONVENTIONS.md](https://github.com/Avunu/python-devops-nix/blob/main/CONVENTIONS.md)). An old name still works until the next minor release: it sets the new option, and evaluating the shell prints a warning naming both.
+
+| Old | New |
+| --- | --- |
+| `projectName` | `name`, which also sets devenv's own `name` (`lib.mkDefault`) |
+| `odooConf.*` | `settings.*`, as in `services.odoo-nix`; every option under it keeps its name |
+| `mailcatch.*` | `devguard.mail.*` |
+| `devguard.crons.*` | `devguard.jobs.*` |
+| `restore.attachments` | `restore.files` (`"mirror"` is `true`) |
+
+The environment variables odoo-nix's own tools read or export are `ODOO_NIX_*` (Odoo's own, such as `ODOO_RC`, and the guard rails' `ODOO_DEVGUARD_*` keep their names). An old name is still read, with a warning, until the next minor release, and a new one that is set wins:
+
+| Old | New |
+| --- | --- |
+| `ODOO_DB` (the `odoo` CLI's default database) | `ODOO_NIX_DB` |
+| `ODOO_TEST_ALLOW_SKIP` | `ODOO_NIX_TEST_ALLOW_SKIP` |
+| `ODOO_HTTP_PORT`, `ODOO_GEVENT_PORT` (exported by the dev shell; the old names are still exported) | `ODOO_NIX_HTTP_PORT`, `ODOO_NIX_GEVENT_PORT` |
+| the container entrypoint's `ODOO_<NAME>` ([OCI containers](#production--oci-containers)) | `ODOO_NIX_<NAME>` |
 
 ## Development shell
 
@@ -296,7 +317,7 @@ Everything — dev shell, `services.odoo-nix`, and containers — shares one `od
 | `odoo module add-bundle [name …]` | add a curated bundle of OCA modules (from data/oca-bundles.json) |
 | `odoo project update [--no-migrate]` | pull submodules, re-aggregate OCA Python deps, uv lock — then migrate every database, unless `--no-migrate` |
 | `odoo project backup [--format zip\|dump] [--path DIR] [--keep-days N]` | back up *every* database matching `dbfilter` in one call — no db argument needed, unlike `db backup` |
-| `odoo project restore [--restore DB PATH …] [--no-force] [--neutralize] [--no-migrate]` | restore one or more explicit database=backup pairs in a single batch; with no `--restore`, restore the project database (`odooConf.dbName`) from the remote store — see [Backups & restore](#backups--restore) |
+| `odoo project restore [--restore DB PATH …] [--no-force] [--neutralize] [--no-migrate]` | restore one or more explicit database=backup pairs in a single batch; with no `--restore`, restore the project database (`settings.dbName`) from the remote store — see [Backups & restore](#backups--restore) |
 | `odoo shell [db]` | Odoo Python REPL |
 | `odoo test <m[,m2]> [db]` | run module tests; refuses to run if a skipped browser tour would silently read as a pass |
 
@@ -326,7 +347,7 @@ Production (`services.odoo-nix`) and the container image get the same binary and
 Production pushes database backups to S3-compatible storage; any developer whose SSH key is a declared recipient restores one locally with a single command:
 
 ```sh
-odoo project restore                # the project database (odooConf.dbName), newest backup
+odoo project restore                # the project database (settings.dbName), newest backup
 odoo db restore acme_dev --from acme --at 2026-10-01
 odoo db restore acme_dev --from acme --list
 ```
@@ -455,7 +476,7 @@ needs OCB only for its own dev shell and test checks, so it takes it as a plain 
       perSystem = { pkgs, ... }: {
         odoo-nix = {
           enable = true;
-          projectName = "my-addons";
+          name = "my-addons";
           workspaceRoot = ./.;
           coreSource = inputs.ocb;      # no self.submodules, no odoo/ submodule
           layout.customDir = ".";       # the repo root is the addons directory
@@ -493,7 +514,7 @@ Entries stay workspace-relative so the file is identical across machines and con
 
 ## `odoo.conf` synthesis
 
-`lib/odoo-conf.nix` renders the `[options]` block from your declarative `odooConf.*` settings plus the derived `addons_path` (via `pkgs.formats.ini`) to a read-only `/nix/store` file. The dev shell symlinks it to `./odoo.conf`; `--dev` stays a CLI flag so the same file is prod-usable.
+`lib/odoo-conf.nix` renders the `[options]` block from your declarative `settings.*` options plus the derived `addons_path` (via `pkgs.formats.ini`) to a read-only `/nix/store` file. The dev shell symlinks it to `./odoo.conf`; `--dev` stays a CLI flag so the same file is prod-usable.
 
 Beside `[options]` it can emit arbitrary extra sections (`extraSections`) for modules that read their own INI section — through 18.0 out of `odoo.tools.config.misc`, where Odoo's parser keeps unknown sections verbatim; 19.0 dropped `misc`, so there a module re-reads the loaded file (`config['config']`) itself. OCA modules like `queue_job` follow the same convention.
 
@@ -553,7 +574,7 @@ PostGIS (OCA `base_geoengine`): `database.extensions = ps: [ ps.postgis ];` buil
 
 ## Production — OCI containers
 
-Set `odoo-nix.containers.enable = true` to get `packages.<sys>.container-odoo`, an all-in-one image (`dockerTools.buildLayeredImage`) running `odoo-bin` with HTTP workers + gevent + cron, named `<projectName>-odoo:latest`, or `<registry>/<projectName>-odoo:latest` with `containers.registry` set (a trailing slash is dropped). The entrypoint synthesizes `/etc/odoo/odoo.conf` from env-var defaults and merges secrets from mounted files:
+Set `odoo-nix.containers.enable = true` to get `packages.<sys>.container-odoo`, an all-in-one image (`dockerTools.buildLayeredImage`) running `odoo-bin` with HTTP workers + gevent + cron, named `<name>-odoo:latest`, or `<registry>/<name>-odoo:latest` with `containers.registry` set (a trailing slash is dropped). The entrypoint synthesizes `/etc/odoo/odoo.conf` from environment variables, each with a default (`ODOO_NIX_DB_HOST`, `_DB_PORT`, `_DB_USER`, `_DB_NAME`, `_HTTP_PORT`, `_GEVENT_PORT`, `_WORKERS`, `_MAX_CRON_THREADS`, `_PROXY_MODE`, `_LIST_DB`, `_WITHOUT_DEMO`, `_LOG_LEVEL`, `_LOG_HANDLER`, `_LOG_DB`, `_LOG_DB_LEVEL`; formerly `ODOO_*`, see [Renamed options](#renamed-options)), and merges secrets from mounted files:
 
 -   `/var/lib/odoo/data` — persistent filestore (volume),
 -   `/secrets/db_password`, `/secrets/admin_passwd`, `/secrets/*.conf` — secrets,
@@ -595,7 +616,8 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `cli-remote-restore-<18\|19>` | `odoo db restore` from a directory store: `--list`; the newest backup restored neutralized and migrated; an existing database overwritten, refused with `--no-force`, `--force` a warned no-op; `--no-neutralize`, `--no-migrate` and `ODOO_NIX_RESTORE_MIGRATE=0`; `--files` and the deprecated `--attachments`; refused without the devguard unless overridden or `restore.requireDevguard` is off; `--at` in ISO 8601 and odoo-nix's naming, whole or a leading part, and a non-matching or malformed `--at` fails; `odoo project restore --no-force` |
 | `eval-restore-*` | the dev shell's `restore.*` options reaching the CLI's environment, and `restore.attachments` read as `restore.files` |
 | `eval-python-default-*` | a consumer that sets only `odooSeries` gets that series' interpreter from `lib/odoo-presets.json`, and its container image evaluates |
-| `eval-rename-*` | the old `mailcatch.*` names reaching `devguard.mail.*` and the shell's env, each announced with a deprecation warning |
+| `eval-rename-*`, `eval-identity-*` | each [renamed option](#renamed-options) reaching its new name (and the shell's env, the packages' names), announced with a deprecation warning; the identity as devenv's `name` |
+| `scaffold` | `odoo-init` offline (`tests/odoo-init.sh`, git and uv stood in): the generated flake sets `odoo-nix.name` and the database |
 | `db-nocow` | `odoo-nix-db-nocow` (`tests/db-nocow.sh`): NOCOW arranged for a datadir `initdb` has yet to create and cleared from its parent after, an existing cluster reported, the stopped-server copy keeping mode 0700. Checks the real attribute on a btrfs builder, the no-op elsewhere (`TMPDIR=<btrfs dir>` to run it by hand; Linux only) |
 | `nix-lint` | python-devops-nix's `lib.checks.nixLint`: `nixfmt-rs --check` (what `nix fmt` writes), `statix` (`statix.toml`, compared with the base's copy) and `deadnix` over the repo's Nix files, `templates/` and `tests/fixtures/` excluded |
 | `shared-config` | python-devops-nix's `lib.checks.sharedConfig`: `.editorconfig`, `.pre-commit-config.yaml` and `ruff.toml` make every setting the base's copies make |

@@ -72,7 +72,7 @@ let
   full = import ../lib/odoo-conf.nix {
     inherit pkgs lib;
     addonsPath = "./odoo/odoo/addons,./odoo/addons,./custom";
-    odooConf = sampleConf;
+    settings = sampleConf;
     serverWideModules = [
       "base"
       "rpc"
@@ -88,7 +88,7 @@ let
   minimal = import ../lib/odoo-conf.nix {
     inherit pkgs lib;
     addonsPath = "./custom";
-    odooConf = sampleConf // {
+    settings = sampleConf // {
       dbHost = "";
       dbName = null;
       withoutDemo = false;
@@ -102,7 +102,7 @@ let
   logDbNamed = import ../lib/odoo-conf.nix {
     inherit pkgs lib;
     addonsPath = "./custom";
-    odooConf = sampleConf // {
+    settings = sampleConf // {
       logging = sampleConf.logging // {
         db = "audit";
       };
@@ -111,7 +111,7 @@ let
   logDbCurrent = import ../lib/odoo-conf.nix {
     inherit pkgs lib;
     addonsPath = "./custom";
-    odooConf = sampleConf // {
+    settings = sampleConf // {
       logging = sampleConf.logging // {
         db = true;
       };

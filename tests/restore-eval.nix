@@ -29,7 +29,7 @@ let
             imports = [ ../modules/flake-module.nix ];
             perSystem.odoo-nix = {
               enable = true;
-              projectName = "acme";
+              name = "acme";
               workspaceRoot = ./fixtures/19.0;
               coreSource = inputs.ocb-19;
               odooSeries = "19.0";

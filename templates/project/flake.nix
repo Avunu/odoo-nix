@@ -53,12 +53,12 @@
           {
             odoo-nix = {
               enable = true;
-              projectName = "@PROJECT_NAME@";
+              name = "@PROJECT_NAME@";
               workspaceRoot = ./.;
               odooSeries = "@SERIES@";
               python = pkgs.@PYTHON@;
 
-              odooConf.dbName = "@DB_NAME@";
+              settings.dbName = "@DB_NAME@";
 
               # `odoo db restore` / `odoo project restore` from the S3 backups:
               # restore = {

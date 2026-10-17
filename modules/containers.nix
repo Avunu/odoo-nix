@@ -64,35 +64,67 @@ _: {
       libraryPath = lib.makeLibraryPath runtimeDeps;
       addonsPath = if odooPkg != null then odooPkg.passthru.addonsPath "${odooPkg}" else "";
 
+      # The entrypoint's variables, ODOO_NIX_<name>; formerly ODOO_<name>.
+      legacyEnv = [
+        "DB_HOST"
+        "DB_PORT"
+        "DB_USER"
+        "DB_NAME"
+        "HTTP_PORT"
+        "GEVENT_PORT"
+        "WORKERS"
+        "MAX_CRON_THREADS"
+        "PROXY_MODE"
+        "LIST_DB"
+        "WITHOUT_DEMO"
+        "LOG_LEVEL"
+        "LOG_HANDLER"
+        "LOG_DB"
+        "LOG_DB_LEVEL"
+      ];
+
       entrypoint = pkgs.writeShellScript "odoo-container-entrypoint" ''
         set -euo pipefail
         CONF=/etc/odoo/odoo.conf
+
+        # Every variable this entrypoint reads is ODOO_NIX_* (python-devops-nix
+        # CONVENTIONS.md, Tool-owned variables). The old ODOO_* name is still
+        # read, with a warning, until the next minor release; a new one that
+        # is set wins.
+        for _new in ${lib.concatStringsSep " " (map (v: "ODOO_NIX_${v}") legacyEnv)}; do
+          _old="ODOO_''${_new#ODOO_NIX_}"
+          if [ -z "''${!_new+x}" ] && [ -n "''${!_old+x}" ]; then
+            echo "odoo-nix: \$$_old is deprecated, set \$$_new instead." >&2
+            export "$_new=''${!_old}"
+          fi
+        done
+
         mkdir -p /etc/odoo /var/lib/odoo/data
 
         {
           echo "[options]"
           echo "addons_path = ${addonsPath}"
           echo "data_dir = /var/lib/odoo/data"
-          echo "db_host = ''${ODOO_DB_HOST:-db}"
-          echo "db_port = ''${ODOO_DB_PORT:-5432}"
-          echo "db_user = ''${ODOO_DB_USER:-odoo}"
+          echo "db_host = ''${ODOO_NIX_DB_HOST:-db}"
+          echo "db_port = ''${ODOO_NIX_DB_PORT:-5432}"
+          echo "db_user = ''${ODOO_NIX_DB_USER:-odoo}"
           echo "http_interface = 0.0.0.0"
-          echo "http_port = ''${ODOO_HTTP_PORT:-8069}"
-          echo "gevent_port = ''${ODOO_GEVENT_PORT:-8072}"
-          echo "workers = ''${ODOO_WORKERS:-2}"
-          echo "max_cron_threads = ''${ODOO_MAX_CRON_THREADS:-2}"
-          echo "proxy_mode = ''${ODOO_PROXY_MODE:-True}"
-          echo "list_db = ''${ODOO_LIST_DB:-False}"
-          echo "without_demo = ''${ODOO_WITHOUT_DEMO:-False}"
-          echo "log_level = ''${ODOO_LOG_LEVEL:-info}"
-          [ -n "''${ODOO_LOG_HANDLER:-}" ] && echo "log_handler = ''${ODOO_LOG_HANDLER}"
+          echo "http_port = ''${ODOO_NIX_HTTP_PORT:-8069}"
+          echo "gevent_port = ''${ODOO_NIX_GEVENT_PORT:-8072}"
+          echo "workers = ''${ODOO_NIX_WORKERS:-2}"
+          echo "max_cron_threads = ''${ODOO_NIX_MAX_CRON_THREADS:-2}"
+          echo "proxy_mode = ''${ODOO_NIX_PROXY_MODE:-True}"
+          echo "list_db = ''${ODOO_NIX_LIST_DB:-False}"
+          echo "without_demo = ''${ODOO_NIX_WITHOUT_DEMO:-False}"
+          echo "log_level = ''${ODOO_NIX_LOG_LEVEL:-info}"
+          [ -n "''${ODOO_NIX_LOG_HANDLER:-}" ] && echo "log_handler = ''${ODOO_NIX_LOG_HANDLER}"
           # log_db is a database name ("%d" = the request's database); a
           # literal False would be skipped with a warning on 19.0, so it is
           # simply left out when unset.
-          [ -n "''${ODOO_LOG_DB:-}" ] && echo "log_db = ''${ODOO_LOG_DB}"
-          echo "log_db_level = ''${ODOO_LOG_DB_LEVEL:-warning}"
-          [ -n "''${ODOO_DB_NAME:-}" ] && echo "db_name = ''${ODOO_DB_NAME}"
-          [ -n "''${ODOO_DB_NAME:-}" ] && echo "dbfilter = ^''${ODOO_DB_NAME}$"
+          [ -n "''${ODOO_NIX_LOG_DB:-}" ] && echo "log_db = ''${ODOO_NIX_LOG_DB}"
+          echo "log_db_level = ''${ODOO_NIX_LOG_DB_LEVEL:-warning}"
+          [ -n "''${ODOO_NIX_DB_NAME:-}" ] && echo "db_name = ''${ODOO_NIX_DB_NAME}"
+          [ -n "''${ODOO_NIX_DB_NAME:-}" ] && echo "dbfilter = ^''${ODOO_NIX_DB_NAME}$"
         } > "$CONF"
 
         [ -f /secrets/db_password ]  && printf 'db_password = %s\n'  "$(cat /secrets/db_password)"  >> "$CONF"
@@ -105,7 +137,7 @@ _: {
       '';
 
       odooImage = pkgs.dockerTools.buildLayeredImage {
-        name = imageName "${cfg.projectName}-odoo";
+        name = imageName "${cfg.name}-odoo";
         tag = "latest";
         contents = [ odooPkg ] ++ runtimeDeps;
         config = {

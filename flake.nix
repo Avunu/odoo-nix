@@ -250,6 +250,7 @@
       #   journald-formatter                                  the CLI's journald output (all systems)
       #   devguard-core, devguard, devguard-baked             the dev guard rails: base core, odoo-nix's side (all systems)
       #   submodules-init                                     shell entry's submodule checkout (all systems)
+      #   scaffold                                            odoo-init's generated project, offline (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
@@ -411,6 +412,24 @@
             src = ./.;
             product = "odoo-nix";
           };
+
+          # The scaffolder, offline (git and uv stood in): the identity it
+          # writes is `odoo-nix.name`.
+          scaffold =
+            mkCheck pkgs "scaffold"
+              {
+                nativeCheckInputs = with pkgs; [
+                  jq
+                  gawk
+                  gnused
+                  gnugrep
+                  coreutils
+                  python3
+                ];
+              }
+              ''
+                bash ${./tests/odoo-init.sh} ${(odooInit pkgs).script}
+              '';
 
           submodules-init =
             mkCheck pkgs "submodules-init"

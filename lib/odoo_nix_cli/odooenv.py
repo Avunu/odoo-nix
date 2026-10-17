@@ -25,6 +25,19 @@ def repo_root() -> Path:
     return Path(os.environ.get("REPO_ROOT", os.getcwd()))
 
 
+def getenv(name: str, legacy: str) -> str | None:
+    """$name, else the variable's old name $legacy, read with a warning until
+    the next minor release (python-devops-nix CONVENTIONS.md, Tool-owned
+    variables: every variable odoo-nix's own tools read is ODOO_NIX_*)."""
+    value = os.environ.get(name)
+    if value is not None:
+        return value
+    value = os.environ.get(legacy)
+    if value is not None:
+        click.echo(f"odoo-nix: ${legacy} is deprecated, set ${name} instead.", err=True)
+    return value
+
+
 def require_env(name: str) -> str:
     """A handful of commands (module add/add-bundle, project update, shell)
     delegate to a helper script or the real odoo-bin whose store path this
@@ -123,10 +136,10 @@ def _conf_pins_db_name(conf_path: Path) -> bool:
 
 
 def resolve_database(explicit: str | None, odoo_config) -> str | None:
-    """Explicit CLI arg > $ODOO_DB env > db_name from the loaded odoo.conf."""
+    """Explicit CLI arg > $ODOO_NIX_DB env > db_name from the loaded odoo.conf."""
     if explicit:
         return explicit
-    env = os.environ.get("ODOO_DB")
+    env = getenv("ODOO_NIX_DB", "ODOO_DB")
     if env:
         return env
     return odoo_config["db_name"] or None
@@ -175,7 +188,7 @@ def list_target_databases(explicit: str | None, all_flag: bool, odoo_config) -> 
     if single:
         return [single]
     raise click.UsageError(
-        "no database specified -- pass a name, a comma list, --all, or set db_name in odoo.conf / $ODOO_DB"
+        "no database specified -- pass a name, a comma list, --all, or set db_name in odoo.conf / $ODOO_NIX_DB"
     )
 
 

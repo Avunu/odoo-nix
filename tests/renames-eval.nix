@@ -1,7 +1,7 @@
 # Evaluation-level assertions over the dev shell's renamed options
-# (modules/devenv.nix): an old `mailcatch.*` or `devguard.crons.*` name
-# evaluates, reaches its `devguard.mail.*` or `devguard.jobs.*` replacement
-# (and the shell's env, or the baked devguard settings), and is announced on
+# (modules/devenv.nix, README "Renamed options"): an old name evaluates,
+# reaches its replacement (and the shell's env, the packages' names or the
+# baked devguard settings), and is announced on
 # `odoo-nix.deprecations` (what the module lib.warn's). A consumer's flake is
 # evaluated through lib.mkFlake and nothing is built. Same `pairs` shape as
 # eval.nix; flake.nix turns each into a named mkEvalCheck.
@@ -27,14 +27,17 @@ let
         debug = true;
         systems = [ system ];
         imports = [ ../modules/flake-module.nix ];
-        perSystem.odoo-nix = {
-          enable = true;
-          projectName = "acme";
-          workspaceRoot = ./fixtures/19.0;
-          coreSource = inputs.ocb-19;
-          odooSeries = "19.0";
-        }
-        // odoo-nix;
+        # An old name for the identity replaces the new one, which would
+        # otherwise be defined twice.
+        perSystem.odoo-nix =
+          removeAttrs {
+            enable = true;
+            name = "acme";
+            workspaceRoot = ./fixtures/19.0;
+            coreSource = inputs.ocb-19;
+            odooSeries = "19.0";
+          } (lib.optional (odoo-nix ? projectName) "name")
+          // odoo-nix;
       }
     ).allSystems.${system}.config;
 
@@ -66,8 +69,78 @@ let
         && lib.hasInfix "has been renamed to `odoo-nix.devguard.jobs." msg
       ) config.odoo-nix.deprecations;
     };
+
+  # Which deprecations name `from' -> `to' (option-path prefixes).
+  warned =
+    from: to: config:
+    map (
+      msg:
+      lib.hasPrefix "The option `odoo-nix.${from}" msg
+      && lib.hasInfix "has been renamed to `odoo-nix.${to}" msg
+    ) config.odoo-nix.deprecations;
 in
 {
+  # projectName -> name (python-devops-nix CONVENTIONS.md, Identity
+  # options): the identity names the packages and devenv's own `name`.
+  rename-project-name =
+    let
+      config = perSystemConfig { projectName = "legacy"; };
+    in
+    {
+      expected = {
+        name = "legacy";
+        shell = "legacy";
+        cli = "legacy-odoo-cli";
+        deprecations = [ true ];
+      };
+      actual = {
+        inherit (config.odoo-nix) name;
+        shell = config.devenv.shells.default.name;
+        cli = config.packages.default.name;
+        deprecations = warned "projectName'" "name'" config;
+      };
+    };
+  # odooConf.* -> settings.* (Framework config blocks), the block as a
+  # whole: every option keeps its name (and a priority set inside it), the
+  # rendered odoo.conf is the one the new name gives, and each option set is
+  # warned about.
+  rename-odoo-conf =
+    let
+      block = {
+        dbName = "legacy";
+        httpPort = 8169;
+        logging.level = "debug";
+        extra.limit_time_real = "600";
+        withoutDemo = lib.mkForce true;
+      };
+      old = perSystemConfig { odooConf = block; };
+      new = perSystemConfig { settings = block; };
+    in
+    {
+      expected = {
+        settings = {
+          dbName = "legacy";
+          httpPort = 8169;
+          level = "debug";
+          withoutDemo = true;
+        };
+        conf = new.packages.odooConf.outPath;
+        deprecations = lib.replicate 5 true;
+      };
+      actual = {
+        settings = {
+          inherit (old.odoo-nix.settings) dbName httpPort withoutDemo;
+          inherit (old.odoo-nix.settings.logging) level;
+        };
+        conf = old.packages.odooConf.outPath;
+        deprecations = warned "odooConf." "settings." old;
+      };
+    };
+  # The identity is devenv's `name` too, unless the shell sets its own.
+  identity-shell-name = {
+    expected = "acme";
+    actual = (perSystemConfig { }).devenv.shells.default.name;
+  };
   # devguard.crons.* -> devguard.jobs.* (python-devops-nix CONVENTIONS.md,
   # Job denylist), for one release.
   rename-crons = {

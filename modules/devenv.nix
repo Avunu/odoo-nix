@@ -14,8 +14,10 @@ let
   # Series -> interpreter, the same file odoo-init scaffolds from.
   presets = builtins.fromJSON (builtins.readFile ../lib/odoo-presets.json);
 
-  # Renamed options: mailcatch.* became devguard.mail.*, and devguard.crons.*
-  # became devguard.jobs.* (python-devops-nix CONVENTIONS.md, Job denylist).
+  # Renamed options (python-devops-nix CONVENTIONS.md): mailcatch.* became
+  # devguard.mail.*, devguard.crons.* became devguard.jobs.* (Job denylist),
+  # projectName became name (Identity options) and odooConf.* became
+  # settings.* (Framework config blocks).
   # Not lib.mkRenamedOptionModule: it reports through a `warnings` option,
   # which perSystem has none of, so the rename went unannounced. doRename does
   # the aliasing (priorities kept); the warning goes on `deprecations`, which
@@ -66,6 +68,177 @@ let
         "jobs"
         name
       ];
+
+  # odoo.conf's [options], rendered by lib/odoo-conf.nix; the NixOS module's
+  # block has the same name. Was `odooConf`. Declared here, outside perSystem,
+  # so the renames below can list its options.
+  settingsOptions = {
+    dbHost = mkOption {
+      type = types.str;
+      default = "127.0.0.1";
+      description = "PostgreSQL host (empty string = unix socket).";
+    };
+    dbPort = mkOption {
+      type = types.port;
+      default = 5432;
+    };
+    dbUser = mkOption {
+      type = types.str;
+      default = "odoo";
+    };
+    dbPassword = mkOption {
+      type = types.str;
+      default = "False";
+      description = "DB password (\"False\" or \"\" = none, for dev: the key is then left out of odoo.conf).";
+    };
+    dbName = mkOption {
+      type = types.nullOr types.str;
+      default = "odoo_dev";
+      description = "Default database name (null to omit db_name from odoo.conf).";
+    };
+    dataDir = mkOption {
+      type = types.str;
+      default = "./.devenv/state/odoo";
+      description = "Odoo filestore data_dir (relative to the workspace root; gitignored under .devenv).";
+    };
+    adminPasswd = mkOption {
+      type = types.str;
+      default = "admin";
+      description = "Database manager master password (dev only).";
+    };
+    logging = {
+      level = mkOption {
+        type = types.enum [
+          "info"
+          "debug_rpc"
+          "warn"
+          "test"
+          "critical"
+          "runbot"
+          "debug_sql"
+          "error"
+          "debug"
+          "debug_rpc_answer"
+          "notset"
+        ];
+        default = "info";
+        description = "Root/default logging verbosity (log_level).";
+      };
+      handlers = mkOption {
+        type = types.listOf (types.strMatching "^[A-Za-z0-9_.]*:[A-Z]+$");
+        default = [ ];
+        example = [
+          "odoo.addons.my_module:DEBUG"
+          "werkzeug:WARNING"
+        ];
+        description = ''
+          Per-logger level overrides (log_handler), as "logger:LEVEL"
+          pairs. An empty prefix targets the root logger. The root
+          logger already defaults to INFO regardless of this list, so
+          entries here only need to cover the loggers you want to
+          override.
+        '';
+      };
+      db = mkOption {
+        type = types.either types.bool types.str;
+        default = false;
+        description = ''
+          Mirror log records into the database (log_db). `true`
+          (or "%d") logs to whichever database is active for each
+          request; a string pins logging to that database name.
+        '';
+      };
+      dbLevel = mkOption {
+        type = types.enum [
+          "debug"
+          "info"
+          "warning"
+          "error"
+          "critical"
+        ];
+        default = "warning";
+        description = "Minimum level mirrored to the database (log_db_level).";
+      };
+      file = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = ''
+          Write logs to this file (logfile) instead of stderr. Odoo's
+          file and stderr log handlers are mutually exclusive, so
+          setting this stops log records from reaching the dev
+          shell's console.
+        '';
+      };
+    };
+    httpInterface = mkOption {
+      type = types.str;
+      default = "127.0.0.1";
+      example = "0.0.0.0";
+      description = ''
+        Interface the dev server binds (http_interface). Loopback by
+        default -- a dev instance with `admin` as the master password
+        has no business on the LAN, and Odoo 20.0 makes this its own
+        default (19.0 warns whenever the key is absent). Set "0.0.0.0"
+        to reach the server from another host or container.
+      '';
+    };
+    httpPort = mkOption {
+      type = types.port;
+      default = 8069;
+    };
+    geventPort = mkOption {
+      type = types.port;
+      default = 8072;
+    };
+    workers = mkOption {
+      type = types.int;
+      default = 0;
+      description = "Worker processes (0 = threaded dev mode).";
+    };
+    devMode = mkOption {
+      type = types.str;
+      default = "all";
+      description = "Value for the dev process's --dev flag (CLI only, not in odoo.conf).";
+    };
+    extra = mkOption {
+      type = types.attrsOf (types.either types.str (types.either types.int types.bool));
+      default = { };
+      description = "Arbitrary extra [options] keys merged last into odoo.conf.";
+    };
+    withoutDemo = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Skip loading demo data for every installed module
+        (`without_demo = all`). Default `false` loads demo data,
+        matching Odoo's own default.
+      '';
+    };
+  };
+
+  # Every option under settings, as a path: odooConf.<path> is renamed to
+  # settings.<path> one option at a time. A doRename of the block as a whole
+  # would not carry a priority set inside it (odooConf.dbPort = mkForce ...).
+  settingsPaths = lib.collect lib.isList (
+    lib.mapAttrsRecursiveCond (a: !lib.isOption a) (path: _: path) settingsOptions
+  );
+  renamedSettings =
+    path:
+    renamed
+      (
+        [
+          "odoo-nix"
+          "odooConf"
+        ]
+        ++ path
+      )
+      (
+        [
+          "odoo-nix"
+          "settings"
+        ]
+        ++ path
+      );
 in
 {
   options.perSystem = mkPerSystemOption (
@@ -81,7 +254,13 @@ in
         ++ map renamedCrons [
           "enable"
           "extraBlocked"
-        ];
+        ]
+        # python-devops-nix CONVENTIONS.md, Identity options.
+        ++ [
+          (renamed [ "odoo-nix" "projectName" ] [ "odoo-nix" "name" ])
+        ]
+        # Framework config blocks: each option keeps its name.
+        ++ map renamedSettings settingsPaths;
 
       options.odoo-nix = {
         enable = mkEnableOption "Odoo + OCA devenv shell";
@@ -93,9 +272,13 @@ in
           description = "Deprecated options in use, each warned about (lib.warn) when the shell's config is evaluated.";
         };
 
-        projectName = mkOption {
+        name = mkOption {
           type = types.str;
-          description = "Project identifier used for env/package/container names.";
+          description = ''
+            The project's identity: a slug that names its Python environments,
+            packages, container image and dev-shell banner, and devenv's own
+            top-level `name` (by default). Was `projectName`.
+          '';
           example = "avunu-accounting";
         };
 
@@ -173,149 +356,7 @@ in
           example = lib.literalExpression "{ python-snappy = [ pkgs.snappy ]; }";
         };
 
-        odooConf = {
-          dbHost = mkOption {
-            type = types.str;
-            default = "127.0.0.1";
-            description = "PostgreSQL host (empty string = unix socket).";
-          };
-          dbPort = mkOption {
-            type = types.port;
-            default = 5432;
-          };
-          dbUser = mkOption {
-            type = types.str;
-            default = "odoo";
-          };
-          dbPassword = mkOption {
-            type = types.str;
-            default = "False";
-            description = "DB password (\"False\" or \"\" = none, for dev: the key is then left out of odoo.conf).";
-          };
-          dbName = mkOption {
-            type = types.nullOr types.str;
-            default = "odoo_dev";
-            description = "Default database name (null to omit db_name from odoo.conf).";
-          };
-          dataDir = mkOption {
-            type = types.str;
-            default = "./.devenv/state/odoo";
-            description = "Odoo filestore data_dir (relative to the workspace root; gitignored under .devenv).";
-          };
-          adminPasswd = mkOption {
-            type = types.str;
-            default = "admin";
-            description = "Database manager master password (dev only).";
-          };
-          logging = {
-            level = mkOption {
-              type = types.enum [
-                "info"
-                "debug_rpc"
-                "warn"
-                "test"
-                "critical"
-                "runbot"
-                "debug_sql"
-                "error"
-                "debug"
-                "debug_rpc_answer"
-                "notset"
-              ];
-              default = "info";
-              description = "Root/default logging verbosity (log_level).";
-            };
-            handlers = mkOption {
-              type = types.listOf (types.strMatching "^[A-Za-z0-9_.]*:[A-Z]+$");
-              default = [ ];
-              example = [
-                "odoo.addons.my_module:DEBUG"
-                "werkzeug:WARNING"
-              ];
-              description = ''
-                Per-logger level overrides (log_handler), as "logger:LEVEL"
-                pairs. An empty prefix targets the root logger. The root
-                logger already defaults to INFO regardless of this list, so
-                entries here only need to cover the loggers you want to
-                override.
-              '';
-            };
-            db = mkOption {
-              type = types.either types.bool types.str;
-              default = false;
-              description = ''
-                Mirror log records into the database (log_db). `true`
-                (or "%d") logs to whichever database is active for each
-                request; a string pins logging to that database name.
-              '';
-            };
-            dbLevel = mkOption {
-              type = types.enum [
-                "debug"
-                "info"
-                "warning"
-                "error"
-                "critical"
-              ];
-              default = "warning";
-              description = "Minimum level mirrored to the database (log_db_level).";
-            };
-            file = mkOption {
-              type = types.nullOr types.str;
-              default = null;
-              description = ''
-                Write logs to this file (logfile) instead of stderr. Odoo's
-                file and stderr log handlers are mutually exclusive, so
-                setting this stops log records from reaching the dev
-                shell's console.
-              '';
-            };
-          };
-          httpInterface = mkOption {
-            type = types.str;
-            default = "127.0.0.1";
-            example = "0.0.0.0";
-            description = ''
-              Interface the dev server binds (http_interface). Loopback by
-              default -- a dev instance with `admin` as the master password
-              has no business on the LAN, and Odoo 20.0 makes this its own
-              default (19.0 warns whenever the key is absent). Set "0.0.0.0"
-              to reach the server from another host or container.
-            '';
-          };
-          httpPort = mkOption {
-            type = types.port;
-            default = 8069;
-          };
-          geventPort = mkOption {
-            type = types.port;
-            default = 8072;
-          };
-          workers = mkOption {
-            type = types.int;
-            default = 0;
-            description = "Worker processes (0 = threaded dev mode).";
-          };
-          devMode = mkOption {
-            type = types.str;
-            default = "all";
-            description = "Value for the dev process's --dev flag (CLI only, not in odoo.conf).";
-          };
-          extra = mkOption {
-            type = types.attrsOf (types.either types.str (types.either types.int types.bool));
-            default = { };
-            description = "Arbitrary extra [options] keys merged last into odoo.conf.";
-          };
-          withoutDemo = mkOption {
-            type = types.bool;
-            default = false;
-            description = ''
-              Skip loading demo data for every installed module
-              (`without_demo = all`). Default `false` loads demo data,
-              matching Odoo's own default.
-            '';
-          };
-        };
+        settings = settingsOptions;
 
         postgres = {
           extensions = mkOption {
@@ -376,7 +417,7 @@ in
               XML views, QWeb templates and asset bundles do not need this --
               `--dev=xml` already re-reads them from disk per request.
 
-              Requires `odooConf.workers = 0` (the default): the watcher only
+              Requires `settings.workers = 0` (the default): the watcher only
               runs on the threaded server.
             '';
           };
@@ -764,7 +805,7 @@ in
             type = types.str;
             default = "";
             example = "ghcr.io/avunu";
-            description = "Registry prefix for the image name: \"ghcr.io/avunu\" names the image ghcr.io/avunu/<projectName>-odoo. A trailing slash is dropped; empty leaves the name bare.";
+            description = "Registry prefix for the image name: \"ghcr.io/avunu\" names the image ghcr.io/avunu/<name>-odoo. A trailing slash is dropped; empty leaves the name bare.";
           };
         };
       };
@@ -837,9 +878,9 @@ in
           inherit (cfg)
             python
             workspaceRoot
-            projectName
             coreSource
             ;
+          projectName = cfg.name;
           devguard = if dg.enable then devguardPkg else null;
           pythonLib = inputs.python-devops-nix.lib.python;
           inherit (inputs) pyproject-nix pyproject-build-systems uv2nix;
@@ -875,7 +916,7 @@ in
 
         confSynth = import ../lib/odoo-conf.nix {
           inherit pkgs lib;
-          inherit (cfg) odooConf;
+          inherit (cfg) settings;
           inherit (addons) addonsPath;
           # Setting the key at all replaces Odoo's own default, so the
           # series' full default set has to be reproduced: 19.0 added `rpc`
@@ -947,10 +988,10 @@ in
           inherit (cfg)
             workspaceRoot
             layout
-            projectName
             odooSeries
             coreSource
             ;
+          projectName = cfg.name;
           inherit (pythonEnvs) odooPythonEnv;
         };
 
@@ -974,7 +1015,7 @@ in
           inherit pkgs lib;
           inherit (cfg) python;
           inherit cliScripts;
-          name = "${cfg.projectName}-odoo-cli-dev";
+          name = "${cfg.name}-odoo-cli-dev";
           rawOdooBin = devRawOdooBin;
           targetPythonEnv = pythonEnvs.devPythonEnv;
           inherit mcBin;
@@ -985,7 +1026,7 @@ in
         odooCliProd = import ../lib/cli.nix {
           inherit pkgs lib;
           inherit (cfg) python;
-          name = "${cfg.projectName}-odoo-cli";
+          name = "${cfg.name}-odoo-cli";
           rawOdooBin = "${builtOdoo}/bin/odoo";
           mirrorTree = builtOdoo;
           targetPythonEnv = pythonEnvs.odooPythonEnv;
@@ -1198,6 +1239,10 @@ in
             # consumer can still override either way.
             dotenv.enable = lib.mkDefault (!config.devenv.flakesIntegration);
 
+            # devenv's "Name of the project": the shell and the product agree
+            # (python-devops-nix CONVENTIONS.md, Identity options).
+            name = lib.mkDefault cfg.name;
+
             packages =
               with pkgs;
               [
@@ -1253,8 +1298,12 @@ in
               # service — do not set them here (it causes an option conflict).
               # Odoo connects via odoo.conf (db_host/db_port/db_user), not PG*.
 
-              ODOO_HTTP_PORT = toString cfg.odooConf.httpPort;
-              ODOO_GEVENT_PORT = toString cfg.odooConf.geventPort;
+              ODOO_NIX_HTTP_PORT = toString cfg.settings.httpPort;
+              ODOO_NIX_GEVENT_PORT = toString cfg.settings.geventPort;
+              # The old names (Tool-owned variables), exported until the next
+              # minor release.
+              ODOO_HTTP_PORT = toString cfg.settings.httpPort;
+              ODOO_GEVENT_PORT = toString cfg.settings.geventPort;
               # Single source of truth: the same values are baked into the
               # devguard's settings (lib/devguard.nix), so Odoo and Mailpit can
               # never drift apart.
@@ -1286,16 +1335,16 @@ in
             # server shipped with reload requested but never running.
             warnings =
               let
-                devFeatures = lib.splitString "," cfg.odooConf.devMode;
+                devFeatures = lib.splitString "," cfg.settings.devMode;
               in
-              lib.optional (cfg.dev.autoReload && cfg.odooConf.workers != 0) ''
-                odoo-nix: dev.autoReload is on but odooConf.workers = ${toString cfg.odooConf.workers}.
+              lib.optional (cfg.dev.autoReload && cfg.settings.workers != 0) ''
+                odoo-nix: dev.autoReload is on but settings.workers = ${toString cfg.settings.workers}.
                 Odoo's reload watcher only runs on the threaded server; set workers = 0 for it to take effect.
               ''
               ++
                 lib.optional (cfg.dev.autoReload && !lib.elem "all" devFeatures && !lib.elem "reload" devFeatures)
                   ''
-                    odoo-nix: dev.autoReload is on but odooConf.devMode = "${cfg.odooConf.devMode}" requests
+                    odoo-nix: dev.autoReload is on but settings.devMode = "${cfg.settings.devMode}" requests
                     neither "all" nor "reload", so Odoo will not start a file watcher.
                   '';
 
@@ -1308,13 +1357,13 @@ in
               extensions =
                 if cfg.postgres.extensions pkgs.postgresql_16.pkgs == [ ] then null else cfg.postgres.extensions;
               listen_addresses = "127.0.0.1";
-              port = cfg.odooConf.dbPort;
-              initialDatabases = lib.optional (cfg.odooConf.dbName != null) {
-                name = cfg.odooConf.dbName;
+              port = cfg.settings.dbPort;
+              initialDatabases = lib.optional (cfg.settings.dbName != null) {
+                name = cfg.settings.dbName;
               };
               # Odoo's DB role needs CREATEDB to create/drop databases from the UI.
               initialScript = ''
-                CREATE ROLE ${cfg.odooConf.dbUser} WITH LOGIN CREATEDB SUPERUSER;
+                CREATE ROLE ${cfg.settings.dbUser} WITH LOGIN CREATEDB SUPERUSER;
               '';
             };
             # NOTE: no services.redis — Odoo uses filesystem/DB sessions.
@@ -1336,7 +1385,7 @@ in
                 exec ${pythonEnvs.devPythonEnv}/bin/python \
                   "$REPO_ROOT/${cfg.layout.coreSrc}/odoo-bin" \
                   -c "$REPO_ROOT/odoo.conf" \
-                  --dev=${cfg.odooConf.devMode}
+                  --dev=${cfg.settings.devMode}
               '';
 
               mailpit.exec = ''
@@ -1401,7 +1450,7 @@ in
               fi
 
               # Ensure the filestore + custom-addons dirs exist.
-              mkdir -p "${cfg.odooConf.dataDir}" "${cfg.layout.customDir}"
+              mkdir -p "${cfg.settings.dataDir}" "${cfg.layout.customDir}"
 
               ${lib.optionalString cfg.ide.enable ideSetup}
 
@@ -1431,8 +1480,8 @@ in
               ''}
 
               ${richPython}/bin/python ${../lib/banner.py} \
-                "${cfg.projectName}" "${cfg.odooSeries}" \
-                "${toString (builtins.length addons.addonsPathList)}" "${toString cfg.odooConf.httpPort}" \
+                "${cfg.name}" "${cfg.odooSeries}" \
+                "${toString (builtins.length addons.addonsPathList)}" "${toString cfg.settings.httpPort}" \
                 "${if cfg.devguard.enable then "1" else "0"}" "${toString cfg.devguard.mail.httpPort}" \
                 "${lib.concatStringsSep "," cfg.devguard.egress.allowHosts}" \
                 "${if cfg.devguard.enable && cfg.devguard.mail.enable then "1" else "0"}" \
