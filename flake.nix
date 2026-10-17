@@ -141,7 +141,9 @@
       # One small derivation per assertion: `nix flake check` names what
       # broke, and a slow Odoo run cannot mask a fast check. `script` runs in
       # checkPhase so hooks that attach to preCheck -- postgresqlTestHook --
-      # work. HOME and CWD are the build directory.
+      # work. HOME and CWD are the build directory. `refute CMD...` fails the
+      # check when CMD succeeds: a bare `! CMD` never does, bash exempts `!`
+      # pipelines from errexit.
       mkCheck =
         pkgs: name:
         {
@@ -163,6 +165,12 @@
               set -o pipefail
               export HOME="$NIX_BUILD_TOP"
               cd "$NIX_BUILD_TOP"
+              refute() {
+                if "$@"; then
+                  echo "refuted, but it succeeded: $*" >&2
+                  exit 1
+                fi
+              }
               ${script}
               runHook postCheck
             '';
@@ -238,6 +246,8 @@
       #   eval-restore-*                                      the dev shell's restore options (Linux only)
       #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
       #   eval-container-name*                                the OCI image's name (Linux only)
+      #   eval-python-default-*                               the series' default interpreter (Linux only)
+      #   eval-rename-*                                       renamed dev-shell options (Linux only)
       #   eval-*-<major>, lock-fresh-<major>                  per-series, no Odoo run (all systems)
       #   builtOdoo-<major>, odoo-init-<major>, odoo-test-<major>,
       #   module-odoo-<major>, module-nginx                   run Odoo / a VM (Linux only)
@@ -283,8 +293,8 @@
             grep -qE '^without_demo\s*=\s*True$' "$f"
             grep -qE '^server_wide_modules\s*=\s*base,rpc,web,dev_mailcatch$' "$f"
             grep -qE '^proxy_mode\s*=\s*True$' "$f"
-            ! grep -qE '^log_db\s*=' "$f"
-            ! grep -qE '^db_password\s*=' "$f"
+            refute grep -qE '^log_db\s*=' "$f"
+            refute grep -qE '^db_password\s*=' "$f"
             grep -qE '^http_interface\s*=\s*127\.0\.0\.1$' "$f"
             grep -qE '^limit_time_real\s*=\s*1200$' "$f"
           '';
@@ -428,6 +438,22 @@
           evalChecks "" (
             import ./tests/containers-eval.nix {
               inherit pkgs inputs;
+              inherit (self.lib) mkFlake;
+            }
+          )
+        )
+        // lib.optionalAttrs isLinux (
+          evalChecks "" (
+            import ./tests/python-default-eval.nix {
+              inherit pkgs inputs;
+              inherit (self.lib) mkFlake;
+            }
+          )
+        )
+        // lib.optionalAttrs isLinux (
+          evalChecks "" (
+            import ./tests/renames-eval.nix {
+              inherit pkgs lib inputs;
               inherit (self.lib) mkFlake;
             }
           )

@@ -318,7 +318,7 @@ in
       # New database: provision creates it (base only -- no modules.txt at
       # this cwd) since Registry.new() itself assumes the database exists.
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$CLIDB" 2>&1 | tee provision.log
-      ! grep -qE ' (ERROR|CRITICAL) ' provision.log
+      refute grep -qE ' (ERROR|CRITICAL) ' provision.log
       grep -q "provisioned '$CLIDB'" provision.log
       psql -d "$CLIDB" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed
 
@@ -329,7 +329,7 @@ in
       # checksum baseline and nothing changed since, that migration has
       # nothing to update. (cli-migrate covers the runs that do.)
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$CLIDB" --no-backup 2>&1 | tee reprovision.log
-      ! grep -qE ' (ERROR|CRITICAL) ' reprovision.log
+      refute grep -qE ' (ERROR|CRITICAL) ' reprovision.log
       grep -q 'already exists' reprovision.log
       grep -q 'up to date' reprovision.log
 
@@ -341,7 +341,7 @@ in
 
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db drop "$CLIDB" --yes
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db list > after-drop.log
-      ! grep -q "$CLIDB" after-drop.log
+      refute grep -q "$CLIDB" after-drop.log
 
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db restore "$CLIDB" "$BACKUP_FILE" 2>&1 | tee restore.log
       grep -q "restored '$CLIDB'" restore.log
@@ -471,14 +471,14 @@ in
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$PGDATABASE" 2>&1 | tee provision0.log
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$CLIDB1" 2>&1 | tee provision1.log
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db provision "$CLIDB2" 2>&1 | tee provision2.log
-      ! grep -qE ' (ERROR|CRITICAL) ' provision0.log provision1.log provision2.log
+      refute grep -qE ' (ERROR|CRITICAL) ' provision0.log provision1.log provision2.log
 
       # project backup: no arguments, every database, one subfolder each
       # under the given parent (not one flat folder -- auto_backup-style
       # filenames carry no db name, so a flat folder risks two databases'
       # same-second backups colliding).
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS project backup --path ./project-backups 2>&1 | tee project-backup.log
-      ! grep -qE ' (ERROR|CRITICAL) ' project-backup.log
+      refute grep -qE ' (ERROR|CRITICAL) ' project-backup.log
       grep -q "$PGDATABASE →" project-backup.log
       grep -q "$CLIDB1 →" project-backup.log
       grep -q "$CLIDB2 →" project-backup.log
@@ -500,7 +500,7 @@ in
       mkdir -p ./keepdays-test
       touch ./keepdays-test/2000_01_01_00_00_00.dump.zip
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db backup "$CLIDB2" --path ./keepdays-test --keep-days 1 2>&1 | tee keepdays.log
-      ! test -e ./keepdays-test/2000_01_01_00_00_00.dump.zip
+      refute test -e ./keepdays-test/2000_01_01_00_00_00.dump.zip
       test "$(ls ./keepdays-test/*.dump.zip | wc -l)" = "1"
 
       # project restore: drop both, restore both in one explicit-pairs batch
@@ -510,7 +510,7 @@ in
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db drop "$CLIDB1" --yes
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS db drop "$CLIDB2" --yes
       ${odooCli}/bin/odoo -c ${conf} $DBFLAGS project restore --restore "$CLIDB1" "$RESTORE1" --restore "$CLIDB2" "$RESTORE2" 2>&1 | tee project-restore.log
-      ! grep -qE ' (ERROR|CRITICAL) ' project-restore.log
+      refute grep -qE ' (ERROR|CRITICAL) ' project-restore.log
       grep -q "restored '$CLIDB1'" project-restore.log
       grep -q "restored '$CLIDB2'" project-restore.log
       psql -d "$CLIDB1" -tAc "select state from ir_module_module where name = 'base'" | grep -qx installed

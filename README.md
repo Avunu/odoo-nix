@@ -131,7 +131,7 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | workspaceRoot | — | project root (where pyproject.toml, odoo.conf, odoo/ live) |
 | coreSource | null | OCB from a non-flake input instead of the `odoo/` submodule — see [OCB as a flake input](#ocb-as-a-flake-input) |
 | odooSeries | "18.0" | Odoo series — the OCB/OCA branch + catalog filter (does not select a nixpkgs package) |
-| python | pkgs.python311 | interpreter (match the series) |
+| python | the series' preset (`lib/odoo-presets.json`: python311 for 18.0, python312 for 19.0) | interpreter (match the series) |
 | nodejs | pkgs.nodejs_22 | Node.js (for rtlcss / asset tooling) |
 | pythonOverrides | _: _: {} | uv2nix package-set overlay for native-build overrides |
 | pythonLibraries | { } | per-package native libs to expose to a Python build, e.g. { python-snappy = [ pkgs.snappy ]; } (merged with built-ins; pycups is built in) |
@@ -592,6 +592,8 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `eval-secrets-*` | `odoo-nix.secrets` (python-devops-nix's `lib.secrets.mkModule`) through `lib.mkFlake`: the `odoo_` variables, backup-access encrypted to the host keys by default, a declared secret with no `.age` file yet reported but left out of agenix-shell, `lib.secrets` and its `lib.odooSecrets` alias. The toolkit itself (`edit-secret`, `rekey-secrets`, `check-secrets`, agecheck) is tested in python-devops-nix |
 | `cli-remote-restore-<18\|19>` | `odoo db restore` from a directory store: `--list`; the newest backup restored neutralized and migrated; an existing database overwritten, refused with `--no-force`, `--force` a warned no-op; `--no-neutralize`, `--no-migrate` and `ODOO_NIX_RESTORE_MIGRATE=0`; `--files` and the deprecated `--attachments`; refused without the devguard unless overridden or `restore.requireDevguard` is off; `--at` in ISO 8601 and odoo-nix's naming, whole or a leading part, and a non-matching or malformed `--at` fails; `odoo project restore --no-force` |
 | `eval-restore-*` | the dev shell's `restore.*` options reaching the CLI's environment, and `restore.attachments` read as `restore.files` |
+| `eval-python-default-*` | a consumer that sets only `odooSeries` gets that series' interpreter from `lib/odoo-presets.json`, and its container image evaluates |
+| `eval-rename-*` | the old `mailcatch.*` names reaching `devguard.mail.*` and the shell's env, each announced with a deprecation warning |
 | `db-nocow` | `odoo-nix-db-nocow` (`tests/db-nocow.sh`): NOCOW arranged for a datadir `initdb` has yet to create and cleared from its parent after, an existing cluster reported, the stopped-server copy keeping mode 0700. Checks the real attribute on a btrfs builder, the no-op elsewhere (`TMPDIR=<btrfs dir>` to run it by hand; Linux only) |
 | `nix-lint` | python-devops-nix's `lib.checks.nixLint`: `nixfmt-rs --check` (what `nix fmt` writes), `statix` (`statix.toml`, compared with the base's copy) and `deadnix` over the repo's Nix files, `templates/` and `tests/fixtures/` excluded |
 | `shared-config` | python-devops-nix's `lib.checks.sharedConfig`: `.editorconfig`, `.pre-commit-config.yaml` and `ruff.toml` make every setting the base's copies make |

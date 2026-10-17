@@ -11,32 +11,63 @@ topLevel@{
 let
   inherit (lib) mkOption mkEnableOption types;
   inherit (flake-parts-lib) mkPerSystemOption;
+  # Series -> interpreter, the same file odoo-init scaffolds from.
+  presets = builtins.fromJSON (builtins.readFile ../lib/odoo-presets.json);
+
+  # mailcatch.* became devguard.mail.*. Not lib.mkRenamedOptionModule: it
+  # reports through a `warnings` option, which perSystem has none of, so the
+  # rename went unannounced. doRename does the aliasing (priorities kept); the
+  # warning goes on `deprecations`, which the config below emits with
+  # lib.warn. Removed in the next minor release.
+  renamedMailcatch =
+    name:
+    { options, ... }:
+    let
+      from = [
+        "odoo-nix"
+        "mailcatch"
+        name
+      ];
+      to = [
+        "odoo-nix"
+        "devguard"
+        "mail"
+        name
+      ];
+      fromOpt = lib.getAttrFromPath from options;
+    in
+    {
+      imports = [
+        (lib.doRename {
+          inherit from to;
+          visible = false;
+          warn = false;
+          use = lib.id;
+        })
+      ];
+      config.odoo-nix.deprecations = lib.optional fromOpt.isDefined "The option `${lib.showOption from}' defined in ${lib.showFiles fromOpt.files} has been renamed to `${lib.showOption to}'.";
+    };
 in
 {
   options.perSystem = mkPerSystemOption (
     { pkgs, config, ... }:
     {
-      imports = [
-        (lib.mkRenamedOptionModule
-          [ "odoo-nix" "mailcatch" "enable" ]
-          [ "odoo-nix" "devguard" "mail" "enable" ]
-        )
-        (lib.mkRenamedOptionModule
-          [ "odoo-nix" "mailcatch" "host" ]
-          [ "odoo-nix" "devguard" "mail" "host" ]
-        )
-        (lib.mkRenamedOptionModule
-          [ "odoo-nix" "mailcatch" "port" ]
-          [ "odoo-nix" "devguard" "mail" "port" ]
-        )
-        (lib.mkRenamedOptionModule
-          [ "odoo-nix" "mailcatch" "httpPort" ]
-          [ "odoo-nix" "devguard" "mail" "httpPort" ]
-        )
+      imports = map renamedMailcatch [
+        "enable"
+        "host"
+        "port"
+        "httpPort"
       ];
 
       options.odoo-nix = {
         enable = mkEnableOption "Odoo + OCA devenv shell";
+
+        deprecations = mkOption {
+          type = types.listOf types.str;
+          default = [ ];
+          internal = true;
+          description = "Deprecated options in use, each warned about (lib.warn) when the shell's config is evaluated.";
+        };
 
         projectName = mkOption {
           type = types.str;
@@ -77,8 +108,20 @@ in
 
         python = mkOption {
           type = types.package;
-          default = pkgs.python311;
-          description = "Python interpreter (should match the series; 3.11 for 18.0, 3.12 for 19.0).";
+          default =
+            let
+              series = config.odoo-nix.odooSeries;
+            in
+            pkgs.${
+              presets.${series}.python or (throw ''
+                odoo-nix: no preset for odooSeries "${series}" in lib/odoo-presets.json; set odoo-nix.python.
+              '')
+            };
+          defaultText = lib.literalMD ''
+            the series' interpreter from `lib/odoo-presets.json`
+            (`pkgs.python311` for 18.0, `pkgs.python312` for 19.0)
+          '';
+          description = "Python interpreter (should match the series' `requires-python`).";
         };
 
         nodejs = mkOption {
@@ -711,7 +754,9 @@ in
         ...
       }:
       let
-        cfg = config.odoo-nix;
+        # Every read of cfg goes through the deprecation warnings first
+        # (perSystem has no `warnings` option to collect them).
+        cfg = lib.foldr lib.warn config.odoo-nix config.odoo-nix.deprecations;
 
         inherit (import ../lib/env.nix) blasThreadCaps;
 
