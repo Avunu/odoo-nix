@@ -78,10 +78,6 @@ let
       default = "127.0.0.1";
       description = "PostgreSQL host (empty string = unix socket).";
     };
-    dbPort = mkOption {
-      type = types.port;
-      default = 5432;
-    };
     dbUser = mkOption {
       type = types.str;
       default = "odoo";
@@ -182,14 +178,6 @@ let
         to reach the server from another host or container.
       '';
     };
-    httpPort = mkOption {
-      type = types.port;
-      default = 8069;
-    };
-    geventPort = mkOption {
-      type = types.port;
-      default = 8072;
-    };
     workers = mkOption {
       type = types.int;
       default = 0;
@@ -215,6 +203,20 @@ let
       '';
     };
   };
+
+  # The ports moved out of settings (and odooConf) into the ports tree
+  # (python-devops-nix CONVENTIONS.md, The development shell option tree).
+  movedPorts = {
+    httpPort = "http";
+    geventPort = "gevent";
+    dbPort = "db";
+  };
+
+  # Per-project TCP ports: one offset, 0..899, hashed from the project's
+  # name (lib/ports.nix). ODOO_NIX_PORT_OFFSET picks one by hand for a
+  # shell, over the `ports.offset` option.
+  portsLib = import ../lib/ports.nix { inherit lib; };
+  envPortOffset = portsLib.parseEnvOffset (builtins.getEnv "ODOO_NIX_PORT_OFFSET");
 
   # Every option under settings, as a path: odooConf.<path> is renamed to
   # settings.<path> one option at a time. A doRename of the block as a whole
@@ -244,23 +246,42 @@ in
   options.perSystem = mkPerSystemOption (
     { pkgs, config, ... }:
     {
-      imports =
-        map renamedMailcatch [
-          "enable"
-          "host"
-          "port"
-          "httpPort"
-        ]
-        ++ map renamedCrons [
-          "enable"
-          "extraBlocked"
-        ]
-        # python-devops-nix CONVENTIONS.md, Identity options.
-        ++ [
-          (renamed [ "odoo-nix" "projectName" ] [ "odoo-nix" "name" ])
-        ]
-        # Framework config blocks: each option keeps its name.
-        ++ map renamedSettings settingsPaths;
+      imports = [
+        (renamedMailcatch "enable")
+        # dev.autoReload became watch.python (The development shell option
+        # tree); the `dev` tree is gone.
+        (renamed [ "odoo-nix" "dev" "autoReload" ] [ "odoo-nix" "watch" "python" ])
+      ]
+      # The catcher is a service, not a guard: its settings left devguard.mail
+      # for the mailpit tree (and mailcatch.*, before that, goes straight there).
+      ++
+        lib.concatMap
+          (name: [
+            (renamed [ "odoo-nix" "mailcatch" name ] [ "odoo-nix" "mailpit" name ])
+            (renamed [ "odoo-nix" "devguard" "mail" name ] [ "odoo-nix" "mailpit" name ])
+          ])
+          [
+            "host"
+            "port"
+            "httpPort"
+          ]
+      ++ map renamedCrons [
+        "enable"
+        "extraBlocked"
+      ]
+      # python-devops-nix CONVENTIONS.md, Identity options.
+      ++ [
+        (renamed [ "odoo-nix" "projectName" ] [ "odoo-nix" "name" ])
+      ]
+      # Framework config blocks: each option keeps its name.
+      ++ map renamedSettings settingsPaths
+      # ...except the ports, which went on to the ports tree.
+      ++ lib.concatLists (
+        lib.mapAttrsToList (old: new: [
+          (renamed [ "odoo-nix" "odooConf" old ] [ "odoo-nix" "ports" new ])
+          (renamed [ "odoo-nix" "settings" old ] [ "odoo-nix" "ports" new ])
+        ]) movedPorts
+      );
 
       options.odoo-nix = {
         enable = mkEnableOption "Odoo + OCA devenv shell";
@@ -399,12 +420,14 @@ in
           };
         };
 
-        dev = {
-          autoReload = mkOption {
+        # What the shell does when a file changes.
+        watch = {
+          python = mkOption {
             type = types.bool;
             default = true;
             description = ''
-              Make Odoo's `--dev=reload` watcher functional.
+              Restart the server on a Python change: make Odoo's
+              `--dev=reload` watcher functional.
 
               Odoo only starts its filesystem watcher if it can import
               `inotify` or `watchdog`, and neither is a declared Odoo
@@ -417,11 +440,120 @@ in
               XML views, QWeb templates and asset bundles do not need this --
               `--dev=xml` already re-reads them from disk per request.
 
-              Requires `settings.workers = 0` (the default): the watcher only
-              runs on the threaded server.
+              Requires `settings.workers = 0` (the default) and a
+              `settings.devMode` with `reload` (or `all`): the shell warns
+              otherwise. Was `dev.autoReload`.
             '';
           };
         };
+
+        # The mail catcher as a service. The mail guard (devguard.mail)
+        # redirects Odoo's mail to it.
+        mailpit = {
+          enable = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Run Mailpit beside the server, which starts after it. On whether
+              or not the mail guard is: with the guard off, a database's own
+              `ir.mail_server` records decide where mail goes.
+            '';
+          };
+          host = mkOption {
+            type = types.str;
+            default = "127.0.0.1";
+            description = "Host the catcher's SMTP listener is bound to. Was `devguard.mail.host`.";
+          };
+          port = mkOption {
+            type = types.port;
+            default = config.odoo-nix.ports.smtp;
+            defaultText = lib.literalExpression "config.odoo-nix.ports.smtp";
+            description = "The catcher's SMTP port, which the mail guard redirects to. Was `devguard.mail.port`.";
+          };
+          httpPort = mkOption {
+            type = types.port;
+            default = config.odoo-nix.ports.mailUi;
+            defaultText = lib.literalExpression "config.odoo-nix.ports.mailUi";
+            description = "Mailpit's web UI port. Was `devguard.mail.httpPort`.";
+          };
+        };
+
+        # One offset for every TCP port the shell binds, so several projects
+        # (and linked worktrees of one, with worktreeSalt) run at once.
+        ports =
+          let
+            offset = if envPortOffset != null then envPortOffset else config.odoo-nix.ports.offset;
+            bases = portsLib.basesFor offset;
+            derived =
+              name: what:
+              mkOption {
+                type = types.port;
+                default = bases.${name};
+                defaultText = lib.literalMD "`${toString (portsLib.basesFor 0).${name}}` + `ports.offset`";
+                description = ''
+                  ${what}. Derived from `ports.offset`, and read by the rest of
+                  the module; pin it with `lib.mkForce` for the rare fixed-port
+                  case.
+                '';
+              };
+          in
+          {
+            worktreeSalt = mkOption {
+              type = types.bool;
+              default = true;
+              description = ''
+                Salt `ports.offset` with the checkout's path in a linked
+                worktree (`git worktree add`, whose `.git` is a file), so a
+                second worktree of the same project gets its own ports. The
+                primary checkout keeps the name's hash either way.
+              '';
+            };
+
+            offset = mkOption {
+              type = types.ints.between 0 899;
+              default = portsLib.offsetFor (
+                portsLib.seed {
+                  inherit (config.odoo-nix) name;
+                  salt = config.odoo-nix.ports.worktreeSalt;
+                  pwd = builtins.getEnv "PWD";
+                  gitKind = portsLib.gitKindAt (builtins.getEnv "PWD");
+                }
+              );
+              defaultText = lib.literalMD "a hash of `name`, salted with the checkout's path in a linked worktree when `ports.worktreeSalt` is on";
+              description = ''
+                The offset every TCP port of the shell is derived from: the
+                HTTP port is `10000 + offset`, gevent's `11000`, PostgreSQL's
+                `12000`, and Mailpit's SMTP and web UI ports `13000` and `14000
+                + offset`.
+
+                By default it is a hash of `name`, so every project lands
+                somewhere different and every clone of one lands in the same
+                place. The ports are fixed when the shell is evaluated: nothing
+                moves one that is taken. `ODOO_NIX_PORT_OFFSET` (0 to 899) picks
+                another offset for the shell and wins over this option.
+              '';
+              example = 123;
+            };
+
+            base = mkOption {
+              type = types.nullOr types.port;
+              default = null;
+              description = ''
+                The HTTP port, overriding `10000 + ports.offset`. Only the HTTP
+                port: the others keep theirs from the offset.
+              '';
+              example = 8069;
+            };
+
+            http = derived "http" "Odoo's HTTP port (http_port)" // {
+              default = if config.odoo-nix.ports.base != null then config.odoo-nix.ports.base else bases.http;
+              defaultText = lib.literalMD "`ports.base`, else `10000` + `ports.offset`";
+            };
+            gevent = derived "gevent" "Odoo's websocket/longpolling port (gevent_port)";
+            db = derived "db" "PostgreSQL's port (db_port)";
+            smtp = derived "smtp" "Mailpit's SMTP port (`mailpit.port`'s default)";
+            mailUi = derived "mailUi" "Mailpit's web UI port (`mailpit.httpPort`'s default)";
+          };
 
         # Guard rails for the development environment: stop a database restored
         # from production (with its live credentials) from reaching the outside
@@ -487,21 +619,6 @@ in
                 IMAP/POP3. Replaces the former `mailcatch` option and the
                 `dev_mailcatch` server-wide addon.
               '';
-            };
-            host = mkOption {
-              type = types.str;
-              default = "127.0.0.1";
-              description = "Host the catcher's SMTP listener is bound to.";
-            };
-            port = mkOption {
-              type = types.port;
-              default = 1025;
-              description = "Catcher SMTP port — drives both Mailpit and Odoo.";
-            };
-            httpPort = mkOption {
-              type = types.port;
-              default = 8025;
-              description = "Mailpit web UI port.";
             };
           };
 
@@ -858,8 +975,8 @@ in
               };
               mail = {
                 enable = dg.mail.enable;
-                inherit (dg.mail) host port;
-                http_port = dg.mail.httpPort;
+                inherit (cfg.mailpit) host port;
+                http_port = cfg.mailpit.httpPort;
               };
               jobs = {
                 enable = dg.jobs.enable;
@@ -916,7 +1033,12 @@ in
 
         confSynth = import ../lib/odoo-conf.nix {
           inherit pkgs lib;
-          inherit (cfg) settings;
+          # odoo.conf's ports come from the ports tree.
+          settings = cfg.settings // {
+            httpPort = cfg.ports.http;
+            geventPort = cfg.ports.gevent;
+            dbPort = cfg.ports.db;
+          };
           inherit (addons) addonsPath;
           # Setting the key at all replaces Odoo's own default, so the
           # series' full default set has to be reproduced: 19.0 added `rpc`
@@ -1298,18 +1420,18 @@ in
               # service — do not set them here (it causes an option conflict).
               # Odoo connects via odoo.conf (db_host/db_port/db_user), not PG*.
 
-              ODOO_NIX_HTTP_PORT = toString cfg.settings.httpPort;
-              ODOO_NIX_GEVENT_PORT = toString cfg.settings.geventPort;
+              ODOO_NIX_HTTP_PORT = toString cfg.ports.http;
+              ODOO_NIX_GEVENT_PORT = toString cfg.ports.gevent;
               # The old names (Tool-owned variables), exported until the next
               # minor release.
-              ODOO_HTTP_PORT = toString cfg.settings.httpPort;
-              ODOO_GEVENT_PORT = toString cfg.settings.geventPort;
+              ODOO_HTTP_PORT = toString cfg.ports.http;
+              ODOO_GEVENT_PORT = toString cfg.ports.gevent;
               # Single source of truth: the same values are baked into the
               # devguard's settings (lib/devguard.nix), so Odoo and Mailpit can
               # never drift apart.
-              MAILPIT_SMTP_HOST = cfg.devguard.mail.host;
-              MAILPIT_SMTP_PORT = toString cfg.devguard.mail.port;
-              MAILPIT_HTTP_PORT = toString cfg.devguard.mail.httpPort;
+              MAILPIT_SMTP_HOST = cfg.mailpit.host;
+              MAILPIT_SMTP_PORT = toString cfg.mailpit.port;
+              MAILPIT_HTTP_PORT = toString cfg.mailpit.httpPort;
 
               # The Nix-time devguard switch, read by `odoo db restore`: unlike
               # $ODOO_DEVGUARD_ENABLED (per command) this is a property of the
@@ -1337,16 +1459,20 @@ in
               let
                 devFeatures = lib.splitString "," cfg.settings.devMode;
               in
-              lib.optional (cfg.dev.autoReload && cfg.settings.workers != 0) ''
-                odoo-nix: dev.autoReload is on but settings.workers = ${toString cfg.settings.workers}.
+              lib.optional (cfg.watch.python && cfg.settings.workers != 0) ''
+                odoo-nix: watch.python is on but settings.workers = ${toString cfg.settings.workers}.
                 Odoo's reload watcher only runs on the threaded server; set workers = 0 for it to take effect.
               ''
               ++
-                lib.optional (cfg.dev.autoReload && !lib.elem "all" devFeatures && !lib.elem "reload" devFeatures)
+                lib.optional (cfg.watch.python && !lib.elem "all" devFeatures && !lib.elem "reload" devFeatures)
                   ''
-                    odoo-nix: dev.autoReload is on but settings.devMode = "${cfg.settings.devMode}" requests
+                    odoo-nix: watch.python is on but settings.devMode = "${cfg.settings.devMode}" requests
                     neither "all" nor "reload", so Odoo will not start a file watcher.
-                  '';
+                  ''
+              ++ lib.optional (cfg.devguard.enable && cfg.devguard.mail.enable && !cfg.mailpit.enable) ''
+                odoo-nix: the mail guard is on but mailpit.enable is false: mail is redirected to
+                ${cfg.mailpit.host}:${toString cfg.mailpit.port}, where nothing listens, so sending fails.
+              '';
 
             services.postgres = {
               enable = true;
@@ -1357,7 +1483,7 @@ in
               extensions =
                 if cfg.postgres.extensions pkgs.postgresql_16.pkgs == [ ] then null else cfg.postgres.extensions;
               listen_addresses = "127.0.0.1";
-              port = cfg.settings.dbPort;
+              port = cfg.ports.db;
               initialDatabases = lib.optional (cfg.settings.dbName != null) {
                 name = cfg.settings.dbName;
               };
@@ -1372,7 +1498,7 @@ in
               # Single threaded dev server: serves HTTP + websocket (gevent_port)
               # in-process when workers = 0.
               odoo.exec = ''
-                ${lib.optionalString cfg.dev.autoReload ''
+                ${lib.optionalString cfg.watch.python ''
                   # A project that pins watchdog in [dependency-groups].dev wins;
                   # otherwise fill it in from nixpkgs so Odoo's --dev=reload
                   # watcher has something to import. PYTHONPATH precedes
@@ -1388,12 +1514,14 @@ in
                   --dev=${cfg.settings.devMode}
               '';
 
-              mailpit.exec = ''
-                exec ${pkgs.mailpit}/bin/mailpit \
-                  --smtp ''${MAILPIT_SMTP_HOST:-127.0.0.1}:''${MAILPIT_SMTP_PORT:-1025} \
-                  --listen 127.0.0.1:''${MAILPIT_HTTP_PORT:-8025} \
-                  --database "$DEVENV_STATE/mailpit.db"
-              '';
+              mailpit = lib.mkIf cfg.mailpit.enable {
+                exec = ''
+                  exec ${pkgs.mailpit}/bin/mailpit \
+                    --smtp "$MAILPIT_SMTP_HOST:$MAILPIT_SMTP_PORT" \
+                    --listen "127.0.0.1:$MAILPIT_HTTP_PORT" \
+                    --database "$DEVENV_STATE/mailpit.db"
+                '';
+              };
             };
 
             # Cross-manager ordering. `process.managers.process-compose.settings`
@@ -1405,9 +1533,9 @@ in
             processes.odoo.after = [
               "devenv:processes:postgres@started"
             ]
-            ++ lib.optional (
-              cfg.devguard.enable && cfg.devguard.mail.enable
-            ) "devenv:processes:mailpit@started";
+            # The catcher before the server, mail guard or not, so a server
+            # never sends to a catcher that is not up yet.
+            ++ lib.optional cfg.mailpit.enable "devenv:processes:mailpit@started";
 
             enterShell = ''
               ${lib.optionalString (cfg.postgres.noCow && pkgs.stdenv.hostPlatform.isLinux) ''
@@ -1481,8 +1609,8 @@ in
 
               ${richPython}/bin/python ${../lib/banner.py} \
                 "${cfg.name}" "${cfg.odooSeries}" \
-                "${toString (builtins.length addons.addonsPathList)}" "${toString cfg.settings.httpPort}" \
-                "${if cfg.devguard.enable then "1" else "0"}" "${toString cfg.devguard.mail.httpPort}" \
+                "${toString (builtins.length addons.addonsPathList)}" "${toString cfg.ports.http}" \
+                "${if cfg.devguard.enable then "1" else "0"}" "${toString cfg.mailpit.httpPort}" \
                 "${lib.concatStringsSep "," cfg.devguard.egress.allowHosts}" \
                 "${if cfg.devguard.enable && cfg.devguard.mail.enable then "1" else "0"}" \
                 "${if cfg.devguard.enable && cfg.devguard.egress.enable then "1" else "0"}"

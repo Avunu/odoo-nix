@@ -102,7 +102,7 @@ A consuming `flake.nix` is just configuration:
 direnv allow            # or: nix develop --no-pure-eval
 devenv up               # PostgreSQL + Odoo + Mailpit
 odoo db provision       # (another shell) create the DB + install modules.txt
-# → http://localhost:8069   (Mailpit UI: http://localhost:8025)
+# → the banner prints the server's and Mailpit's URLs: the project's own ports (see Ports)
 ```
 
 ## Flake outputs
@@ -142,22 +142,26 @@ A consuming project additionally gets `packages.<sys>.{odooConf, odooPythonEnv, 
 | devguard.enable | true | install the [dev guard rails](#dev-guard-rails) into the dev virtualenv — turning it off also makes `odoo db restore` refuse to run |
 | devguard.egress.enable / devguard.egress.allowHosts | true / [ ] | refuse every non-loopback connection from Odoo's Python; hostnames (`*.example.com`), IPs or CIDRs to let through |
 | devguard.mail.enable | true | redirect ALL outgoing email to the local Mailpit catcher; block IMAP/POP3 (was `mailcatch.enable`) |
-| devguard.mail.host / devguard.mail.port | "127.0.0.1" / 1025 | catcher SMTP endpoint (drives Mailpit and Odoo; was `mailcatch.host`/`port`) |
-| devguard.mail.httpPort | 8025 | Mailpit web UI port (was `mailcatch.httpPort`) |
+| mailpit.enable | true | run Mailpit, before the server, whether or not the mail guard is on |
+| mailpit.host / mailpit.port | "127.0.0.1" / `ports.smtp` | catcher SMTP endpoint (drives Mailpit and the mail guard; was `devguard.mail.host`/`port`, and `mailcatch.*` before that) |
+| mailpit.httpPort | `ports.mailUi` | Mailpit web UI port (was `devguard.mail.httpPort`) |
+| ports.offset | a hash of `name` | the offset every TCP port is derived from, 0 to 899 (see [Ports](#ports)); `ODOO_NIX_PORT_OFFSET` overrides it for one shell |
+| ports.worktreeSalt | true | a linked worktree (`git worktree add`) hashes `name@<path>`, so it gets its own ports |
+| ports.base | null | pin the HTTP port alone |
+| ports.http / gevent / db / smtp / mailUi | 10000 / 11000 / 12000 / 13000 / 14000 + `ports.offset` | the ports the module reads (odoo.conf's http_port, gevent_port and db_port, PostgreSQL, Mailpit); pin one with `lib.mkForce` (was `settings.httpPort`/`geventPort`/`dbPort`) |
 | devguard.jobs.enable / devguard.jobs.extraBlocked | true / [ ] | skip denylisted crons (auto_backup, currency rates, bank-statement pulls, EDI send, fetchmail, …); more external ids to skip. Formerly `devguard.crons.*` |
 | devguard.objectstore.enable / backups.enable / webhooks.enable / iap.enable | true | refuse remote `fs.storage`; skip remote `auto_backup` jobs; no-op webhook actions; fail IAP calls readably |
-| settings.dbHost/dbPort/dbUser/dbPassword/dbName | 127.0.0.1 / 5432 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
+| settings.dbHost/dbUser/dbPassword/dbName | 127.0.0.1 / odoo / False / odoo_dev | DB connection (an empty or "False" host/password is left out of odoo.conf: unix socket / no password) |
 | settings.dataDir | "./.devenv/state/odoo" | Odoo filestore (gitignored under .devenv) |
 | settings.adminPasswd | "admin" | DB-manager master password (dev) |
 | settings.httpInterface | "127.0.0.1" | interface the dev server binds (http_interface); "0.0.0.0" to reach it from another host/container |
-| settings.httpPort/geventPort | 8069 / 8072 | HTTP + websocket/longpolling ports |
 | settings.workers | 0 | worker processes (0 = threaded dev mode) |
 | settings.devMode | "all" | --dev flag for the dev process |
 | settings.logging.level | "info" | root logging verbosity (log_level) |
 | settings.logging.handlers | [ ] | per-logger level overrides, e.g. [ "werkzeug:WARNING" ] (log_handler) |
 | settings.logging.db/dbLevel | false / "warning" | mirror logs into a database (log_db/log_db_level): `true` = the request's own database (`%d`), a string = that database |
 | settings.logging.file | null | write logs to this file instead of stderr (logfile); production logging is [`services.odoo-nix`'s](#logging) |
-| dev.autoReload | true | make Odoo's --dev=reload watcher functional (see Live code reload) |
+| watch.python | true | restart the server on a Python change: make Odoo's --dev=reload watcher functional (see Live code reload; was `dev.autoReload`) |
 | settings.extra | { } | arbitrary extra [options] keys merged last |
 | settings.withoutDemo | false | skip demo data for every module (without_demo = True) |
 | postgres.extensions | _: [ ] | extensions built into the dev PostgreSQL, e.g. ps: [ ps.postgis ] (base_geoengine) |
@@ -183,7 +187,10 @@ odoo-nix and frappe-nix name the jobs they share the same way ([python-devops-ni
 | --- | --- |
 | `projectName` | `name`, which also sets devenv's own `name` (`lib.mkDefault`) |
 | `odooConf.*` | `settings.*`, as in `services.odoo-nix`; every option under it keeps its name |
-| `mailcatch.*` | `devguard.mail.*` |
+| `mailcatch.enable` | `devguard.mail.enable` |
+| `mailcatch.{host,port,httpPort}`, `devguard.mail.{host,port,httpPort}` | `mailpit.{host,port,httpPort}` |
+| `dev.autoReload` | `watch.python`; the `dev` tree is gone |
+| `odooConf.{httpPort,geventPort,dbPort}`, `settings.{httpPort,geventPort,dbPort}` | `ports.{http,gevent,db}`: setting one pins it, as before |
 | `devguard.crons.*` | `devguard.jobs.*` |
 | `restore.attachments` | `restore.files` (`"mirror"` is `true`) |
 
@@ -202,7 +209,25 @@ The environment variables odoo-nix's own tools read or export are `ODOO_NIX_*` (
 
 -   **PostgreSQL** (state under `.devenv/state`; Odoo connects via `odoo.conf`),
 -   **odoo** — `odoo-bin -c odoo.conf --dev=all` (threaded; serves HTTP + websockets),
--   **mailpit** — SMTP sink + web UI.
+-   **mailpit** — SMTP sink + web UI (`mailpit.enable`), started before odoo.
+
+### Ports
+
+Every TCP port the shell binds is a base plus one offset, 0 to 899, hashed from the project's `name` (`lib/ports.nix`, the same scheme as frappe-nix's; python-devops-nix's Phase 5 moves it into the base): Odoo's HTTP port is `10000 + offset`, gevent's `11000`, PostgreSQL's `12000`, Mailpit's SMTP and web UI `13000` and `14000`. Several projects therefore run at once, every clone of one lands on the same ports, and a linked worktree (`git worktree add`) gets its own (`ports.worktreeSalt`). The banner prints the URLs. Nothing moves a port that is already taken: `ports.offset` or `ODOO_NIX_PORT_OFFSET=<0..899>` picks another offset.
+
+The ports were fixed before (8069, 8072, 5432, 1025, 8025). To keep them:
+
+```nix
+ports = lib.mapAttrs (_: lib.mkForce) {
+  http = 8069;
+  gevent = 8072;
+  db = 5432;
+  smtp = 1025;
+  mailUi = 8025;
+};
+```
+
+Only the port moves: devenv rewrites `postgresql.conf` on every start and the data directory stays where it was, so the databases are all there on the new port.
 
 On shell entry it checks out the git submodules a fresh clone has never had (once: one you later remove or deinitialize stays out until `odoo project update`) as partial clones of the branch `.gitmodules` pairs them with — every commit and folder but only the checkout's files (OCB: commits only), so history works offline; another branch is fetched when wanted (`git remote set-branches --add origin 17.0 && git fetch origin`) — and gives any shallow submodule its branch's history in place, once. On every entry it also keeps those clones from growing: it fetches a submodule's newly pinned commit the ordinary way before `git submodule update` can lazily re-download its whole history, merges the packs that lazy fetches leave behind, and stops fetches recursing into nested submodules; it also symlinks the synthesized `odoo.conf` into place, ensures the filestore + `custom/` directories exist, on btrfs keeps a not-yet-created PostgreSQL datadir off copy-on-write (`postgres.noCow`: every page write otherwise becomes a new, compressed extent and every fsync a filesystem transaction), and refreshes the editor integration below.
 
@@ -210,7 +235,7 @@ On shell entry it checks out the git submodules a fresh clone has never had (onc
 
 Edit a `.py` file anywhere on the `addons_path` and the dev server restarts itself — in place, via `os.execve`, so the PID, the CWD and the open HTTP socket all survive. Nothing to run, no `devenv up` restart.
 
-This is Odoo's own `--dev=reload` watcher, which `devMode = "all"` already requests. The catch it hides: Odoo only starts the watcher if it can `import` a filesystem watcher, and it declares neither `inotify` nor `watchdog` as a dependency — so `--dev=all` on its own logs one INFO line (`Code autoreload feature is disabled`) in a very noisy log and then never reloads. `dev.autoReload` (on by default) closes that: the scaffolded `pyproject.toml` pins `watchdog` in `[dependency-groups].dev`, and for projects that predate it the dev process falls back to the nixpkgs `watchdog` on `PYTHONPATH`. Look for this line at start-up:
+This is Odoo's own `--dev=reload` watcher, which `devMode = "all"` already requests. The catch it hides: Odoo only starts the watcher if it can `import` a filesystem watcher, and it declares neither `inotify` nor `watchdog` as a dependency — so `--dev=all` on its own logs one INFO line (`Code autoreload feature is disabled`) in a very noisy log and then never reloads. `watch.python` (on by default) closes that: the scaffolded `pyproject.toml` pins `watchdog` in `[dependency-groups].dev`, and for projects that predate it the dev process falls back to the nixpkgs `watchdog` on `PYTHONPATH`. Look for this line at start-up:
 
 ```
 AutoReload watcher running with watchdog
@@ -221,7 +246,7 @@ What it does and does not cover:
 -   **Python** — every `addons_path` root is watched recursively: `odoo/odoo/addons`, `odoo/addons`, each `modules/<repo>`, and `custom/`. A change restarts the server; a syntax error is logged and the restart is skipped until you fix it.
 -   **XML, QWeb, assets** — no restart needed at all. `--dev=xml` drops the ORM cache on `ir.ui.view` / `ir.asset` / `ir.qweb`, so views, templates and JS/SCSS bundles are re-read from disk. Just reload the browser.
 -   **Odoo framework code** (`odoo/odoo/*.py` — `models.py`, `fields.py`, `http.py`) is _not_ an addons root, so it is not watched. Restart the process for those.
--   **`workers` must be 0** (the default). The watcher only runs on the threaded server; the dev shell warns if you set workers and leave `autoReload` on.
+-   **`workers` must be 0** (the default). The watcher only runs on the threaded server; the dev shell warns if you set workers and leave `watch.python` on.
 
 Python packages are installed editable against `$REPO_ROOT`, so module _source_ was always live — only the restart trigger was missing.
 
@@ -272,7 +297,7 @@ It is a small Python package, **grafted into the dev and test virtualenvs with a
 | Guard | What it does | Settings |
 | --- | --- | --- |
 | `egress` | **the catch-all.** Refuses every `connect()` the process makes to a non-loopback address — requests, httpx (openai, ollama), aiohttp (s3fs), urllib3 (plaid), urllib (currency rates), paramiko (SFTP), smtplib, whatever the next addon imports. Unix sockets, loopback (Mailpit, the longpolling worker, queue_job calling back into itself; IPv4-mapped `::ffff:127.0.0.1` too), `localhost` and every name under it (`*.localhost`) and the mail catcher always pass; PostgreSQL does too, because libpq connects in C | `egress.allowHosts` |
-| `mail` | every SMTP connection lands on Mailpit whatever `ir.mail_server` record, from-filter or API transport (mail_cloudflare) a mail names; TLS/auth faked; IMAP/POP3 refused | `mail.{host,port,httpPort}` |
+| `mail` | every SMTP connection lands on Mailpit whatever `ir.mail_server` record, from-filter or API transport (mail_cloudflare) a mail names; TLS/auth faked; IMAP/POP3 refused | `mail.enable`; the catcher is the `mailpit` tree |
 | `jobs` | skips denylisted scheduled actions (crons) by exact external id, even if switched back on; its log lines read `odoo_devguard[crons]` | `jobs.extraBlocked` |
 | `objectstore` | `fs.storage` records can only be local (`file`/`odoofs`/`memory`); an S3/SFTP storage cannot be opened, so attachments and backups can't reach a production bucket | |
 | `backups` | `auto_backup` jobs to SFTP/FS Storage are skipped, and so is their retention pass (which would delete production's backups) | |
@@ -294,7 +319,7 @@ or permanently with `devguard.egress.allowHosts`; the environment variable repla
 
 **Restore interlock.** `devguard.enable = false` is a persistent decision about the whole project, not a per-command one, so `odoo db restore` and `odoo project restore` refuse to run while it is off (`ODOO_NIX_RESTORE_ALLOW_UNGUARDED=1` overrides for one command, `restore.requireDevguard = false` for the project). In the dev shell a file restore is neutralized and its remote `fs.storage` records are pointed at local disk exactly like a remote restore (see [Backups & restore](#backups--restore)).
 
-Open the mail catcher at [http://localhost:8025](http://localhost:8025). **Migrating from `mailcatch.*`:** the options are renamed to `devguard.mail.*` (the old names still work with a deprecation warning); remove `dev_mailcatch` from any `server_wide_modules` you set by hand — the addon is now a no-op stub that logs a warning, kept for one release so an old conf still starts. `ODOO_MAILCATCH_*` and the `[dev_mailcatch]` section are gone.
+Open the mail catcher at the URL the banner prints (`mailpit.httpPort`). **Migrating from `mailcatch.*`:** `mailcatch.enable` is `devguard.mail.enable`, and `mailcatch.{host,port,httpPort}` are `mailpit.*` (the old names still work with a deprecation warning); remove `dev_mailcatch` from any `server_wide_modules` you set by hand — the addon is now a no-op stub that logs a warning, kept for one release so an old conf still starts. `ODOO_MAILCATCH_*` and the `[dev_mailcatch]` section are gone.
 
 ### The `odoo` CLI
 
@@ -617,6 +642,7 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `eval-restore-*` | the dev shell's `restore.*` options reaching the CLI's environment, and `restore.attachments` read as `restore.files` |
 | `eval-python-default-*` | a consumer that sets only `odooSeries` gets that series' interpreter from `lib/odoo-presets.json`, and its container image evaluates |
 | `eval-rename-*`, `eval-identity-*` | each [renamed option](#renamed-options) reaching its new name (and the shell's env, the packages' names), announced with a deprecation warning; the identity as devenv's `name` |
+| `eval-ports-*`, `eval-mailpit-*`, `eval-watch-*`, `eval-tree` | the dev shell's option tree: every port from `ports.offset` (hashed from `name`, salted in a linked worktree) and read by odoo.conf, PostgreSQL, Mailpit and the env; `ports.base` and `lib.mkForce` pins; Mailpit on and started before the server, mail guard or not; `watch.python` on; no visible `dev` tree, no ports in `settings` |
 | `scaffold` | `odoo-init` offline (`tests/odoo-init.sh`, git and uv stood in): the generated flake sets `odoo-nix.name` and the database |
 | `db-nocow` | `odoo-nix-db-nocow` (`tests/db-nocow.sh`): NOCOW arranged for a datadir `initdb` has yet to create and cleared from its parent after, an existing cluster reported, the stopped-server copy keeping mode 0700. Checks the real attribute on a btrfs builder, the no-op elsewhere (`TMPDIR=<btrfs dir>` to run it by hand; Linux only) |
 | `nix-lint` | python-devops-nix's `lib.checks.nixLint`: `nixfmt-rs --check` (what `nix fmt` writes), `statix` (`statix.toml`, compared with the base's copy) and `deadnix` over the repo's Nix files, `templates/` and `tests/fixtures/` excluded |

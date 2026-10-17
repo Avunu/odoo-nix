@@ -47,13 +47,16 @@ let
       config = perSystemConfig odoo-nix;
     in
     {
-      inherit (config.odoo-nix.devguard) mail;
+      inherit (config.odoo-nix) mailpit;
+      mailGuard = config.odoo-nix.devguard.mail.enable;
       inherit (config.devenv.shells.default.env) MAILPIT_SMTP_PORT MAILPIT_HTTP_PORT;
-      deprecations = map (
-        msg:
-        lib.hasPrefix "The option `odoo-nix.mailcatch." msg
-        && lib.hasInfix "has been renamed to `odoo-nix.devguard.mail." msg
-      ) config.odoo-nix.deprecations;
+      # How many warnings name each rename, and how many there are.
+      deprecations = {
+        guard = count "mailcatch.enable'" "devguard.mail.enable'" config;
+        mailcatch = count "mailcatch." "mailpit." config;
+        devguardMail = count "devguard.mail." "mailpit." config;
+        all = builtins.length config.odoo-nix.deprecations;
+      };
     };
 
   renamedCrons =
@@ -78,6 +81,9 @@ let
       lib.hasPrefix "The option `odoo-nix.${from}" msg
       && lib.hasInfix "has been renamed to `odoo-nix.${to}" msg
     ) config.odoo-nix.deprecations;
+  count =
+    from: to: config:
+    lib.count lib.id (warned from to config);
 in
 {
   # projectName -> name (python-devops-nix CONVENTIONS.md, Identity
@@ -108,7 +114,6 @@ in
     let
       block = {
         dbName = "legacy";
-        httpPort = 8169;
         logging.level = "debug";
         extra.limit_time_real = "600";
         withoutDemo = lib.mkForce true;
@@ -120,16 +125,15 @@ in
       expected = {
         settings = {
           dbName = "legacy";
-          httpPort = 8169;
           level = "debug";
           withoutDemo = true;
         };
         conf = new.packages.odooConf.outPath;
-        deprecations = lib.replicate 5 true;
+        deprecations = lib.replicate 4 true;
       };
       actual = {
         settings = {
-          inherit (old.odoo-nix.settings) dbName httpPort withoutDemo;
+          inherit (old.odoo-nix.settings) dbName withoutDemo;
           inherit (old.odoo-nix.settings.logging) level;
         };
         conf = old.packages.odooConf.outPath;
@@ -161,23 +165,25 @@ in
       };
     };
   };
-  # The old names, for one release.
+  # The old names, for one release: mailcatch.enable is the mail guard's,
+  # the rest the catcher's (the mailpit tree).
   rename-mailcatch = {
     expected = {
-      mail = {
-        enable = false;
+      mailpit = {
+        enable = true;
         host = "127.0.0.2";
         port = 2525;
         httpPort = 9025;
       };
+      mailGuard = false;
       MAILPIT_SMTP_PORT = "2525";
       MAILPIT_HTTP_PORT = "9025";
-      deprecations = [
-        true
-        true
-        true
-        true
-      ];
+      deprecations = {
+        guard = 1;
+        mailcatch = 3;
+        devguardMail = 0;
+        all = 4;
+      };
     };
     actual = renamed {
       mailcatch = {
@@ -188,6 +194,102 @@ in
       };
     };
   };
+  # devguard.mail.{host,port,httpPort} -> mailpit.* (The development shell
+  # option tree): the catcher is a service, not a guard.
+  rename-devguard-mail = {
+    expected = {
+      mailpit = {
+        enable = true;
+        host = "127.0.0.2";
+        port = 2525;
+        httpPort = 9025;
+      };
+      mailGuard = true;
+      MAILPIT_SMTP_PORT = "2525";
+      MAILPIT_HTTP_PORT = "9025";
+      deprecations = {
+        guard = 0;
+        mailcatch = 0;
+        devguardMail = 3;
+        all = 3;
+      };
+    };
+    actual = renamed {
+      devguard.mail = {
+        host = "127.0.0.2";
+        port = 2525;
+        httpPort = 9025;
+      };
+    };
+  };
+  # dev.autoReload -> watch.python: the server is started without the
+  # watchdog fallback.
+  rename-dev-auto-reload =
+    let
+      config = perSystemConfig { dev.autoReload = false; };
+    in
+    {
+      expected = {
+        python = false;
+        watchdog = false;
+        deprecations = [ true ];
+      };
+      actual = {
+        inherit (config.odoo-nix.watch) python;
+        watchdog = lib.hasInfix "import watchdog" config.devenv.shells.default.processes.odoo.exec;
+        deprecations = warned "dev.autoReload'" "watch.python'" config;
+      };
+    };
+  # settings.{httpPort,geventPort,dbPort}, and odooConf's before them, ->
+  # ports.{http,gevent,db}: the ports a project had pinned stay pinned, in
+  # odoo.conf, PostgreSQL and the shell's env alike.
+  rename-ports =
+    let
+      fixed = {
+        http = 8169;
+        gevent = 8172;
+        db = 5442;
+      };
+      pinned = perSystemConfig { ports = lib.mapAttrs (_: lib.mkForce) fixed; };
+      shape = config: {
+        ports = { inherit (config.odoo-nix.ports) http gevent db; };
+        conf = config.packages.odooConf.outPath;
+        pg = config.devenv.shells.default.services.postgres.port;
+        env = config.devenv.shells.default.env.ODOO_NIX_HTTP_PORT;
+      };
+      viaSettings = perSystemConfig {
+        settings = {
+          httpPort = 8169;
+          geventPort = 8172;
+          dbPort = 5442;
+        };
+      };
+      viaOdooConf = perSystemConfig {
+        odooConf = {
+          httpPort = 8169;
+          geventPort = 8172;
+          dbPort = 5442;
+        };
+      };
+    in
+    {
+      expected = {
+        settings = shape pinned // {
+          deprecations = lib.replicate 3 true;
+        };
+        odooConf = shape pinned // {
+          deprecations = lib.replicate 3 true;
+        };
+      };
+      actual = {
+        settings = shape viaSettings // {
+          deprecations = warned "settings." "ports." viaSettings;
+        };
+        odooConf = shape viaOdooConf // {
+          deprecations = warned "odooConf." "ports." viaOdooConf;
+        };
+      };
+    };
   # Nothing old set: nothing to warn about.
   rename-none = {
     expected = [ ];
