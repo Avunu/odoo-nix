@@ -1,6 +1,7 @@
 # Evaluation-level assertions over the dev shell's renamed options
-# (modules/devenv.nix): an old `mailcatch.*` name evaluates, reaches its
-# `devguard.mail.*` replacement and the shell's env, and is announced on
+# (modules/devenv.nix): an old `mailcatch.*` or `devguard.crons.*` name
+# evaluates, reaches its `devguard.mail.*` or `devguard.jobs.*` replacement
+# (and the shell's env, or the baked devguard settings), and is announced on
 # `odoo-nix.deprecations` (what the module lib.warn's). A consumer's flake is
 # evaluated through lib.mkFlake and nothing is built. Same `pairs` shape as
 # eval.nix; flake.nix turns each into a named mkEvalCheck.
@@ -51,8 +52,42 @@ let
         && lib.hasInfix "has been renamed to `odoo-nix.devguard.mail." msg
       ) config.odoo-nix.deprecations;
     };
+
+  renamedCrons =
+    odoo-nix:
+    let
+      config = perSystemConfig odoo-nix;
+    in
+    {
+      inherit (config.odoo-nix.devguard) jobs;
+      deprecations = map (
+        msg:
+        lib.hasPrefix "The option `odoo-nix.devguard.crons." msg
+        && lib.hasInfix "has been renamed to `odoo-nix.devguard.jobs." msg
+      ) config.odoo-nix.deprecations;
+    };
 in
 {
+  # devguard.crons.* -> devguard.jobs.* (python-devops-nix CONVENTIONS.md,
+  # Job denylist), for one release.
+  rename-crons = {
+    expected = {
+      jobs = {
+        enable = false;
+        extraBlocked = [ "my_module.ir_cron_sync" ];
+      };
+      deprecations = [
+        true
+        true
+      ];
+    };
+    actual = renamedCrons {
+      devguard.crons = {
+        enable = false;
+        extraBlocked = [ "my_module.ir_cron_sync" ];
+      };
+    };
+  };
   # The old names, for one release.
   rename-mailcatch = {
     expected = {

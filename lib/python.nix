@@ -15,6 +15,7 @@
 #     pyproject-nix = inputs.pyproject-nix;
 #     pyproject-build-systems = inputs.pyproject-build-systems;
 #     uv2nix = inputs.uv2nix;
+#     pythonLib = inputs.python-devops-nix.lib.python;
 #     extraOverrides = final: prev: { ... };
 #   }
 
@@ -37,6 +38,8 @@
   # TEST virtualenvs only -- never odooPythonEnv, which is what builtOdoo,
   # services.odoo-nix and the container image run. null = none.
   devguard ? null,
+  # inputs.python-devops-nix.lib.python, for withGrafts.
+  pythonLib,
 }:
 
 let
@@ -219,29 +222,16 @@ let
   withLxmlHtmlClean = deps: deps // { lxml_html_clean = deps.lxml_html_clean or [ ]; };
 
   # Graft odoo_devguard into a virtualenv's site-packages with a `.pth`
-  # bootstrap, so any interpreter started from the environment runs it at
-  # startup -- below Odoo, without a server-wide module, an odoo.conf edit or an
-  # install into any database. Grafted rather than put on PYTHONPATH because the
-  # modules reach sys.path through uv2nix's editable `.pth` files inside the same
-  # venv: an interpreter started outside the devenv shell (an editor terminal,
-  # `nix run`, a stray `sudo -u`) still imports Odoo, and would otherwise run
-  # unpatched. `zzz-` orders it after them; install() is called from the `.pth`
-  # line so that importing a single submodule cannot re-enter a partially
-  # initialised package.
+  # bootstrap (zzz-odoo-devguard.pth), so any interpreter started from the
+  # environment runs it at startup -- below Odoo, without a server-wide module,
+  # an odoo.conf edit or an install into any database. python-devops-nix's
+  # lib.python.withGrafts has the why (grafted rather than put on PYTHONPATH).
   withDevguard =
     env:
-    if devguard == null then
-      env
-    else
-      # postInstall, not postBuild: mkVirtualEnv sets dontBuild and creates the
-      # tree from pyprojectMakeVenvHook's installPhase.
-      env.overrideAttrs (old: {
-        postInstall = (old.postInstall or "") + ''
-          cp -r ${devguard}/odoo_devguard "$out/${python.sitePackages}/"
-          printf 'import odoo_devguard; odoo_devguard.install()\n' \
-            > "$out/${python.sitePackages}/zzz-odoo-devguard.pth"
-        '';
-      });
+    pythonLib.withGrafts {
+      inherit python env;
+      grafts = lib.optional (devguard != null) devguard;
+    };
 
   # Production: real wheels for odoo + all modules — self-contained (no
   # $REPO_ROOT), for builtOdoo / containers / NixOS.

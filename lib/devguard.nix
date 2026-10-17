@@ -1,24 +1,27 @@
-# The odoo_devguard package (lib/devguard/odoo_devguard) with a project's
-# settings baked in as odoo_devguard/_baked.json.
+# The odoo_devguard package: python-devops-nix's devguard core merged with
+# odoo-nix's own tree (lib/devguard/odoo_devguard: _product.py and the guards
+# that patch Odoo), with a project's settings baked in as
+# odoo_devguard/_baked.json. python-devops-nix CONVENTIONS.md, "The core and
+# the product's package", has the contract.
 #
 # DEVELOPMENT ONLY. lib/python.nix grafts the result into the dev and test
 # virtualenvs and never into the production one: the guard stops a dev
 # environment from reaching production services, so being absent from
-# production is the property that matters. tests/ checks it
-# (checks.devguard-not-in-prod).
+# production is the property that matters. checks.odoo-init-<major> checks it.
 #
-#   import ./lib/devguard.nix { inherit pkgs; settings = { ... }; }
+#   import ./lib/devguard.nix { inherit pkgs base; settings = { ... }; }
 {
   pkgs,
-  # Merged over the package defaults at run time (odoo_devguard/_settings.py);
-  # `ODOO_DEVGUARD_*` environment variables win over it.
+  # inputs.python-devops-nix.lib
+  base,
+  # The baked layer: { enabled, guards.<guard>.<key> }, below the
+  # `ODOO_DEVGUARD_*` environment and the runtime file, above the defaults
+  # (odoo_devguard/_product.py over the core's).
   settings ? { },
 }:
 
-pkgs.runCommand "odoo-devguard" { } ''
-  mkdir -p $out
-  cp -r ${./devguard/odoo_devguard} $out/odoo_devguard
-  chmod -R u+w $out
-  find $out -name __pycache__ -prune -exec rm -rf {} +
-  cp ${pkgs.writeText "odoo-devguard-baked.json" (builtins.toJSON settings)} $out/odoo_devguard/_baked.json
-''
+base.devguard.mkPackage {
+  inherit pkgs settings;
+  name = "odoo_devguard";
+  src = ./devguard/odoo_devguard;
+}

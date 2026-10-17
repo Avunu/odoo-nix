@@ -1,34 +1,31 @@
-"""lib/devguard/odoo_devguard without Odoo or a network.
+"""odoo-nix's side of odoo_devguard, without Odoo or a network.
 
-The transport guards (egress, mail_stdlib) run against real sockets on
-loopback; the Odoo-facing guards run against stand-in modules registered in
-``sys.modules`` under the names the guards hook (the post-import hook fires at
-once for a module that is already imported, which is the same code path as a
-real import).
+The core (the post-import hook, settings precedence, egress, the mail
+transport) is python-devops-nix's, and so are its tests (checks.devguard-core).
+What is odoo-nix's is tested here: ``_product.py`` (the names, the defaults,
+the user error) and the Odoo-facing guards, against stand-in modules registered
+in ``sys.modules`` under the names the guards hook (the post-import hook fires
+at once for a module that is already imported, which is the same code path as
+a real import).
 
-Run: python3 tests/test_devguard.py <path to lib/devguard>   (checks.devguard)
+Run: python3 -I tests/test_devguard.py <dir holding odoo_devguard, as
+lib/devguard.nix builds it>   (checks.devguard)
 
-Everything here patches process-global state (socket, smtplib, ...), so the
-guards are installed once at import time and each test switches them with
-``ODOO_DEVGUARD_*`` environment variables, which is also how a developer
-bypasses them for a single command.
+Everything here patches process-global state, so the guards are installed
+once at import time and each test switches them with ``ODOO_DEVGUARD_*``
+environment variables, which is also how a developer bypasses them for a
+single command.
 """
-import asyncio
-import importlib
+import contextlib
+import io
 import os
-import smtplib
 import socket
-import socketserver
 import sys
-import tempfile
-import threading
 import types
 import unittest
 import unittest.mock
-import urllib.error
-import urllib.request
 
-LIB = os.path.abspath(sys.argv.pop(1)) if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "lib", "devguard")
+LIB = os.path.abspath(sys.argv.pop(1))
 sys.path.insert(0, LIB)
 
 # Keep a developer's own devguard settings out of the run.
@@ -36,11 +33,14 @@ for key in [k for k in os.environ if k.startswith("ODOO_DEVGUARD_")]:
     del os.environ[key]
 
 import odoo_devguard
-from odoo_devguard import DevGuardBlocked, DevGuardPatchError, settings
-from odoo_devguard import _hook, _settings
-from odoo_devguard.guards import egress
-
-BLOCKED = ("192.0.2.1", 9)  # TEST-NET-1: nothing is ever there
+from odoo_devguard import (
+    DevGuardBlocked,
+    DevGuardPatchError,
+    _product,
+    _settings,
+    settings,
+)
+from odoo_devguard.guards import jobs
 
 
 def env(**kw):
@@ -63,18 +63,6 @@ class Recs(list):
 
     def __sub__(self, other):
         return Recs(r for r in self if r not in other)
-
-
-class LoopbackServer:
-    def __enter__(self):
-        self.srv = socket.socket()
-        self.srv.bind(("127.0.0.1", 0))
-        self.srv.listen(5)
-        self.port = self.srv.getsockname()[1]
-        return self
-
-    def __exit__(self, *exc):
-        self.srv.close()
 
 
 # --------------------------------------------------------------------------
@@ -184,68 +172,42 @@ def reset_calls():
 
 
 # --------------------------------------------------------------------------
-# settings
+# _product.py: what the core reads from odoo-nix
 # --------------------------------------------------------------------------
 
 
-class SettingsTest(unittest.TestCase):
-    def test_defaults_then_baked_then_env(self):
+class ProductTest(unittest.TestCase):
+    def test_names(self):
+        # The log prefix, the .pth bootstrap and the variables keep the names
+        # they had before the core moved to python-devops-nix.
+        self.assertEqual(_settings.PACKAGE, "odoo_devguard")
+        self.assertEqual(_settings.env_name("mail", "port"), "ODOO_DEVGUARD_MAIL_PORT")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            from odoo_devguard import _patch
+            _patch.warn("crons", "probe")
+        self.assertEqual(err.getvalue(), "WARNING odoo_devguard[crons] probe\n")
+
+    def test_every_guard_is_installed(self):
+        names = [guard.__name__.rpartition(".")[2] for guard in odoo_devguard.all_guards()]
+        self.assertEqual(names, ["egress", "mail_stdlib", "mail", "jobs", "objectstore",
+                                 "backups", "webhooks", "iap"])
+
+    def test_defaults(self):
         st = settings()
+        for guard in ("egress", "mail", "jobs", "objectstore", "backups", "webhooks", "iap"):
+            self.assertTrue(st.guard_enabled(guard), guard)
         self.assertEqual(st.mail_port, 1025)
-        with unittest.mock.patch.dict(_settings.BAKED, {"guards": {"mail": {"port": 2525}}}):
-            self.assertEqual(st.mail_port, 2525)
-            with env(MAIL_PORT=3535):
-                self.assertEqual(st.mail_port, 3535)
-        self.assertEqual(st.mail_port, 1025)
+        self.assertEqual(st.items("objectstore", "local_protocols"), ["file", "odoofs", "memory"])
+        self.assertEqual(st.blocked_jobs, _product.DEFAULTS["guards"]["jobs"]["blocked_jobs"])
 
-    def test_master_switch_and_named_disable(self):
-        st = settings()
-        self.assertTrue(st.guard_enabled("egress"))
-        with env(ENABLED=0):
-            self.assertFalse(st.guard_enabled("egress"))
-        with env(DISABLE="egress, crons"):
-            self.assertFalse(st.guard_enabled("egress"))
-            self.assertFalse(st.guard_enabled("crons"))
-            self.assertTrue(st.guard_enabled("mail"))
-        with env(CRONS_ENABLE=0):
-            self.assertFalse(st.guard_enabled("crons"))
-
-    def test_lists_split_on_commas(self):
-        with env(EGRESS_ALLOW_HOSTS="a.example, 10.0.0.0/8 ,"):
-            self.assertEqual(settings().items("egress", "allow_hosts"), ["a.example", "10.0.0.0/8"])
-
-
-# --------------------------------------------------------------------------
-# hook + fail-closed
-# --------------------------------------------------------------------------
-
-
-class HookTest(unittest.TestCase):
-    def test_fires_for_module_imported_later(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with open(os.path.join(tmp, "devguard_probe_mod.py"), "w") as f:
-                f.write("VALUE = 1\n")
-            sys.path.insert(0, tmp)
-            self.addCleanup(sys.path.remove, tmp)
-            seen = []
-            _hook.on_import("devguard_probe_mod", lambda m: seen.append(m.VALUE))
-            self.assertEqual(seen, [])
-            importlib.import_module("devguard_probe_mod")
-            self.assertEqual(seen, [1])
-            sys.modules.pop("devguard_probe_mod", None)
-
-    def test_fires_at_once_for_module_already_imported(self):
-        seen = []
-        _hook.on_import("odoo.exceptions", lambda m: seen.append(m))
-        self.assertEqual(len(seen), 1)
-
-    def test_missing_target_fails_closed(self):
+    def test_moved_internals_name_odoo_and_odoo_nix(self):
         from odoo_devguard import _patch
-        with self.assertRaises(DevGuardPatchError):
+        with self.assertRaises(DevGuardPatchError) as ctx:
             _patch.require(types.SimpleNamespace(__name__="x"), "gone")
-        with self.assertRaises(DevGuardPatchError):
-            _patch.require_any(types.SimpleNamespace(__name__="x"), "a", "b")
-        self.assertEqual(_patch.require_any(types.SimpleNamespace(b=2), "a", "b"), ("b", 2))
+        self.assertIn("Odoo's internals have moved", str(ctx.exception))
+        self.assertIn("Update odoo-nix", str(ctx.exception))
+        self.assertIn("ODOO_DEVGUARD_ENABLED=0", str(ctx.exception))
 
     def test_guard_on_a_moved_module_fails_the_import(self):
         # The post-import callback raises, so the import itself does.
@@ -254,212 +216,11 @@ class HookTest(unittest.TestCase):
         with self.assertRaises(DevGuardPatchError):
             webhooks._patch(sys.modules["odoo.addons.base.models.ir_actions_probe"])
 
-
-# --------------------------------------------------------------------------
-# egress
-# --------------------------------------------------------------------------
-
-
-class EgressTest(unittest.TestCase):
-    def test_loopback_is_allowed_and_works(self):
-        with LoopbackServer() as srv:
-            c = socket.create_connection(("127.0.0.1", srv.port), timeout=2)
-            c.close()
-            c = socket.socket()
-            self.assertEqual(c.connect_ex(("localhost", srv.port)), 0)
-            c.close()
-
-    def test_unix_sockets_are_allowed(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "s")
-            srv = socket.socket(socket.AF_UNIX)
-            srv.bind(path)
-            srv.listen(1)
-            c = socket.socket(socket.AF_UNIX)
-            c.connect(path)
-            c.close()
-            srv.close()
-
-    def test_everything_else_is_blocked_before_any_packet(self):
-        s = socket.socket()
-        with self.assertRaises(DevGuardBlocked) as ctx:
-            s.connect(BLOCKED)
-        self.assertIsInstance(ctx.exception, OSError)
-        self.assertIn("192.0.2.1:9", str(ctx.exception))
-        # connect_ex and a repeat (which is quiet but still raises)
-        with self.assertRaises(DevGuardBlocked):
-            s.connect_ex(BLOCKED)
-        with self.assertRaises(DevGuardBlocked):
-            socket.create_connection(BLOCKED, timeout=1)
-        s.close()
-
-    def test_urllib_and_asyncio_are_covered_too(self):
-        with self.assertRaises(urllib.error.URLError) as ctx:
-            urllib.request.urlopen("http://192.0.2.1/", timeout=1)
-        self.assertIsInstance(ctx.exception.reason, DevGuardBlocked)
-        with self.assertRaises(DevGuardBlocked):
-            asyncio.run(asyncio.open_connection(*BLOCKED))
-
-    def test_allowlist_matrix(self):
-        with env(EGRESS_ALLOW_HOSTS="203.0.113.0/24, api.example.com, *.corp.test, 198.51.100.7"):
-            for ok in ("127.0.0.1", "::1", "localhost", "203.0.113.50", "api.example.com",
-                       "API.example.com", "a.corp.test", "corp.test", "198.51.100.7"):
-                self.assertTrue(egress._allowed(ok), ok)
-            for bad in ("192.0.2.1", "203.0.114.1", "example.com", "evilapi.example.com",
-                        "corp.test.evil.com", "198.51.100.8"):
-                self.assertFalse(egress._allowed(bad), bad)
-
-    def test_a_name_resolving_only_to_loopback_is_allowed(self):
-        with unittest.mock.patch.object(egress, "_resolve", return_value=(egress._ip("127.0.0.1"),)):
-            self.assertTrue(egress._allowed("alias.internal"))
-        with unittest.mock.patch.object(egress, "_resolve", return_value=(egress._ip("192.0.2.1"),)):
-            self.assertFalse(egress._allowed("alias.internal"))
-        with unittest.mock.patch.object(egress, "_resolve", return_value=()):
-            self.assertFalse(egress._allowed("nxdomain.invalid"))
-
-    def _stand_in_dns(self):
-        """Resolve a few reserved .test names, so nothing depends on real DNS."""
-        table = {"api.allowed.test": "192.0.2.10", "cdn.allowed.test": "192.0.2.11",
-                 "api.other.test": "192.0.2.12"}
-
-        def resolve(host, port, *args, **kwargs):
-            if host in table:
-                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (table[host], port or 0))]
-            raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
-
-        return unittest.mock.patch.object(egress, "_getaddrinfo", resolve)
-
-    def assertLetThrough(self, fn):
-        """The guard let FN's connection through; TEST-NET then refuses or times out."""
-        try:
-            fn()
-        except DevGuardBlocked as exc:
-            self.fail(f"refused by the guard: {exc}")
-        except urllib.error.URLError as exc:
-            self.assertNotIsInstance(exc.reason, DevGuardBlocked)
-        except OSError:
-            pass
-
-    def test_an_allowlisted_name_passes_when_its_client_resolves_first(self):
-        # connect() is handed the address, never the name: create_connection,
-        # urllib3 (requests) and asyncio all resolve first.
-        with self._stand_in_dns(), env(EGRESS_ALLOW_HOSTS="api.allowed.test, *.allowed.test"):
-            self.assertLetThrough(lambda: socket.create_connection(("api.allowed.test", 9), timeout=0.3))
-            self.assertLetThrough(lambda: socket.create_connection(("cdn.allowed.test", 9), timeout=0.3))
-            self.assertLetThrough(lambda: urllib.request.urlopen("http://api.allowed.test:9/", timeout=0.3))
-            with self.assertRaises(DevGuardBlocked):
-                socket.create_connection(("api.other.test", 9), timeout=0.3)
-
-    def test_the_refusal_names_the_host_it_resolved(self):
-        with self._stand_in_dns():
-            with self.assertRaises(DevGuardBlocked) as ctx:
-                socket.create_connection(("api.other.test", 443), timeout=0.3)
-        self.assertIn("192.0.2.12:443 (api.other.test)", str(ctx.exception))
-
-    def test_dropping_the_entry_refuses_a_name_resolved_earlier(self):
-        with self._stand_in_dns():
-            with env(EGRESS_ALLOW_HOSTS="cdn.allowed.test"):
-                self.assertLetThrough(lambda: socket.create_connection(("cdn.allowed.test", 9), timeout=0.3))
-            with self.assertRaises(DevGuardBlocked):
-                socket.create_connection(("cdn.allowed.test", 9), timeout=0.3)
-
-    def test_an_unexpected_resolver_answer_is_ignored(self):
-        egress._remember("odd.test", [(socket.AF_UNIX, socket.SOCK_STREAM, 0, "", "/not/inet")])
-        egress._remember(b"\xff", [])
-
-    def test_mail_catcher_host_is_always_allowed(self):
-        with env(MAIL_HOST="catcher.lan"):
-            self.assertTrue(egress._allowed("catcher.lan"))
-        with env(MAIL_HOST="catcher.lan", MAIL_ENABLE=0):
-            self.assertFalse(egress._allowed("catcher.lan"))
-
-    def test_can_be_turned_off_for_one_command(self):
-        with env(DISABLE="egress"):
-            s = socket.socket()
-            s.settimeout(0.2)
-            try:
-                s.connect(BLOCKED)
-            except DevGuardBlocked:
-                self.fail("guard still active")
-            except OSError:
-                pass  # the real network said no -- which is the point
-            finally:
-                s.close()
-
-
-# --------------------------------------------------------------------------
-# mail transport
-# --------------------------------------------------------------------------
-
-
-class StubServer(socketserver.ThreadingTCPServer):
-    allow_reuse_address = True
-    daemon_threads = True
-
-
-class StubHandler(socketserver.StreamRequestHandler):
-    banner = b"220 stub catcher\r\n"
-
-    def handle(self):
-        self.wfile.write(self.banner)
-        while True:
-            line = self.rfile.readline()
-            if not line or line.upper().startswith(b"QUIT"):
-                self.wfile.write(b"221 bye\r\n")
-                return
-            if line.upper().startswith((b"EHLO", b"HELO")):
-                self.wfile.write(b"250 stub\r\n")
-            else:
-                self.wfile.write(b"250 ok\r\n")
-
-
-class MailTransportTest(unittest.TestCase):
-    def setUp(self):
-        self.srv = StubServer(("127.0.0.1", 0), StubHandler)
-        self.port = self.srv.server_address[1]
-        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
-        self.addCleanup(self.srv.server_close)
-        self.addCleanup(self.srv.shutdown)
-
-    def test_any_smtp_target_lands_on_the_catcher(self):
-        with env(MAIL_PORT=self.port):
-            for tls in (False, True):
-                smtp = smtplib.SMTP("smtp.gmail.com", 587, timeout=2)
-                self.assertEqual(smtp.sock.getpeername()[1], self.port)
-                if tls:
-                    self.assertEqual(smtp.starttls()[0], 220)
-                self.assertEqual(smtp.login("real", "secret")[0], 235)
-                smtp.quit()
-
-    def test_ssl_variant_is_not_wrapped(self):
-        with env(MAIL_PORT=self.port):
-            smtp = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=2)
-            self.assertEqual(smtp.sock.getpeername()[1], self.port)
-            smtp.quit()
-
-    def test_imap_and_pop_are_blocked_without_a_catcher_mailbox(self):
-        import imaplib, poplib
-        with self.assertRaises(DevGuardBlocked):
-            imaplib.IMAP4("imap.gmail.com")
-        with self.assertRaises(DevGuardBlocked):
-            poplib.POP3("pop.gmail.com")
-
-    def test_pop3_is_redirected_when_enabled(self):
-        import poplib
-        with env(MAIL_POP3_ENABLED=1, MAIL_POP3_PORT=self.port):
-            StubHandler.banner = b"+OK stub pop3\r\n"
-            self.addCleanup(setattr, StubHandler, "banner", b"220 stub catcher\r\n")
-            pop = poplib.POP3("pop.gmail.com", 110, timeout=2)
-            self.assertEqual(pop.sock.getpeername()[1], self.port)
-            pop.sock.close()
-
-    def test_disabled_guard_leaves_smtplib_alone(self):
-        with env(DISABLE="mail", MAIL_PORT=self.port):
-            # With the mail guard off nothing redirects the connection, so it is
-            # left to egress, which names the real destination.
-            with self.assertRaises(DevGuardBlocked) as ctx:
-                smtplib.SMTP("192.0.2.1", 25, timeout=1)
-            self.assertIn("192.0.2.1", str(ctx.exception))
+    def test_egress_still_holds(self):
+        # One refusal, so a broken merge of the core cannot pass unnoticed.
+        with socket.socket() as s, self.assertRaises(DevGuardBlocked) as ctx:
+            s.connect(("192.0.2.1", 9))  # TEST-NET-1: nothing is ever there
+        self.assertTrue(str(ctx.exception).startswith("odoo_devguard[egress]: "), ctx.exception)
 
 
 # --------------------------------------------------------------------------
@@ -467,7 +228,7 @@ class MailTransportTest(unittest.TestCase):
 # --------------------------------------------------------------------------
 
 
-class CronGuardTest(unittest.TestCase):
+class JobGuardTest(unittest.TestCase):
     def setUp(self):
         reset_calls()
 
@@ -481,10 +242,24 @@ class CronGuardTest(unittest.TestCase):
         self.assertEqual(ir_cron(3, "auto_backup.ir_cron_backup_scheduler_0_local")._callback("x", 1), "ran")
 
     def test_extra_and_disable(self):
-        with env(CRONS_EXTRA_BLOCKED_CRONS="my_mod.sync"):
+        with env(JOBS_EXTRA_BLOCKED="my_mod.sync"):
             self.assertIsNone(ir_cron(4, "my_mod.sync")._callback("sync", 1))
-        with env(DISABLE="crons"):
+        for switch in ({"DISABLE": "jobs"}, {"JOBS_ENABLE": 0}):
+            with env(**switch):
+                self.assertEqual(ir_cron(1, "auto_backup.ir_cron_backup_scheduler_0")._callback("b", 1), "ran")
+
+    def test_log_lines_say_crons(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            ir_cron(5, "auto_backup.ir_cron_backup_scheduler_0")._callback("backup", 3)
+        self.assertIn("WARNING odoo_devguard[crons] skipping cron auto_backup.ir_cron_backup_scheduler_0", err.getvalue())
+
+    def test_the_old_name_still_disables_with_a_warning(self):
+        err = io.StringIO()
+        with env(DISABLE="crons"), contextlib.redirect_stderr(err):
             self.assertEqual(ir_cron(1, "auto_backup.ir_cron_backup_scheduler_0")._callback("b", 1), "ran")
+            self.assertFalse(jobs.enabled())
+        self.assertIn("ODOO_DEVGUARD_DISABLE=crons is deprecated; use ODOO_DEVGUARD_DISABLE=jobs", err.getvalue())
 
 
 class ObjectstoreGuardTest(unittest.TestCase):

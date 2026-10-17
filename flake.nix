@@ -204,6 +204,16 @@
             touch $out
           '';
 
+      # The interpreters every preset names: the devguard loads into Odoo's own.
+      devguardInterpreters = base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; };
+      devguardPackage =
+        pkgs:
+        {
+          settings ? { },
+        }:
+        import ./lib/devguard.nix { inherit pkgs base settings; };
+      cliPackage = pkgs: import ./lib/cli-package.nix { inherit pkgs base; };
+
       relock = pkgs: import ./tests/relock.nix { inherit pkgs ocbInputs presets; };
     in
     {
@@ -238,6 +248,7 @@
       # checks.<system>:
       #   eval-addons-*, eval-odoo-conf-*, odoo-conf-render   pure library tests (all systems)
       #   journald-formatter                                  the CLI's journald output (all systems)
+      #   devguard-core, devguard, devguard-baked             the dev guard rails: base core, odoo-nix's side (all systems)
       #   submodules-init                                     shell entry's submodule checkout (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
@@ -301,45 +312,68 @@
 
           # lib/odoo_nix_cli/journald.py needs neither Odoo nor the CLI's
           # click/rich, so it runs on plain interpreters: each one a series
-          # runs the CLI on.
+          # runs the CLI on. Against the package as lib/cli.nix ships it, which
+          # carries python-devops-nix's post-import hook.
           journald-formatter = mkCheck pkgs "journald-formatter" { } (
             lib.concatMapStrings (py: ''
-              ${py}/bin/python3 ${./tests/test_journald.py} ${./lib}
+              ${py}/bin/python3 ${./tests/test_journald.py} ${cliPackage pkgs}
             '') (lib.unique (map (series: pkgs.${presets.${series}.python}) (lib.attrNames ocbInputs)))
           );
 
           # What shell entry does about the project's submodules: checks out a
           # fresh clone's once, and past that touches nothing. Git only, with
           # file:// remotes standing in for GitHub.
-          # The dev guard rails (lib/devguard/odoo_devguard) without Odoo or a
-          # network: settings precedence, the post-import hook and its
-          # fail-closed behaviour, the egress guard against real sockets, the
-          # mail transport against a stub SMTP server, and the Odoo-facing
-          # guards against stand-in modules.
-          devguard = mkCheck pkgs "devguard" { } ''
-            ${pkgs.python3}/bin/python3 ${./tests/test_devguard.py} ${./lib/devguard}
-          '';
+          # The devguard core (python-devops-nix, python/devguard): its own
+          # tests against its stub product -- the hook, settings precedence,
+          # the egress matrix and passage(), the mail transport -- on every
+          # interpreter a preset names, since it loads into Odoo's (PLAN.md,
+          # Python versions).
+          devguard-core = base.devguard.check {
+            inherit pkgs;
+            product = "odoo-nix";
+            interpreters = devguardInterpreters;
+          };
 
-          # ...and the package lib/devguard.nix builds, with Nix-baked settings
-          # actually reaching the guard (the unit test above reads the source tree).
+          # odoo-nix's side (lib/devguard/odoo_devguard), without Odoo or a
+          # network: _product.py's names and defaults, and the Odoo-facing
+          # guards against stand-in modules, in the package lib/devguard.nix
+          # builds (the core merged in), on the same interpreters.
+          devguard = mkCheck pkgs "devguard" { } (
+            lib.concatMapStrings (py: ''
+              ${pkgs.${py}.interpreter} -I ${./tests/test_devguard.py} ${devguardPackage pkgs { }}
+            '') devguardInterpreters
+          );
+
+          # ...and with Nix-baked settings actually reaching the guard, the
+          # log prefix and the .pth file name the shell and the docs promise.
           devguard-baked =
             let
-              pkg = import ./lib/devguard.nix {
-                inherit pkgs;
+              pkg = devguardPackage pkgs {
                 settings.guards = {
                   mail.port = 2525;
                   egress.allow_hosts = [ "api.example.com" ];
+                  jobs.extra_blocked = [ "my_module.ir_cron_sync" ];
                 };
               };
             in
             mkCheck pkgs "devguard-baked" { } ''
+              test "${base.python.pthName pkg.module}" = zzz-odoo-devguard.pth
               PYTHONPATH=${pkg} ${pkgs.python3}/bin/python3 - <<'PY'
               import odoo_devguard as g
+              from odoo_devguard import _patch, _settings
               st = g.settings()
               assert st.mail_port == 2525, st.mail_port
               assert st.items("egress", "allow_hosts") == ["api.example.com"], st.items("egress", "allow_hosts")
               assert st.mail_host == "127.0.0.1"  # untouched keys keep their defaults
+              # The product's built-in denylist, then the baked additions.
+              assert st.blocked_jobs[0] == "auto_backup.ir_cron_backup_scheduler_0", st.blocked_jobs
+              assert st.blocked_jobs[-1] == "my_module.ir_cron_sync", st.blocked_jobs
+              assert _settings.PACKAGE == "odoo_devguard", _settings.PACKAGE
+              assert _settings.env_name("mail", "port") == "ODOO_DEVGUARD_MAIL_PORT"
               PY
+              PYTHONPATH=${pkg} ${pkgs.python3}/bin/python3 -c \
+                'from odoo_devguard import _patch; _patch.warn("egress", "probe")' 2> warn.log
+              grep -qxF 'WARNING odoo_devguard[egress] probe' warn.log
             '';
 
           # python-devops-nix's backup fetch layer, which the `odoo` CLI
@@ -355,20 +389,11 @@
           # backup_layout.py): the layout, the names, `--at`, without Odoo or
           # a network, on the same interpreters, against the package as
           # lib/cli.nix vendors it.
-          backup-layout =
-            let
-              package = pkgs.runCommandLocal "odoo-nix-cli-package" { } ''
-                mkdir -p $out
-                cp -r ${./lib/odoo_nix_cli} $out/odoo_nix_cli
-                chmod u+w $out/odoo_nix_cli
-                cp ${base.backups.module} $out/odoo_nix_cli/_backups.py
-              '';
-            in
-            mkCheck pkgs "backup-layout" { } (
-              lib.concatMapStrings (py: ''
-                ${pkgs.${py}.interpreter} -I ${./tests/test_backups.py} ${package}
-              '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
-            );
+          backup-layout = mkCheck pkgs "backup-layout" { } (
+            lib.concatMapStrings (py: ''
+              ${pkgs.${py}.interpreter} -I ${./tests/test_backups.py} ${cliPackage pkgs}
+            '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
+          );
 
           # nixfmt-rs (what `nix fmt` writes), statix (statix.toml, compared
           # with the base's) and deadnix, over the files `nix fmt` covers.
