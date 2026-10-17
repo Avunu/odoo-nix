@@ -21,6 +21,12 @@
 # markdown-it-py itself, substituted into rich via `.override`, drops that
 # whole checkInputs closure from the build.
 #
+# rich's own test_brokenpipeerror races a closing pipe and fails on a busy
+# builder (a GitHub runner: `assert proc1.returncode == 1` got 0) while
+# passing locally. Because of the override above this rich is never a
+# cache hit, so its suite runs on every cold CI build; that one test is
+# skipped, the other ~950 still run.
+#
 # Usage:
 #   import ./lib/rich-python.nix { inherit python; }                     # rich only
 #   import ./lib/rich-python.nix { inherit python; extraPackages = ps: [ ps.click ]; }
@@ -38,7 +44,9 @@ python.withPackages (
     });
   in
   [
-    (ps.rich.override { "markdown-it-py" = noCheckMarkdownItPy; })
+    ((ps.rich.override { "markdown-it-py" = noCheckMarkdownItPy; }).overridePythonAttrs (old: {
+      disabledTests = (old.disabledTests or [ ]) ++ [ "test_brokenpipeerror" ];
+    }))
   ]
   ++ extraPackages ps
 )
