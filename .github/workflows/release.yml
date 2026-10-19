@@ -35,7 +35,7 @@ concurrency:
 jobs:
   release-please:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     timeout-minutes: 10
     permissions:
       contents: write # tags and releases
@@ -61,7 +61,7 @@ jobs:
   dispatch-ci:
     needs: release-please
     if: always() && needs.release-please.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     timeout-minutes: 10
     permissions:
       actions: write # gh workflow run
@@ -95,7 +95,7 @@ jobs:
   fast-forward:
     needs: release-please
     if: needs.release-please.outputs.releases_created == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     timeout-minutes: 10
     permissions:
       contents: write # move release-<major> (the release-* ruleset lets only GitHub Actions)
