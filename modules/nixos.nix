@@ -22,9 +22,10 @@
 # odoo_journald graft, lib/journald.nix) -- what a log shipper reading the
 # journal (Vector -> Loki, `journalctl -p warning`) filters on.
 #
-# Every unit this module defines runs under python-devops-nix's systemd
-# sandboxing baseline (lib.nixos.hardening; CONVENTIONS.md, Unit hardening),
-# with what it legitimately needs named next to it. There is no UMask: Odoo
+# With hardening.enable (off through 1.x, on from 2.0.0), every unit this
+# module defines runs under python-devops-nix's systemd sandboxing baseline
+# (lib.nixos.hardening; CONVENTIONS.md, Unit hardening), with what it
+# legitimately needs named next to it. There is no UMask: Odoo
 # writes the filestore that nginx serves through the service group
 # (nginx.xSendfile, odoo-nix#51); backups and snapshots get their modes where
 # they are written.
@@ -85,7 +86,11 @@ let
   # asset bundle, so both need W+X memory. odoo-migrate gets the same: a
   # module's install or migration hook may render a report, and a refused
   # JIT there would fail the deploy and keep Odoo down.
-  odooHardening = odooNixBase.nixos.hardening {
+  #
+  # Only with hardening.enable (off through 1.x): with it off, the units get
+  # no sandboxing keys at all.
+  harden = args: lib.optionalAttrs cfg.hardening.enable (odooNixBase.nixos.hardening args);
+  odooHardening = harden {
     readWritePaths = odooWritePaths;
     profiles = [
       "wkhtmltopdf"
@@ -333,6 +338,27 @@ in
       type = types.package;
       description = "The assembled Odoo package (builtOdoo) from the project flake.";
       example = lib.literalExpression "projectFlake.packages.x86_64-linux.default";
+    };
+
+    hardening.enable = mkOption {
+      type = types.bool;
+      # Flips to true in 2.0.0.
+      default = false;
+      description = ''
+        Run odoo, odoo-migrate and odoo-init under python-devops-nix's
+        systemd sandboxing baseline (lib.nixos.hardening): ProtectSystem=strict
+        with only the state directory writable, ProtectHome, PrivateTmp,
+        PrivateDevices, no capabilities, a syscall filter, and the rest of
+        CONVENTIONS.md's Unit hardening. odoo and odoo-migrate may map W+X
+        memory (wkhtmltopdf, rtlcss). Every key is a mkDefault, so a host can
+        relax one per unit.
+
+        Off by default through 1.x, and on by default from 2.0.0. Turn it on
+        per deployment and watch one start (`journalctl -u odoo-init -u
+        odoo-migrate -u odoo`), especially inside a NixOS (nspawn) container,
+        where a unit that cannot set up its mount namespace fails with
+        `226/NAMESPACE` and, through Requires=, keeps Odoo down.
+      '';
     };
 
     adminCli = mkOption {
@@ -839,7 +865,7 @@ in
       }
       # It writes the runtime conf into the state directory and opens no
       # socket of its own.
-      // odooNixBase.nixos.hardening {
+      // harden {
         readWritePaths = [ cfg.stateDir ];
         addressFamilies = [ "AF_UNIX" ];
       }

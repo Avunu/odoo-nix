@@ -52,11 +52,19 @@ let
       ];
     }).config;
 
-  pinned = eval { services.odoo-nix.dbName = "acme"; };
+  pinned = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      hardening.enable = true;
+    };
+  };
+  # The default: no hardening (opt-in through 1.x).
+  plain = eval { services.odoo-nix.dbName = "acme"; };
   multi = eval { services.odoo-nix.dbFilter = "^%d$"; };
   toFile = eval {
     services.odoo-nix = {
       dbName = "acme";
+      hardening.enable = true;
       logging.file = "/var/log/odoo/odoo.log";
     };
   };
@@ -274,6 +282,30 @@ in
       jit = lib.genAttrs odooUnits (u: (sc pinned u).MemoryDenyWriteExecute);
       families = (sc pinned "odoo-init").RestrictAddressFamilies;
       logDir = lib.elem "/var/log/odoo" (sc toFile "odoo").ReadWritePaths;
+    };
+  };
+
+  # hardening.enable defaults to false through 1.x: then the units carry no
+  # sandboxing key at all, while init still runs as the service user.
+  module-hardening-default = {
+    expected = {
+      enable = false;
+      keys = lib.genAttrs odooUnits (_: [ ]);
+      initUser = "odoo";
+    };
+    actual = {
+      enable = plain.services.odoo-nix.hardening.enable;
+      keys = lib.genAttrs odooUnits (
+        u:
+        lib.filter (k: (sc plain u) ? ${k}) (
+          lib.attrNames base.nixos.hardening.baseline
+          ++ [
+            "ReadWritePaths"
+            "RestrictAddressFamilies"
+          ]
+        )
+      );
+      initUser = (sc plain "odoo-init").User;
     };
   };
 

@@ -49,6 +49,8 @@ pkgs.testers.runNixOSTest {
       virtualisation.cores = 2;
       services.odoo-nix = {
         enable = true;
+        # Off by default through 1.x; the VM tests keep the sandbox covered.
+        hardening.enable = true;
         package = odooCli;
         # Deliberately not the role's name: a database named after the
         # project, owned by the "odoo" role, is the production shape (and
