@@ -1,9 +1,13 @@
-# `odoo module add` and `odoo module add-bundle`, offline: the `odoo` CLI built
+# `odoo module add`, `add-bundle` and `remove`, offline: the `odoo` CLI built
 # with the workspace scripts and no Odoo, in a project with OCB stood in.
 # odoo-nix-sources is a stand-in: a file:// remote is cloned for real (so a
 # third-party repo has modules in it), any other URL becomes an empty
 # repository on the branch asked for. git is real; uv is real and offline, so
 # every lock fails and says so.
+#
+# `remove` cannot read a database here (the CLI has no Odoo), so it refuses
+# to take away a module's code without --force: that refusal is checked, and
+# the rest runs with --force or with no module code at stake.
 #
 #   bash tests/module.sh <odoo> <templates/project/pyproject.toml>
 set -euo pipefail
@@ -228,6 +232,102 @@ project git-bad
 run module add a/b/c
 expect_rc 1
 check "a URL-shaped argument that is neither is refused" hasF "not a full git URL and not 'owner/repo' shorthand: a/b/c" err
+
+# ── remove ───────────────────────────────────────────────────────────────────
+commit() { git add -A && git commit -q -m "$1"; }
+gone() { # <path>: no gitlink, no .gitmodules section (index or tree), no clone
+  [ -z "$(git ls-files -s -- "$1")" ] &&
+    ! git config -f .gitmodules --get "submodule.$1.path" > /dev/null &&
+    ! git show :.gitmodules | grep -qF "\"$1\"" &&
+    [ ! -e "$(git rev-parse --git-path "modules/$1")" ] &&
+    [ ! -e "$1" ]
+}
+
+project remove-usage
+run module remove
+expect_rc 1
+check "no name: the usage" eval 'hasF "Usage: odoo module remove" err && hasF "name a module or a repository" err'
+run module remove --help
+expect_rc 0
+check "--help: the usage" hasF 'Usage: odoo module remove' out
+run module remove --bogus x
+expect_rc 1
+check "an unknown flag" hasF 'unknown flag: --bogus' err
+run module remove nope
+expect_rc 1
+check "a name that is neither a module nor a repo" hasF "no module 'nope' in modules.txt, and no repository modules/nope" err
+
+project remove-oca
+run module add account_tax_balance date_range
+commit added
+printf '\n[submodule "odoo"]\n\tunrelated = edit\n' >> .gitmodules
+run module remove account_tax_balance
+expect_rc 0
+check "the module leaves modules.txt" eval '[ "$(cat modules.txt)" = date_range ]'
+check "its repo, needed by nothing else, is removed" gone modules/account-financial-reporting
+check "a repo another module still needs is kept" eval '[ "$(gm modules/server-ux branch)" = 18.0 ] && [ -d modules/server-ux/.git ] || [ -f modules/server-ux/.git ]'
+check "the removal, and only it, is staged" eval '[ "$(git diff --cached --name-only | sort | tr "\n" " ")" = ".gitmodules modules/account-financial-reporting " ]'
+check "an unrelated unstaged .gitmodules edit stays unstaged" eval \
+  'grep -qF "unrelated = edit" .gitmodules && ! git show :.gitmodules | grep -qF "unrelated"'
+check "the path sources are regenerated" hasF '==> Regenerating uv path-sources' out
+check "it says what was removed" hasF '✅ Removed account_tax_balance modules/account-financial-reporting.' out
+run module remove date_range
+expect_rc 0
+check "the last module out: its repo goes too" gone modules/server-ux
+check "modules.txt is empty" test ! -s modules.txt
+check "OCB is never touched" eval '[ "$(gm odoo branch)" = 18.0 ]'
+
+project remove-repo
+run module add account_tax_balance
+commit added
+run module remove server-ux
+expect_rc 1
+check "a repo a listed module still needs is refused" \
+  hasF 'modules/server-ux is still needed by account_tax_balance' err
+run module remove modules/account-financial-reporting
+expect_rc 0
+check "a repo by its path: removed, with its listed module" eval \
+  'gone modules/account-financial-reporting && [ ! -s modules.txt ]'
+check "...and the repos only it needed" gone modules/server-ux
+
+project remove-third-party
+run module add "file://$T/remotes/multi.git"
+commit added
+run module remove mod_one
+expect_rc 0
+check "a module whose repo still holds a listed one: only modules.txt" eval \
+  '[ "$(cat modules.txt)" = mod_two ] && [ -d modules/multi/mod_two ]'
+check "...and it says the database keeps it" hasF 'uninstall it in Odoo (Apps)' out
+run module remove mod_two
+expect_rc 1
+check "code going away without a readable database is refused" hasF 'could not read the installed modules' err
+check "...and nothing changed" eval '[ "$(cat modules.txt)" = mod_two ] && [ -d modules/multi/mod_two ]'
+run module remove --force mod_two
+expect_rc 0
+check "--force removes it" gone modules/multi
+run module add "file://$T/remotes/multi.git"
+expect_rc 0
+check "it can be added again" test -d modules/multi/mod_one
+
+project remove-keep
+run module add "file://$T/remotes/multi.git"
+commit added
+run module remove --keep-repos mod_one mod_two
+expect_rc 0
+check "--keep-repos: only modules.txt" eval '[ ! -s modules.txt ] && [ -d modules/multi/mod_one ]'
+
+project remove-dirty
+run module add "file://$T/remotes/bare.git"
+commit added
+echo local > modules/bare/local.txt
+echo changed > modules/bare/README
+run module remove bare
+expect_rc 1
+check "a repo with uncommitted changes is refused" eval \
+  'hasF "modules/bare has uncommitted changes" err && hasF "README" err'
+run module remove --force bare
+expect_rc 0
+check "--force discards them with the repo" gone modules/bare
 
 if [ "$fails" -gt 0 ]; then
   echo "module: $fails failure(s)" >&2

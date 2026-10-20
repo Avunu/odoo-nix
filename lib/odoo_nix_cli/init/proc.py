@@ -45,7 +45,7 @@ def attempt(cmd: Sequence[str], *, quiet_stdout: bool = False) -> int:
             list(cmd), stdout=subprocess.DEVNULL if quiet_stdout else None
         )
     except FileNotFoundError:
-        print(f"odoo-init: {cmd[0]}: command not found", file=sys.stderr, flush=True)
+        print(f"{cmd[0]}: command not found", file=sys.stderr, flush=True)
         return 127
     return _wait(proc)
 

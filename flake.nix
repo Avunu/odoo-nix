@@ -267,6 +267,7 @@
       #   sources                                             shell entry's submodule checkout (all systems)
       #   bootstrap, eval-bootstrap-lock-*                    the fresh-clone checkout before `use flake` (all systems)
       #   scaffold, odoo-init-unit                            odoo-init: its projects, offline; its pieces (all systems)
+      #   module-cli, module-unit                             `odoo module add|add-bundle|remove`, offline; their pieces (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
@@ -526,7 +527,6 @@
                   inherit lib pkgs;
                   odooSeries = "18.0";
                   ocaDataset = ./data/oca-modules.json;
-                  ocaLib = ./lib/oca-lib.sh;
                   bundlesFile = ./data/oca-bundles.json;
                   layout = {
                     coreSrc = "odoo";
@@ -542,12 +542,9 @@
             in
             mkCheck pkgs "module-cli"
               {
-                # What the dev shell has on PATH for the scripts: jq and gawk
-                # (the catalog), python3 (uv's interpreter).
+                # python3: uv's interpreter, as the dev shell has one on PATH.
                 nativeCheckInputs = with pkgs; [
                   git
-                  jq
-                  gawk
                   gnused
                   gnugrep
                   coreutils
@@ -557,6 +554,20 @@
               ''
                 bash ${./tests/module.sh} ${cli}/bin/odoo ${./templates/project/pyproject.toml}
               '';
+
+          # Their pieces (lib/odoo_nix_cli/workspace): the config schema, what a
+          # removal takes, and the in-use check against databases with Odoo
+          # stood in. On each interpreter a preset runs the CLI on, with click.
+          module-unit = mkCheck pkgs "module-unit" { nativeCheckInputs = [ pkgs.git ]; } (
+            lib.concatMapStrings (py: ''
+              ${
+                base.python.rich {
+                  python = pkgs.${py};
+                  extraPackages = ps: [ ps.click ];
+                }
+              }/bin/python3 -I ${./tests/test_workspace.py} ${cliPackage pkgs} ${./data}
+            '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
+          );
 
           # odoo-nix-bootstrap and the template's .envrc: a fresh clone, its
           # tree dirty, gets its submodules from the pinned odoo-nix-sources
