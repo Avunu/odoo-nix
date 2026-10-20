@@ -316,6 +316,16 @@ let
   );
 in
 {
+  # logging.slowQueryMs -> database.slowQueryMs (python-devops-nix
+  # CONVENTIONS.md, Database logging; frappe-nix's name). The old path warns,
+  # through 1.x; removed in 2.0.0.
+  imports = [
+    (lib.mkRenamedOptionModule
+      [ "services" "odoo-nix" "logging" "slowQueryMs" ]
+      [ "services" "odoo-nix" "database" "slowQueryMs" ]
+    )
+  ];
+
   options.services.odoo-nix = {
     enable = mkEnableOption "Odoo (OCB + OCA) production service";
 
@@ -479,16 +489,6 @@ in
           `nginx.enable`.
         '';
       };
-      slowQueryMs = mkOption {
-        type = types.nullOr types.ints.unsigned;
-        default = null;
-        example = 500;
-        description = ''
-          Log every statement that runs at least this many milliseconds
-          (PostgreSQL's `log_min_duration_statement`); `0` logs all of them.
-          Only with `database.createLocally`.
-        '';
-      };
     };
 
     dbName = mkOption {
@@ -542,6 +542,16 @@ in
           PostgreSQL extensions to build into the local server
           (`services.postgresql.extensions`). Only meaningful with
           `createLocally`; a remote server ships whatever it was built with.
+        '';
+      };
+      slowQueryMs = mkOption {
+        type = types.nullOr types.ints.unsigned;
+        default = null;
+        example = 500;
+        description = ''
+          Log every statement that runs at least this many milliseconds
+          (PostgreSQL's `log_min_duration_statement`); `0` logs all of them.
+          Only with `database.createLocally`.
         '';
       };
       ensureExtensions = mkOption {
@@ -970,8 +980,8 @@ in
       settings = {
         log_line_prefix = lib.mkDefault "%d %u ";
       }
-      // lib.optionalAttrs (cfg.logging.slowQueryMs != null) {
-        log_min_duration_statement = cfg.logging.slowQueryMs;
+      // lib.optionalAttrs (cfg.database.slowQueryMs != null) {
+        log_min_duration_statement = cfg.database.slowQueryMs;
       };
     };
 

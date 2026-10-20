@@ -108,10 +108,15 @@ let
   tuned = eval {
     services.odoo-nix = {
       dbName = "acme";
-      logging = {
-        accessLog = false;
-        slowQueryMs = 250;
-      };
+      logging.accessLog = false;
+      database.slowQueryMs = 250;
+    };
+  };
+  # The old path, an alias that warns through 1.x.
+  renamedSlow = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      logging.slowQueryMs = 125;
     };
   };
 
@@ -341,11 +346,15 @@ in
       prefix = "%d %u ";
       defaultSlow = null;
       slow = 250;
+      renamed = 125;
+      renamedWarns = true;
     };
     actual = {
       prefix = pinned.services.postgresql.settings.log_line_prefix;
       defaultSlow = pinned.services.postgresql.settings.log_min_duration_statement or null;
       slow = tuned.services.postgresql.settings.log_min_duration_statement;
+      renamed = renamedSlow.services.postgresql.settings.log_min_duration_statement;
+      renamedWarns = warns renamedSlow "has been renamed to `services.odoo-nix.database.slowQueryMs'";
     };
   };
 
