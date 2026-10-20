@@ -547,29 +547,27 @@
           # lib/bootstrap-lock.nix: the pinned odoo-nix, from the lock alone.
           let
             pinned = import ./lib/bootstrap-lock.nix;
-            lock = builtins.toFile "flake.lock" (
-              builtins.toJSON {
-                version = 7;
-                root = "root";
-                nodes = {
-                  root.inputs = {
-                    odoo-nix = "odoo-nix_2";
-                    nixpkgs = [
-                      "odoo-nix_2"
-                      "nixpkgs"
-                    ];
-                  };
-                  odoo-nix_2.locked = {
-                    type = "github";
-                    owner = "Avunu";
-                    repo = "odoo-nix";
-                    rev = "5557173c4cfb5cd2e245763c181236678c5293a4";
-                    narHash = "sha256-OlOiOcu7OpTvDBKYSHgEIQ9HbJQLCVoGKvLLMlhjKPA=";
-                    lastModified = 1792505124;
-                  };
+            lock = {
+              version = 7;
+              root = "root";
+              nodes = {
+                root.inputs = {
+                  odoo-nix = "odoo-nix_2";
+                  nixpkgs = [
+                    "odoo-nix_2"
+                    "nixpkgs"
+                  ];
                 };
-              }
-            );
+                odoo-nix_2.locked = {
+                  type = "github";
+                  owner = "Avunu";
+                  repo = "odoo-nix";
+                  rev = "5557173c4cfb5cd2e245763c181236678c5293a4";
+                  narHash = "sha256-OlOiOcu7OpTvDBKYSHgEIQ9HbJQLCVoGKvLLMlhjKPA=";
+                  lastModified = 1792505124;
+                };
+              };
+            };
           in
           {
             bootstrap-lock-renamed-node = {
