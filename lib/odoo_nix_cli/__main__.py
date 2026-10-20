@@ -12,6 +12,7 @@ dispatch scan below has to recognize and skip them while looking for the
 first real token -- the same thing odoo.cli.command.main() does for its own
 `--addons-path=` special case.
 """
+
 from __future__ import annotations
 
 import os
@@ -48,7 +49,9 @@ def _first_command(argv: list[str]) -> str | None:
 def _raw_odoo_bin() -> str:
     path = os.environ.get("ODOO_NIX_RAW_ODOO")
     if not path:
-        sys.exit("odoo: $ODOO_NIX_RAW_ODOO is not set -- this entrypoint must run from the odoo-nix-built wrapper.")
+        sys.exit(
+            "odoo: $ODOO_NIX_RAW_ODOO is not set -- this entrypoint must run from the odoo-nix-built wrapper."
+        )
     return path
 
 
@@ -63,9 +66,13 @@ def _setup_journald() -> None:
 
     if not journald.enabled():
         return
-    site_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_journald_site")
+    site_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "_journald_site"
+    )
     current = os.environ.get("PYTHONPATH")
-    os.environ["PYTHONPATH"] = f"{site_dir}{os.pathsep}{current}" if current else site_dir
+    os.environ["PYTHONPATH"] = (
+        f"{site_dir}{os.pathsep}{current}" if current else site_dir
+    )
     journald.install_root_handler()
 
 
