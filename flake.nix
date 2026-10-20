@@ -510,6 +510,54 @@
               )
           );
 
+          # `odoo module add`, `add-bundle` and `remove`, offline: the `odoo`
+          # CLI with the workspace scripts and no Odoo, odoo-nix-sources stood
+          # in, git real, uv real and offline (tests/module.sh).
+          module-cli =
+            let
+              python = pkgs.${presets."18.0".python};
+              cli = import ./lib/cli.nix {
+                inherit pkgs lib python;
+                name = "odoo-nix-module-cli";
+                rawOdooBin = "${pkgs.coreutils}/bin/false";
+                targetPythonEnv = python;
+                inherit base;
+                cliScripts = import ./lib/cli-scripts.nix {
+                  inherit lib pkgs;
+                  odooSeries = "18.0";
+                  ocaDataset = ./data/oca-modules.json;
+                  ocaLib = ./lib/oca-lib.sh;
+                  bundlesFile = ./data/oca-bundles.json;
+                  layout = {
+                    coreSrc = "odoo";
+                    externalDir = "modules";
+                    customDir = "custom";
+                  };
+                  python = "${pkgs.python3}/bin/python";
+                  # The stand-in on PATH (tests/module.sh).
+                  sourcesBin = "odoo-nix-sources";
+                  buildDeps = import ./lib/build-deps.nix { inherit pkgs base; };
+                };
+              };
+            in
+            mkCheck pkgs "module-cli"
+              {
+                # What the dev shell has on PATH for the scripts: jq and gawk
+                # (the catalog), python3 (uv's interpreter).
+                nativeCheckInputs = with pkgs; [
+                  git
+                  jq
+                  gawk
+                  gnused
+                  gnugrep
+                  coreutils
+                  python3
+                ];
+              }
+              ''
+                bash ${./tests/module.sh} ${cli}/bin/odoo ${./templates/project/pyproject.toml}
+              '';
+
           # odoo-nix-bootstrap and the template's .envrc: a fresh clone, its
           # tree dirty, gets its submodules from the pinned odoo-nix-sources
           # before `use flake`; `nix` is a stub (tests/bootstrap.sh).
