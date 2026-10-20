@@ -1,23 +1,20 @@
-# The OCA/git submodule management helpers behind `odoo module add`,
-# `odoo module add-bundle` and `odoo project update`'s code-pulling phase.
+# The workspace side of the `odoo` CLI: what `odoo module add`, `add-bundle`
+# and `remove` read (lib/odoo_nix_cli/workspace, Python), and the bash behind
+# `odoo project update`'s code-pulling phase.
 #
-# Interactive pickers (gum) and git/submodule plumbing stay in bash here --
-# porting proven, delicate logic like this to Python would be a rewrite for
-# no behavioral gain. `odoo_nix_cli`'s module.py/project.py os.execv (or
-# subprocess) into these; everything DB-shaped (provision/upgrade/migrate/
-# backup/restore) is instead implemented directly against odoo.service.db /
-# Registry.new in Python (lib/odoo_nix_cli/), for the progress feedback a
-# subprocess-wrapped odoo-bin call cannot give.
-#
-# This is what `lib/scripts.nix` used to be; only the git/OCA-shaped scripts
-# survive here; everything DB-shaped moved to Python.
+# `workspaceConfig` is the JSON ODOO_NIX_WORKSPACE_CONFIG names: the series,
+# the OCA catalog, the layout, odoo-nix-sources, and `regenerateAndLock`, the
+# one place the uv-path-sources / uv lock / build-deps / relock sequence lives
+# (shared with projectUpdate, and kept bash for lib/core-shadow.sh around the
+# lock). Everything DB-shaped (provision/upgrade/migrate/backup/restore) is
+# implemented directly against odoo.service.db / Registry.new in Python
+# (lib/odoo_nix_cli/).
 #
 # Usage:
 #   import ./lib/cli-scripts.nix {
 #     inherit lib pkgs;
 #     odooSeries = cfg.odooSeries;
 #     ocaDataset = ../data/oca-modules.json;
-#     ocaLib = ./oca-lib.sh;
 #     bundlesFile = ../data/oca-bundles.json;
 #     layout = cfg.layout;
 #     python = "${pythonEnvs.devPythonEnv}/bin/python";
@@ -28,7 +25,6 @@
   pkgs,
   odooSeries,
   ocaDataset,
-  ocaLib,
   bundlesFile,
   layout,
   python,
@@ -38,7 +34,7 @@
   # odoo-nix-sources (lib/shell-tools.nix, python-devops-nix's lib.sources):
   # `module add` clones a new repo with it, and projectUpdate checks out a
   # submodule this clone has never had the way shell entry does, as a partial
-  # clone.
+  # clone. A bare name is looked up on PATH (the module-cli check's stand-in).
   sourcesBin,
   # lib/build-deps.nix: odoo-nix-build-deps, which keeps pyproject.toml's
   # sdist build dependencies in step with uv.lock after each `uv lock`.
@@ -51,33 +47,10 @@ let
     cd "''${REPO_ROOT:-$PWD}"
   '';
 
-  ocaPreamble = ''
-    export OCA_DATASET="${ocaDataset}"
-    export OCA_BUNDLES="${bundlesFile}"
-    # shellcheck source=/dev/null
-    source "${ocaLib}"
-  '';
-
-  addToModulesTxt = pkgs.writeShellScript "modules-txt-append" ''
-    # Append a module name to modules.txt iff absent, newline-safe.
-    mod="$1"; f="modules.txt"
-    grep -qxF "$mod" "$f" 2>/dev/null && exit 0
-    if [ -s "$f" ] && [ -n "$(tail -c1 "$f" 2>/dev/null)" ]; then echo >> "$f"; fi
-    echo "$mod" >> "$f"
-  '';
-
-  # Keep modules.txt sorted + de-duplicated (deterministic, clean diffs).
-  sortModulesTxt = pkgs.writeShellScript "modules-txt-sort" ''
-    f="modules.txt"
-    [ -f "$f" ] || exit 0
-    ${pkgs.gnugrep}/bin/grep -vE '^[[:space:]]*$' "$f" \
-      | LC_ALL=C ${pkgs.coreutils}/bin/sort -u > "$f.tmp" && mv "$f.tmp" "$f"
-  '';
-
   # Regenerate the uv path-sources block in pyproject.toml from whatever is on
-  # disk under layout.{externalDir,customDir}, then re-lock. Shared by
-  # addModules, addGitSubmodule and projectUpdate, so this uv-lock/patch-
-  # build-deps/relock sequence exists in exactly one place.
+  # disk under layout.{externalDir,customDir}, then re-lock. Shared by the
+  # workspace commands (lib/odoo_nix_cli/workspace) and projectUpdate, so this
+  # uv-lock/patch-build-deps/relock sequence exists in exactly one place.
   regenerateAndLock = pkgs.writeShellScript "oca-regenerate-and-lock" ''
     set -euo pipefail
     cd "''${REPO_ROOT:-$PWD}"
@@ -99,241 +72,20 @@ let
     fi
   '';
 
-  # Shared "add these module seeds" flow used by moduleAdd and
-  # moduleAddBundle: resolve the transitive repo closure, add the NEW repos as
-  # shallow submodules, record the seeds in modules.txt, re-aggregate the
-  # scoped OCA Python deps and re-lock. Takes module names as positional args.
-  addModules = pkgs.writeShellScript "oca-add-modules" ''
-        set -euo pipefail
-        cd "''${REPO_ROOT:-$PWD}"
-        export PATH="${pkgs.git}/bin:$PATH"
-        export OCA_DATASET="${ocaDataset}"
-        # shellcheck source=/dev/null
-        source "${ocaLib}"
-
-        SEL=("$@")
-        [ "''${#SEL[@]}" -eq 0 ] && { echo "Nothing to add."; exit 0; }
-
-        echo "==> Resolving dependency closure for ''${#SEL[@]} module(s)…"
-        mapfile -t ALL_REPOS < <(oca_resolve_repos "${odooSeries}" "''${SEL[@]}")
-
-        mkdir -p "${layout.externalDir}"
-        ls -1 "${layout.externalDir}" 2>/dev/null | sort > .oca-existing.tmp || true
-        NEW_REPOS=()
-        for r in "''${ALL_REPOS[@]}"; do
-          grep -qxF "$r" .oca-existing.tmp 2>/dev/null || NEW_REPOS+=("$r")
-        done
-        rm -f .oca-existing.tmp
-
-        if [ "''${#NEW_REPOS[@]}" -gt 0 ]; then
-          echo "==> Adding ''${#NEW_REPOS[@]} new repo submodule(s): ''${NEW_REPOS[*]}"
-          ADDED_PATHS=()
-          for repo in "''${NEW_REPOS[@]}"; do
-            url="$(oca_repo_url "$repo")"; path="${layout.externalDir}/$repo"
-            # A partial clone of the one branch, as shell entry makes them
-            # (odoo-nix-sources): every commit and folder, the files of the
-            # checkout. A repo with no branch for the series is skipped (exit
-            # 3, and the tool says so); a failed clone stops here.
-            rc=0
-            ${sourcesBin} clone --branch "${odooSeries}" --require-branch "$url" "$path" || rc=$?
-            if [ "$rc" -eq 0 ]; then
-              git submodule add -q --force -b "${odooSeries}" -- "$url" "$path"
-              git config -f .gitmodules "submodule.$path.shallow" true
-              ADDED_PATHS+=("$path")
-              echo "   + $path"
-            elif [ "$rc" -ne 3 ]; then
-              exit "$rc"
-            fi
-          done
-          # Scoped to just the paths added above (recursive, for any nested
-          # submodules within them) -- never a blanket, unscoped update,
-          # which would also reset every OTHER submodule back to whatever
-          # commit the superproject's index currently records, discarding
-          # an uncommitted `odoo project update` move. Submodules should
-          # only ever move via that explicit command.
-          [ "''${#ADDED_PATHS[@]}" -gt 0 ] && git submodule update --init --recursive -- "''${ADDED_PATHS[@]}"
-        else
-          echo "==> All required repos already present."
-        fi
-
-        # Record the seeds in modules.txt (only those present in the catalog/closure
-        # are installable; `odoo db provision` will report anything missing), then
-        # sort it.
-        for m in "''${SEL[@]}"; do ${addToModulesTxt} "$m"; done
-        ${sortModulesTxt}
-
-        ${regenerateAndLock}
-
-        cat <<EOF
-
-    ✅ Added ''${#SEL[@]} module(s) to modules.txt.
-       1. Reload so the Nix engine re-derives addons_path + rebuilds the env:
-            direnv reload
-       2. Install:  odoo db provision    (installs everything in modules.txt)
-    EOF
-  '';
-
-  # Register an already-cloned repo (at $3, cloned by the caller into its
-  # final resolved path under layout.externalDir) as a submodule, then record
-  # the given module names (already chosen by the caller -- this does no
-  # prompting) in modules.txt and re-lock. Mirrors the per-repo tail of
-  # addModules' loop, but for exactly one caller-supplied repo instead of an
-  # OCA dependency closure of many.
-  addGitSubmodule = pkgs.writeShellScript "oca-add-git-submodule" ''
-        set -euo pipefail
-        cd "''${REPO_ROOT:-$PWD}"
-        export PATH="${pkgs.git}/bin:$PATH"
-
-        url="$1" branch="$2" path="$3"; shift 3
-        MODS=("$@")
-
-        echo "==> Registering $path as a submodule ($branch)…"
-        git submodule add -q --force -b "$branch" -- "$url" "$path"
-        git config -f .gitmodules "submodule.$path.shallow" true
-        git submodule update --init --recursive -- "$path"
-
-        if [ "''${#MODS[@]}" -gt 0 ]; then
-          for m in "''${MODS[@]}"; do ${addToModulesTxt} "$m"; done
-          ${sortModulesTxt}
-          ${regenerateAndLock}
-          cat <<EOF
-
-    ✅ Added $path as a submodule and recorded ''${#MODS[@]} module(s) in modules.txt.
-       1. Reload so the Nix engine re-derives addons_path + rebuilds the env:
-            direnv reload
-       2. Install:  odoo db provision    (installs everything in modules.txt)
-    EOF
-        else
-          cat <<EOF
-
-    ✅ Added $path as a submodule (no modules recorded in modules.txt).
-       Reload so the Nix engine picks up the new addons_path:
-         direnv reload
-    EOF
-        fi
-  '';
-
-  # Pick more OCA modules (interactive picker or args), then add them -- or,
-  # given a git URL / "owner/repo" shorthand, add that repo directly as a
-  # submodule instead (any git host, not just OCA/GitHub).
-  moduleAdd = pkgs.writeShellScript "odoo-nix-module-add" ''
-    ${preamble}
-    ${ocaPreamble}
-    export PATH="${pkgs.git}/bin:$PATH"
-    has_tty() { [ -t 0 ] && [ -t 1 ]; }
-
-    MODE="oca"
-    if [ "$#" -gt 0 ] && oca_url_shaped "$1"; then
-      MODE="git"
-    elif [ "$#" -eq 0 ] && has_tty; then
-      choice="$(printf '%s\n' "Browse OCA catalog" "Add from a Git URL" \
-        | gum choose --header "odoo module add: what do you want to add?" || true)"
-      case "$choice" in
-        "Add from a Git URL") MODE="git" ;;
-        "Browse OCA catalog") MODE="oca" ;;
-        *) echo "Nothing selected."; exit 0 ;;
-      esac
-    fi
-
-    if [ "$MODE" = "git" ]; then
-      SRC="''${1:-}"; BRANCH_ARG="''${2:-}"; PATH_ARG="''${3:-}"
-      if [ -z "$SRC" ]; then
-        if has_tty; then
-          SRC="$(gum input --header "Git URL or owner/repo:" \
-            --placeholder "https://example.com/owner/repo.git  or  owner/repo" || true)"
-          [ -z "$SRC" ] && { echo "Nothing entered."; exit 0; }
-        else
-          echo "usage: odoo module add <git-url-or-owner/repo> [branch] [path]" >&2
-          exit 1
-        fi
-      fi
-
-      url="$(oca_resolve_git_url "$SRC")"
-      slug="$(oca_repo_slug "$url")"
-      if [ -n "$PATH_ARG" ]; then
-        slug="$PATH_ARG"
-      elif has_tty; then
-        slug="$(gum input --header "Submodule path (under ${layout.externalDir}/):" --value "$slug" || true)"
-        [ -z "$slug" ] && { echo "Nothing entered."; exit 0; }
-      fi
-      path="${layout.externalDir}/$slug"
-
-      if [ -e "$path" ] || git config -f .gitmodules --get "submodule.$path.path" >/dev/null 2>&1; then
-        echo "✗ '$path' already exists (directory or registered submodule) — pass a different path as the third argument." >&2
-        exit 1
-      fi
-
-      if [ -n "$BRANCH_ARG" ]; then
-        branch="$BRANCH_ARG"
-        git ls-remote --heads "$url" "$branch" 2>/dev/null | grep -q . \
-          || { echo "✗ branch '$branch' not found on $url" >&2; exit 1; }
-      elif git ls-remote --heads "$url" "${odooSeries}" 2>/dev/null | grep -q .; then
-        branch="${odooSeries}"
-      else
-        default_branch="$(oca_default_branch "$url")"
-        [ -z "$default_branch" ] \
-          && { echo "✗ no '${odooSeries}' branch, and could not detect a default branch on $url — pass [branch] explicitly." >&2; exit 1; }
-        if has_tty; then
-          branch="$(gum input --header "No '${odooSeries}' branch on $url — confirm the branch to use:" --value "$default_branch" || true)"
-          [ -z "$branch" ] && branch="$default_branch"
-        else
-          branch="$default_branch"
-          echo "==> no '${odooSeries}' branch — using detected default branch '$branch'." >&2
-        fi
-      fi
-
-      echo "==> Cloning $url ($branch) → $path…"
-      mkdir -p "$(dirname "$path")"
-      ${sourcesBin} clone --branch "$branch" --require-branch "$url" "$path"
-
-      mapfile -t FOUND < <(oca_scan_modules "$path" | LC_ALL=C sort -u)
-      SEL=()
-      if [ "''${#FOUND[@]}" -eq 0 ]; then
-        echo "⚠  no __manifest__.py found in $url — adding the submodule without registering any module." >&2
-      elif [ "''${#FOUND[@]}" -eq 1 ]; then
-        SEL=("''${FOUND[@]}")
-      elif has_tty; then
-        mapfile -t SEL < <(printf '%s\n' "''${FOUND[@]}" \
-          | oca_pick_from_list "Select module(s) to record in modules.txt (space=toggle, enter=confirm):")
-      else
-        SEL=("''${FOUND[@]}")
-        echo "==> non-interactive: recording all ''${#SEL[@]} discovered module(s)." >&2
-      fi
-
-      exec ${addGitSubmodule} "$url" "$branch" "$path" "''${SEL[@]}"
-    fi
-
-    if [ "$#" -gt 0 ]; then
-      SEL=("$@")
-    else
-      mapfile -t SEL < <(oca_pick_modules "${odooSeries}")
-    fi
-    [ "''${#SEL[@]}" -eq 0 ] && { echo "Nothing selected."; exit 0; }
-    exec ${addModules} "''${SEL[@]}"
-  '';
-
-  # Add a curated OCA module bundle (a named set of "must-have" modules,
-  # defined in data/oca-bundles.json). The picker and the series-scoped
-  # expansion are shared with the scaffolder via lib/oca-lib.sh.
-  moduleAddBundle = pkgs.writeShellScript "odoo-nix-module-add-bundle" ''
-    ${preamble}
-    ${ocaPreamble}
-    if [ "$#" -gt 0 ]; then
-      NAMES=("$@")
-    elif [ -t 0 ] && [ -t 1 ]; then
-      mapfile -t NAMES < <(oca_pick_bundles)
-    else
-      echo "usage: odoo module add-bundle <name …>   (available: $(oca_bundle_names | tr '\n' ' '))" >&2
-      exit 1
-    fi
-    [ "''${#NAMES[@]}" -eq 0 ] && { echo "No bundle selected."; exit 0; }
-
-    mapfile -t MODULES < <(oca_expand_bundles "${odooSeries}" "''${NAMES[@]}")
-    [ "''${#MODULES[@]}" -eq 0 ] && { echo "No modules in the selected bundle(s)."; exit 0; }
-
-    echo "==> Bundle(s): ''${NAMES[*]}  →  ''${#MODULES[@]} module(s)"
-    exec ${addModules} "''${MODULES[@]}"
-  '';
+  # What lib/odoo_nix_cli/workspace/config.py reads; it refuses a missing or an
+  # unknown key.
+  workspaceConfig = pkgs.writeText "odoo-nix-workspace.json" (
+    builtins.toJSON {
+      series = odooSeries;
+      ocaDataset = "${ocaDataset}";
+      ocaBundles = "${bundlesFile}";
+      layout = {
+        inherit (layout) coreSrc externalDir customDir;
+      };
+      sources = sourcesBin;
+      regenerate = "${regenerateAndLock}";
+    }
+  );
 
   # Pull submodules on their pinned branch, re-aggregate OCA python deps,
   # relock. Database migration is a separate, Python-implemented step (`odoo
@@ -386,5 +138,5 @@ let
   '';
 in
 {
-  inherit moduleAdd moduleAddBundle projectUpdate;
+  inherit workspaceConfig projectUpdate;
 }
