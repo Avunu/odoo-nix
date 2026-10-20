@@ -1,6 +1,7 @@
 # oca-lib.sh — shared OCA catalog helpers for odoo-nix.
 #
-# Sourced by the scaffolder (odoo-init) and the `odoo module add` script (lib/cli-scripts.nix).
+# Sourced by the `odoo module add` scripts (lib/cli-scripts.nix). The scaffolder
+# uses its Python port, lib/odoo_nix_cli/oca.py.
 # Requires the environment variable OCA_DATASET to point at oca-modules.json
 # (both callers bake the vendored data/oca-modules.json store path into it).
 #

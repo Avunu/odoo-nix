@@ -4,7 +4,7 @@ Reusable Nix infrastructure for [Odoo](https://www.odoo.com/) projects built on 
 
 `odoo-nix` packages everything needed to develop and ship an Odoo + OCA project declaratively, so a consuming project's flake stays a thin wrapper instead of a hand-rolled monolith. From a small top-level source tree it provides:
 
--   a **`gum`\-based scaffolder** (`nix run github:Avunu/odoo-nix`) that optionally picks OCA bundles or modules from a bundled catalog, resolves their transitive **dependency repos**, and wires them in as git submodules — decline both and you get plain Odoo core
+-   a **scaffolder** (`nix run github:Avunu/odoo-nix`) that optionally picks OCA bundles or modules from a bundled catalog, resolves their transitive **dependency repos**, and wires them in as git submodules — decline both and you get plain Odoo core — or brings an existing Odoo tree into odoo-nix in place
 -   **auto-synthesized `addons_path`** — derived from the folders actually present, so it can never drift out of sync with your submodules
 -   a Nix-synthesized **`odoo.conf`** (declared in your flake, symlinked into place)
 -   a **devenv** development shell (PostgreSQL + Odoo + Mailpit) with a reproducible Python environment via [uv2nix](https://github.com/pyproject-nix/uv2nix)
@@ -41,10 +41,10 @@ It is consumed as a [flake-parts](https://flake.parts/) module.
 `nix run github:Avunu/odoo-nix` scaffolds a fresh project — the odoo-nix equivalent of a manual Odoo bootstrap. It selects an Odoo series (which fixes the Python version from a preset), _optionally_ lets you add OCA software, resolves the dependency repos, writes the wrapper flake, adds OCB + the resolved repos as shallow git submodules, generates `pyproject.toml` and runs `uv lock`:
 
 ```sh
-nix run github:Avunu/odoo-nix                    # interactive (gum prompts)
+nix run github:Avunu/odoo-nix                    # interactive (prompts for what is missing)
 # or fully non-interactive:
 nix run github:Avunu/odoo-nix -- \
-  --series 18.0 --bundles base \
+  --version 18.0 --bundles base \
   --modules account_financial_report,repair_order_group \
   --name acme --db acme acme
 cd acme && direnv allow && devenv up             # then `odoo db provision` in another shell
@@ -63,9 +63,51 @@ Series presets are curated in `lib/odoo-presets.json`:
 
 ### The module picker
 
-The interactive picker lists **all installable modules** for the series (fuzzy search via `gum filter --no-fuzzy`, so typing a repo or module name does prefix matching, not loose subsequence matching). Modules flagged `application` in their manifest are marked with a ★ and sorted first, but every installable module is selectable — most useful OCA modules (localizations, feature modules) are _not_ applications.
+The interactive picker searches **all installable modules** for the series: type a module or repo name (prefix matching on the words of the module, its repo and its summary, so typing a repo's name lists its modules), pick from the numbered matches by number or name, and search again; an empty search finishes. Modules flagged `application` in their manifest are marked with a ★ and listed first, but every installable module is selectable — most useful OCA modules (localizations, feature modules) are _not_ applications.
 
 Picking a module resolves the **transitive closure of OCA repos** it needs (via each module's `depends`) and adds only the new repos as submodules. The set of modules you chose is recorded in `modules.txt`, which drives both installation (`odoo db provision`) and the scoped Python-dependency aggregation.
+
+### An existing tree
+
+Run in, or pointed at, a directory that is already an Odoo tree in odoo-nix's layout — OCB at `odoo/` (a checkout, or a submodule `.gitmodules` registers there), OCA repos under `modules/`, your own modules under `custom/` — the scaffolder **migrates** it in place instead: it prints the plan, asks (or takes `-y`), then writes the template's files only where none exist (a `.gitignore` gains just the patterns it lacks), adds OCB if it is missing and any repos `--modules`/`--bundles` need, writes the uv path sources and locks. It keeps the repository and its history, and commits nothing unless `--commit`. The series is read from `flake.nix`, the branch `.gitmodules` pairs `odoo/` with, OCB's `odoo/release.py`, or the module manifests' versions, in that order; `--version` overrides it. Run on an odoo-nix project, the same mode **repairs** it, keeping the `name` and `dbName` its `flake.nix` sets. A `flake.nix` or `pyproject.toml` that is not odoo-nix's is refused (exit 4); with `--force` it is kept and odoo-nix's is written beside it (`flake.nix.odoo-nix`, `pyproject.toml.odoo-nix`) to merge by hand.
+
+### Scaffolder reference
+
+`odoo-init --help` lists the flags. Pass them after `--` to `nix run`. With a terminal and no flags it prompts for what it needs; it never prompts when stdin or stdout is not a terminal, so scripted runs pass what they need.
+
+| Flag | Meaning |
+| --- | --- |
+| `--init` | Force scaffold mode. Needs an empty directory unless you add `--force`. |
+| `--migrate` | Force migration mode; also repairs an odoo-nix project. |
+| `--force` | Relax the mode guard. It never overwrites an existing file. |
+| `--dry-run` | Print the plan (including the files it would seed) and exit without changing anything. |
+| `-y`, `--yes` | Assume yes. Required to migrate without a terminal. |
+| `--version <V>` | The Odoo series, `18.0` or `19.0`; overrides detection. |
+| `--bundles <A,B>` | Curated OCA bundles to install (`data/oca-bundles.json`). |
+| `--modules <A,B,C>` | OCA modules to install (alias: `--apps`). |
+| `--name <NAME>` | The project name (`odoo-nix.name`). Defaults to the existing one, or the target directory's name. |
+| `--db <NAME>` | The default database (`settings.dbName`). Defaults to the existing one, or `odoo`. |
+| `--skip-lock` | Do not run `uv lock`. |
+| `--commit[=<MESSAGE>]` | Commit the result instead of only staging it. The message is only taken as `--commit=<MESSAGE>`. |
+
+A new project gets `secrets/README.md`, which says how to declare `odoo-nix.secrets`. Warnings (a repo with no branch for the series, a failed `uv lock`, a renamed flag) are repeated in a summary at the end, before the next steps.
+
+`--version` was `--series` before odoo-nix and frappe-nix agreed on one set of scaffolder flags. The old name still works, with a warning, through 1.x, until odoo-nix 2.0.0. In `lib/odoo-presets.json`, the key each preset's git branch is under is `branch` (it was `series`); the schema is the one both products share — `label`, `branch`, `python`, `requiresPython`, with `nodejs` and `overrideDependencies` optional — and a file that still says `series` is read the same through 1.x.
+
+Exit codes, frappe-nix's table where it applies:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Done, or `--dry-run` finished. |
+| `1` | A usage error, a forced `--migrate` on an empty or missing directory, OCB could not be cloned, or another error with no more specific code. |
+| `2` | `--init` into a directory that is not empty, without `--force`. |
+| `4` | A `flake.nix` or `pyproject.toml` that is not odoo-nix's is in the way. `--force` writes odoo-nix's beside it to merge. |
+| `5` | The Odoo series is missing, unknown, undetectable, or has no preset. |
+| `6` | The directory is not the shape the mode needs (not empty and not an Odoo tree), or the confirmation was declined (or not given: no terminal and no `-y`). |
+| `7` | `custom/` or `modules/` with no module in them and no OCB: nothing to migrate. |
+| `8` | The tree is inside another git repository. `--force` creates a nested one anyway. |
+
+A failing `git` step exits with git's own status. frappe-nix's `3` belongs to its `--sync` and `--check`, which odoo-nix does not have.
 
 ## Quick start
 
@@ -695,7 +737,8 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `eval-python-default-*` | a consumer that sets only `odooSeries` gets that series' interpreter from `lib/odoo-presets.json`, and its container image evaluates |
 | `eval-rename-*`, `eval-identity-*` | each [renamed option](#renamed-options) reaching its new name (and the shell's env, the packages' names), announced with a deprecation warning; the identity as devenv's `name` |
 | `eval-ports-*`, `eval-mailpit-*`, `eval-watch-*`, `eval-ci-mode`, `eval-tree` | the dev shell's option tree: every port from `ports.offset` (hashed from `name`, salted in a linked worktree) and read by odoo.conf, PostgreSQL, Mailpit and the env; `ports.base` and `lib.mkForce` pins; Mailpit on and started before the server, mail guard or not; `watch.python` on; CI mode's exports first, the submodule checkout skipped in it, and its one-line banner; no visible `dev` tree, no ports in `settings` |
-| `scaffold` | `odoo-init` offline (`tests/odoo-init.sh`, git, uv and `odoo-nix-sources` stood in): the generated flake sets `odoo-nix.name` and the database |
+| `scaffold` | `odoo-init` offline (`tests/odoo-init.sh`, uv and `odoo-nix-sources` stood in, git real): every flag and its exit code; the template, the dependency closure as submodules, `modules.txt`, bundles, the install set, the seeds, the warnings summary and the next steps; `--dry-run`, `--skip-lock`, `--commit`; migrating a tree (detection, kept files, a foreign `flake.nix` or `pyproject.toml`, a nested repository) and repairing an odoo-nix project |
+| `odoo-init-unit` | its pieces (`tests/test_odoo_init.py`), on its own interpreter and each preset's: the command line, the config and presets schemas (`series` as `branch`'s old name), template rendering and installing, the OCA catalog (`lib/odoo_nix_cli/oca.py`), mode and series detection and their exit codes, and the prompts with rich faked |
 | `sources` | `odoo-nix-sources enter` (`tests/sources.sh`) against `file://` remotes: a fresh clone's submodules checked out once, as partial clones of their paired branch (OCB commits only) and recursively; one removed or deinitialized later reported, not brought back, in path order; a directory in the way, a failed checkout, shallow clones given history in place, the pin prefetch and pack merge; every message on stderr. The command itself is tested in python-devops-nix |
 | `bootstrap` | `odoo-nix-bootstrap` and `templates/project/.envrc` (`tests/bootstrap.sh`, `nix` stubbed): a fresh clone with a dirty tree gets its submodules from the pinned `odoo-nix-sources` (OCB commits only) before `use flake`; a lock from before `sources`, or none, uses the bootstrap's own; the next load runs no `nix`; a failing `nix run`, a directory that is not a git checkout and no `git` on `PATH` still load quietly. `nix eval` of a real project is the manual check in [A fresh clone](#a-fresh-clone) |
 | `eval-bootstrap-lock-*` | `lib/bootstrap-lock.nix`: the flake reference a `flake.lock` pins for `odoo-nix`, its node renamed; an input that follows another, or none, throws |
@@ -776,10 +819,10 @@ lib/
   overrides.nix              # lib.overrides: python-devops-nix's shared package fixes, and libsass
   build-deps.nix             # odoo-nix-build-deps: python-devops-nix's sdist build-dep sync
   core-shadow.sh             # writable lock-time shadow of a store-resident OCB (coreSource)
-  oca-lib.sh                 # OCA repo resolver + module picker (shell)
+  oca-lib.sh                 # OCA repo resolver + module picker, for `odoo module add` (shell)
   oca_sources.py             # generate uv path-sources (deps + sources blocks)
-  init.nix / odoo-init.sh    # the scaffolder
-  odoo-presets.json          # series → python / branch
+  init.nix                   # the scaffolder's glue; the scaffolder is odoo_nix_cli/init (Python), the OCA catalog odoo_nix_cli/oca.py
+  odoo-presets.json          # series → python / branch (python-devops-nix's shared presets schema)
   pr_policy.py               # the pr-policy check: conventional commits, no `!` or BREAKING CHANGE
   shell-tools.nix            # odoo-nix-sources, -bootstrap, -db-nocow, -banner: python-devops-nix's lib.sources, lib.dbNocow, lib.banner
   bootstrap.sh               # odoo-nix-bootstrap: a fresh clone's submodules, before the project's flake is evaluated
