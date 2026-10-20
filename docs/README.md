@@ -105,6 +105,36 @@ odoo db provision       # (another shell) create the DB + install modules.txt
 # → the banner prints the server's and Mailpit's URLs: the project's own ports (see Ports)
 ```
 
+### A fresh clone
+
+The project's flake sets `self.submodules = true`, so Nix reads every submodule while it evaluates the flake, which is before the dev shell exists to check them out. On a fresh `git clone` with any change in the tree (a `flake.lock` being updated counts) it reads each submodule from its empty directory and fails:
+
+```text
+fatal: '…/modules/account-analytic' does not appear to be a git repository
+error: Failed to fetch git repository 'file:///…/modules/account-analytic'
+```
+
+With a clean tree it fetches every submodule itself instead, a full clone each, past the partial clones of the paired branch the shell makes.
+
+The scaffolded `.envrc` checks them out first:
+
+```sh
+if git submodule status --recursive 2> /dev/null | grep '^-' > /dev/null; then
+  nix run github:Avunu/odoo-nix#bootstrap -- "$PWD" || true
+fi
+use flake . --no-pure-eval
+```
+
+Past the first entry that is one `git submodule status` and nothing else. On a fresh clone `odoo-nix-bootstrap` reads the odoo-nix revision `flake.lock` pins (from the lock alone: the flake cannot be evaluated yet) and runs that revision's `odoo-nix-sources enter --treeless odoo`, the shell's own checkout; a lock that pins a revision from before `sources` existed, or no lock, gets the bootstrap's own copy. It is a separate app, rather than all of it in the `.envrc`, so the `.envrc` stays three lines a project can paste, and the logic can be fixed in odoo-nix rather than in every project.
+
+A project scaffolded before this has the one-line `.envrc`, which is the project's own file (`odoo project update` does not touch it). Either replace it with the one above, or, to unstick a clone once, run the checkout by hand and then `direnv reload`:
+
+```sh
+nix run github:Avunu/odoo-nix#sources -- enter --treeless odoo "$PWD"
+```
+
+To see it work: clone a project, change any tracked file, `direnv allow`; the submodules are checked out first, then the flake evaluates (`nix eval .#packages.x86_64-linux.odooConf.name`).
+
 ## Versioning
 
 odoo-nix is released with [release-please](https://github.com/googleapis/release-please). Each `fix:` or `feat:` commit merged to `main` lands in a release pull request; merging that pull request tags `vX.Y.Z` and updates `CHANGELOG.md` and `version.txt`. A `fix:` makes a patch release (Dependabot's `fix(deps)` bumps of the flake inputs and the actions included) and a `feat:` a minor one. A major release is only ever deliberate: a `Release-As: N.0.0` footer on a commit. The `pr-policy` check refuses `!` and `BREAKING CHANGE`, so nothing becomes a major release by accident.
@@ -133,6 +163,8 @@ Commits and pull request titles are [conventional commits](https://www.conventio
 | lib.odoo-ls | the odoo-ls (Odoo language server) package builder |
 | packages.<sys>.odoo-init / .default | the scaffolder executable |
 | packages.<sys>.odoo-ls | odoo-ls, pinned to this repo's `odoo-ls-src`/`odoo-ls-typeshed` inputs |
+| packages.<sys>.sources, apps.<sys>.sources | `odoo-nix-sources`, the dev shell's submodule checkout, outside it: `nix run github:Avunu/odoo-nix#sources -- enter --treeless odoo ROOT` |
+| packages.<sys>.bootstrap, apps.<sys>.bootstrap | `odoo-nix-bootstrap ROOT`: a fresh clone's submodules, from the `sources` its `flake.lock` pins, before Nix evaluates the project (the template's `.envrc`; [A fresh clone](#a-fresh-clone)) |
 | apps.<sys>.odoo-init / .default | nix run entry point |
 | apps.<sys>.relock-odoo-ls | `nix run .#relock-odoo-ls` — re-lock lib/odoo-ls-Cargo.lock |
 
@@ -665,6 +697,8 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `eval-ports-*`, `eval-mailpit-*`, `eval-watch-*`, `eval-ci-mode`, `eval-tree` | the dev shell's option tree: every port from `ports.offset` (hashed from `name`, salted in a linked worktree) and read by odoo.conf, PostgreSQL, Mailpit and the env; `ports.base` and `lib.mkForce` pins; Mailpit on and started before the server, mail guard or not; `watch.python` on; CI mode's exports first, the submodule checkout skipped in it, and its one-line banner; no visible `dev` tree, no ports in `settings` |
 | `scaffold` | `odoo-init` offline (`tests/odoo-init.sh`, git, uv and `odoo-nix-sources` stood in): the generated flake sets `odoo-nix.name` and the database |
 | `sources` | `odoo-nix-sources enter` (`tests/sources.sh`) against `file://` remotes: a fresh clone's submodules checked out once, as partial clones of their paired branch (OCB commits only) and recursively; one removed or deinitialized later reported, not brought back, in path order; a directory in the way, a failed checkout, shallow clones given history in place, the pin prefetch and pack merge; every message on stderr. The command itself is tested in python-devops-nix |
+| `bootstrap` | `odoo-nix-bootstrap` and `templates/project/.envrc` (`tests/bootstrap.sh`, `nix` stubbed): a fresh clone with a dirty tree gets its submodules from the pinned `odoo-nix-sources` (OCB commits only) before `use flake`; a lock from before `sources`, or none, uses the bootstrap's own; the next load runs no `nix`; a failing `nix run`, a directory that is not a git checkout and no `git` on `PATH` still load quietly. `nix eval` of a real project is the manual check in [A fresh clone](#a-fresh-clone) |
+| `eval-bootstrap-lock-*` | `lib/bootstrap-lock.nix`: the flake reference a `flake.lock` pins for `odoo-nix`, its node renamed; an input that follows another, or none, throws |
 | `db-nocow` | `odoo-nix-db-nocow` (python-devops-nix's `tests/db-nocow.sh`, run against odoo-nix's command): NOCOW arranged for a datadir `initdb` has yet to create and cleared from its parent after, an existing cluster reported, the stopped-server copy keeping mode 0700. Checks the real attribute on a btrfs builder, the no-op elsewhere (`TMPDIR=<btrfs dir>` to run it by hand; Linux only) |
 | `nix-lint` | python-devops-nix's `lib.checks.nixLint`: `nixfmt-rs --check` (what `nix fmt` writes), `statix` (`statix.toml`, compared with the base's copy) and `deadnix` over the repo's Nix files, `templates/` and `tests/fixtures/` excluded |
 | `shared-config` | python-devops-nix's `lib.checks.sharedConfig`: `.editorconfig`, `.pre-commit-config.yaml` and `ruff.toml` make every setting the base's copies make |
@@ -747,7 +781,9 @@ lib/
   init.nix / odoo-init.sh    # the scaffolder
   odoo-presets.json          # series → python / branch
   pr_policy.py               # the pr-policy check: conventional commits, no `!` or BREAKING CHANGE
-  shell-tools.nix            # odoo-nix-sources, -db-nocow, -banner: python-devops-nix's lib.sources, lib.dbNocow, lib.banner
+  shell-tools.nix            # odoo-nix-sources, -bootstrap, -db-nocow, -banner: python-devops-nix's lib.sources, lib.dbNocow, lib.banner
+  bootstrap.sh               # odoo-nix-bootstrap: a fresh clone's submodules, before the project's flake is evaluated
+  bootstrap-lock.nix         # the odoo-nix a project's flake.lock pins, read without evaluating the project
 data/
   oca-modules.json           # vendored OCA catalog (+ sync/extract scripts)
   oca-bundles.json           # hand-maintained "must-have" module bundles
@@ -766,6 +802,7 @@ tests/
   secrets-module.nix         # odoo-nix.secrets evaluated through lib.mkFlake
   test_devguard.py           # the dev guard rails, without Odoo or a network
   test_pr_policy.py          # lib/pr_policy.py against throwaway git repositories
+  bootstrap.sh               # odoo-nix-bootstrap + the template .envrc on a fresh clone (nix stubbed)
   lock_fresh.py              # uv.lock ↔ pinned OCB consistency
   relock.nix                 # `nix run .#relock`
   relock-odoo-ls.nix         # `nix run .#relock-odoo-ls`
