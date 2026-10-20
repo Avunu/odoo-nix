@@ -23,7 +23,7 @@ concurrency:
 jobs:
   pr-policy:
     name: pr-policy
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     timeout-minutes: 5
     permissions:
       contents: read # the checkout
