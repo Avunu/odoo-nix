@@ -42,6 +42,10 @@
   # TEST virtualenvs only -- never odooPythonEnv, which is what builtOdoo,
   # services.odoo-nix and the container image run. null = none.
   devguard ? null,
+  # lib/journald.nix: journald-native log lines, grafted into EVERY virtualenv
+  # here, the production one included (inert unless stderr is the journal).
+  # null = none.
+  journald ? null,
   # inputs.python-devops-nix.lib.python: the shared package fixes
   # (overrides), the stale-lock audit (lockAudit) and withGrafts.
   pythonLib,
@@ -239,17 +243,27 @@ let
   # environment runs it at startup -- below Odoo, without a server-wide module,
   # an odoo.conf edit or an install into any database. python-devops-nix's
   # lib.python.withGrafts has the why (grafted rather than put on PYTHONPATH).
+  #
+  # odoo_journald goes the same way into every environment, the production
+  # one included (zzz-odoo-journald.pth): Odoo's records reach the journal
+  # with their syslog priority whenever stderr is the journal stream.
+  journaldGrafts = lib.optional (journald != null) journald;
   withDevguard =
     env:
     pythonLib.withGrafts {
       inherit python env;
-      grafts = lib.optional (devguard != null) devguard;
+      grafts = journaldGrafts ++ lib.optional (devguard != null) devguard;
     };
 
   # Production: real wheels for odoo + all modules — self-contained (no
-  # $REPO_ROOT), for builtOdoo / containers / NixOS.
+  # $REPO_ROOT), for builtOdoo / containers / NixOS. The journald graft, and
+  # never the devguard.
   odooPythonEnv = lockAudit.assertCurrent (
-    pythonSet.mkVirtualEnv "${projectName}-odoo-env" (withLxmlHtmlClean workspace.deps.default)
+    pythonLib.withGrafts {
+      inherit python;
+      env = pythonSet.mkVirtualEnv "${projectName}-odoo-env" (withLxmlHtmlClean workspace.deps.default);
+      grafts = journaldGrafts;
+    }
   );
 
   # Development: modules installed editable (+ dev-group tools), live source.

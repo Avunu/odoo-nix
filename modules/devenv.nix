@@ -937,6 +937,13 @@ in
             ;
           projectName = cfg.name;
           devguard = if dg.enable then devguardPkg else null;
+          # In every environment, the production one included: inert unless
+          # stderr is the journal (python-devops-nix CONVENTIONS.md, Journald
+          # enablement).
+          journald = import ../lib/journald.nix {
+            inherit pkgs;
+            base = inputs.python-devops-nix.lib;
+          };
           inherit pythonLib;
           inherit (inputs) pyproject-nix pyproject-build-systems uv2nix;
           inherit (cfg) pythonLibraries;

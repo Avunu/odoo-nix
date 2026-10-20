@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -28,6 +29,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .. import migrate_plan, odooenv
+from .._migrate import migrate as flow
 from ..backups import BackupError, backups
 from ..progress import MigrationProgress
 
@@ -343,22 +345,33 @@ def _migrate_one(db_name: str, options: MigrateOptions | None = None) -> None:
             say(f"[green]✓[/] {db_name}: up to date")
             return
 
-        snap = None
+        runner = snap = None
         if options.snapshot != "none":
             say(f"==> snapshotting '{db_name}' before migrating…")
-            snap = _snapshot(db_name, options.snapshot)
+            runner = _SnapshotRunner.for_database(
+                db_name, options.snapshot, options.keep
+            )
+            try:
+                snap = runner.take()
+            except (flow.MigrateError, OSError) as exc:
+                raise click.ClickException(
+                    f"{exc}; '{db_name}' was not migrated (no safety net)"
+                ) from exc
 
         try:
             with MigrationProgress(db_name, console):
                 odooenv.run_module_update(db_name, update=plan.update)
         except Exception:
-            if options.rollback and snap is not None:
-                _rollback(db_name, snap)
+            if options.rollback and runner is not None and runner.restore(snap):
+                say(
+                    f"[bold red]✗ {db_name}: migration failed; database restored from {snap}[/]"
+                )
             raise
 
         _record_success(db_name)
-        if snap is not None and options.keep:
-            _prune_snapshots(snap.parent, options.keep)
+        if runner is not None and options.keep:
+            runner.prune()
+            runner.prune_legacy()
 
 
 def _record_success(db_name: str) -> None:
@@ -414,125 +427,215 @@ def _migration_lock(db_name: str):
         conn.close()
 
 
-def _snapshot(db_name: str, fmt: str) -> Path:
-    """A pre-migrate snapshot in its own folder next to the regular backups,
-    so count-based pruning (--keep) never touches a backup somebody took on
-    purpose. Verified before anything relies on it: dump_db() streams the
-    custom format straight from a pg_dump pipe and never checks its exit
-    status, so a failed dump would otherwise leave a truncated safety net."""
-    import odoo.tools
+class _SnapshotRunner(flow.Runner):
+    """python-devops-nix's migrate flow (lib.nixos.migrate.modules, vendored
+    as odoo_nix_cli/_migrate), for the steps `odoo db migrate` takes itself:
+    take(), restore() and prune(). The flow's own run() does not fit: the
+    migration decides in-process, from its plan, whether there is anything
+    to snapshot at all, under a lock it holds throughout.
 
-    directory = Path(odoo.tools.config["data_dir"]) / "backups" / db_name / "premigrate"
-    snap = _backup_one(db_name, str(directory), fmt)
-    if fmt == "dump":
+    The flow names its dump, verify and restore steps as executables; here
+    they are Python callables, run in this process, because each needs what
+    only this process has: Odoo's dump_db (the zip format carries the
+    filestore) with this run's connection settings (--db-host, ...), and,
+    before a rollback drops the database, this process's own registry and
+    pooled connections closed. `call` runs a callable in place and passes
+    anything else to the flow as an executable.
+
+    What the flow brings: the snapshot in a 0700 directory, 0600 from its
+    first byte (odoo-nix#51: nginx is in the service group), fsynced, then
+    verified, and removed -- stopping the migration -- when it is empty or
+    does not verify; `<N>`-prefixed messages on the journal; retention by
+    count.
+    """
+
+    @classmethod
+    def for_database(cls, db_name: str, fmt: str, keep: int) -> _SnapshotRunner:
+        import odoo.tools
+
+        directory = (
+            Path(odoo.tools.config["data_dir"]) / "backups" / db_name / "premigrate"
+        )
+        # Every missing parent owner-only too (<data_dir>/backups/<db> is
+        # where `odoo db backup` writes); the flow makes only the last 0700.
+        _private_dir(directory)
+        steps = _SnapshotSteps(db_name, fmt)
+        config = flow.Config(
+            label="odoo-migrate",
+            target=db_name,
+            migrate="odoo db migrate",
+            snapshot=flow.Snapshot(
+                dir=directory,
+                prefix=f"premigrate-{db_name}",
+                extension=f".{_backup_extension(fmt)}",
+                # --keep 0 keeps everything: prune() is then never called.
+                retention=max(keep, 1),
+                dump=steps.dump,
+                verify=steps.verify,
+                restore=steps.restore,
+            ),
+        )
+        return cls(config)
+
+    def call(self, command, *args, env=None, **kwargs) -> int:
+        if callable(command):
+            self.stderr.flush()
+            return command(*args, **kwargs)
+        return super().call(command, *args, env=env, **kwargs)
+
+    #: Snapshots named before odoo-nix took its flow from python-devops-nix:
+    #: `odoo db backup`'s own names, `2026_01_01_12_00_00.dump`.
+    _LEGACY = re.compile(r"\d{4}(_\d\d){5}\.dump(\.zip)?")
+
+    def prune_legacy(self) -> None:
+        """Remove the snapshots named the old way once as many new ones as
+        the retention keeps exist: the count they were kept by is this one."""
+        snap = self.require_snapshot()
+        if len(self.snapshots()) < snap.retention:
+            return
+        legacy = [
+            p
+            for p in snap.dir.iterdir()
+            if p.is_file() and self._LEGACY.fullmatch(p.name)
+        ]
+        for path in legacy:
+            path.unlink(missing_ok=True)
+        if legacy:
+            self.say(f"pruned {len(legacy)} snapshot(s) named the old way")
+
+
+@dataclass
+class _SnapshotSteps:
+    """The dump, verify and restore steps of one database's snapshot."""
+
+    db_name: str
+    fmt: str
+
+    def dump(self, stdout: int) -> int:
+        """Odoo's own dump into the file the flow opened. dump_db() streams
+        the custom format straight from a pg_dump pipe and never checks its
+        exit status, which is why verify() follows."""
+        from odoo.service import db as odoo_db
+
+        try:
+            with os.fdopen(os.dup(stdout), "wb") as stream:
+                odoo_db.dump_db(self.db_name, stream, backup_format=self.fmt)
+        except Exception as exc:  # noqa: BLE001 -- reported as the step's status, as an executable's would be
+            say(f"[red]dump of '{self.db_name}' failed:[/] {exc}")
+            return 1
+        return 0
+
+    def verify(self, snapshot: str) -> int:
+        """A custom-format dump is whole when pg_restore can read its table
+        of contents (the same check as lib.nixos.migrate.verifiers.pgRestoreList,
+        with the pg_restore Odoo itself uses); a zip when every member's CRC
+        checks out and it has the database's dump.sql."""
+        if self.fmt == "zip":
+            try:
+                with zipfile.ZipFile(snapshot) as zf:
+                    bad = zf.testzip()
+                    whole = bad is None and "dump.sql" in zf.namelist()
+            except (zipfile.BadZipFile, OSError) as exc:
+                say(f"[red]{snapshot} is not a readable zip:[/] {exc}")
+                return 1
+            return 0 if whole else 1
+
         from odoo.tools.misc import exec_pg_environ, find_pg_tool
 
         check = subprocess.run(
-            [find_pg_tool("pg_restore"), "--list", str(snap)],
-            check=False,
+            [find_pg_tool("pg_restore"), "--list", snapshot],
             env=exec_pg_environ(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
-        )
-        if check.returncode != 0 or snap.stat().st_size == 0:
-            snap.unlink(missing_ok=True)
-            raise click.ClickException(
-                f"pre-migrate snapshot of '{db_name}' is unreadable: {check.stderr.strip()}"
-            )
-    return snap
-
-
-def _prune_snapshots(directory: Path, keep: int) -> None:
-    snaps = sorted(p for p in directory.iterdir() if p.is_file())
-    for stale in snaps[:-keep]:
-        stale.unlink()
-        say(f"  [dim]pruned {stale.name}[/]")
-
-
-def _rollback(db_name: str, snap: Path) -> None:
-    """Put the database back exactly as the snapshot has it.
-
-    Not odoo.service.db.exp_drop + restore_db: exp_drop also deletes the
-    filestore, which a schema-only snapshot cannot bring back (and the
-    filestore needs no rollback -- attachments are content-addressed and
-    only ever added), and restore_db loads a registry of the NEW code against
-    the restored OLD schema before returning, which is the very mismatch a
-    failed migration leaves behind. So: drop the database only, recreate it
-    with the same encoding and collation, load the snapshot, and stop there.
-    """
-    import odoo.sql_db
-    from odoo.modules.registry import Registry
-    from odoo.tools.misc import exec_pg_environ, find_pg_tool
-    from psycopg2 import sql
-
-    say(f"[bold red]==> rolling '{db_name}' back to {snap}[/]")
-    Registry.delete(db_name)
-    odoo.sql_db.close_db(db_name)
-
-    conn = _raw_connect("postgres")
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT pg_encoding_to_char(encoding), datcollate, datctype FROM pg_database WHERE datname = %s",
-                (db_name,),
-            )
-            encoding, collate, ctype = cur.fetchone()
-            cur.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
-                (db_name,),
-            )
-            cur.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(db_name)))
-            cur.execute(
-                sql.SQL(
-                    "CREATE DATABASE {} ENCODING {} LC_COLLATE {} LC_CTYPE {} TEMPLATE template0"
-                ).format(
-                    sql.Identifier(db_name),
-                    sql.Literal(encoding),
-                    sql.Literal(collate),
-                    sql.Literal(ctype),
-                )
-            )
-    finally:
-        conn.close()
-
-    env = exec_pg_environ()
-    with tempfile.TemporaryDirectory() as tmp:
-        if zipfile.is_zipfile(snap):
-            with zipfile.ZipFile(snap) as zf:
-                zf.extract("dump.sql", tmp)
-            cmd = [
-                find_pg_tool("psql"),
-                "-q",
-                "-v",
-                "ON_ERROR_STOP=1",
-                f"--dbname={db_name}",
-                "-f",
-                os.path.join(tmp, "dump.sql"),
-            ]
-        else:
-            cmd = [
-                find_pg_tool("pg_restore"),
-                "--no-owner",
-                "--exit-on-error",
-                f"--dbname={db_name}",
-                str(snap),
-            ]
-        result = subprocess.run(
-            cmd,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
             check=False,
         )
-    if result.returncode != 0:
-        say(
-            f"[bold red]✗ rollback of '{db_name}' FAILED — the database may be incomplete. "
-            f"Snapshot preserved at {snap}.[/]\n{result.stderr.strip()}"
-        )
-        return
-    say(f"[bold red]✗ {db_name}: migration failed; database restored from {snap}[/]")
+        if check.returncode != 0:
+            say(f"[red]pg_restore cannot read {snapshot}:[/] {check.stderr.strip()}")
+        return check.returncode
+
+    def restore(self, snapshot: str) -> int:
+        """Put the database back exactly as the snapshot has it.
+
+        Not odoo.service.db.exp_drop + restore_db: exp_drop also deletes the
+        filestore, which a schema-only snapshot cannot bring back (and the
+        filestore needs no rollback -- attachments are content-addressed and
+        only ever added), and restore_db loads a registry of the NEW code
+        against the restored OLD schema before returning, which is the very
+        mismatch a failed migration leaves behind. So: drop the database only,
+        recreate it with the same encoding and collation, load the snapshot,
+        and stop there.
+        """
+        import odoo.sql_db
+        from odoo.modules.registry import Registry
+        from odoo.tools.misc import exec_pg_environ, find_pg_tool
+        from psycopg2 import sql
+
+        db_name = self.db_name
+        Registry.delete(db_name)
+        odoo.sql_db.close_db(db_name)
+
+        conn = _raw_connect("postgres")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT pg_encoding_to_char(encoding), datcollate, datctype FROM pg_database WHERE datname = %s",
+                    (db_name,),
+                )
+                encoding, collate, ctype = cur.fetchone()
+                cur.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
+                    (db_name,),
+                )
+                cur.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(db_name)))
+                cur.execute(
+                    sql.SQL(
+                        "CREATE DATABASE {} ENCODING {} LC_COLLATE {} LC_CTYPE {} TEMPLATE template0"
+                    ).format(
+                        sql.Identifier(db_name),
+                        sql.Literal(encoding),
+                        sql.Literal(collate),
+                        sql.Literal(ctype),
+                    )
+                )
+        finally:
+            conn.close()
+
+        env = exec_pg_environ()
+        with tempfile.TemporaryDirectory() as tmp:
+            if zipfile.is_zipfile(snapshot):
+                with zipfile.ZipFile(snapshot) as zf:
+                    zf.extract("dump.sql", tmp)
+                cmd = [
+                    find_pg_tool("psql"),
+                    "-q",
+                    "-v",
+                    "ON_ERROR_STOP=1",
+                    f"--dbname={db_name}",
+                    "-f",
+                    os.path.join(tmp, "dump.sql"),
+                ]
+            else:
+                cmd = [
+                    find_pg_tool("pg_restore"),
+                    "--no-owner",
+                    "--exit-on-error",
+                    f"--dbname={db_name}",
+                    snapshot,
+                ]
+            result = subprocess.run(
+                cmd,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+        if result.returncode != 0:
+            say(
+                f"[red]loading {snapshot} into '{db_name}' failed:[/]\n{result.stderr.strip()}"
+            )
+        return result.returncode
 
 
 def _run_multi(

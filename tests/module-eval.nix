@@ -3,13 +3,17 @@
 # booting anything. Same `pairs` shape as eval.nix; flake.nix turns each into
 # a named mkEvalCheck.
 #
-# Mostly the journald contract shared with frappe-nix and wordpress-nix:
-# APP_SERVICE/APP_SITE on every unit, stable SyslogIdentifiers, the switch
-# that turns on priority-prefixed output, nginx's JSON access log and the
-# PostgreSQL log settings. The VM tests (module-nginx, module-odoo-<major>)
-# assert the same fields actually reach the journal.
+# Mostly the contracts shared with frappe-nix through python-devops-nix
+# (PLAN.md, Phase 6): the journald vocabulary (APP_SERVICE/APP_SITE on every
+# unit, SyslogIdentifier=odoo-<role>, roles from lib.journald.roles), the
+# hardening baseline on every unit odoo-nix defines, init as the service user
+# with LoadCredential, the socket directory, nginx's logs, the migrate.*
+# options and the PostgreSQL log settings. The VM tests (module-nginx,
+# module-odoo-<major>) assert the same on a running system.
 {
   pkgs,
+  # inputs.python-devops-nix.lib
+  base,
   odooModule,
 }:
 let
@@ -62,6 +66,45 @@ let
       environmentFiles = [ "/run/agenix/odoo-backup" ];
     };
   };
+  secrets = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      database.passwordFile = "/run/agenix/odoo-db";
+      adminPasswordFile = "/run/agenix/odoo-admin";
+    };
+  };
+  socket = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      nginx = {
+        domain = lib.mkForce "";
+        socketPath = "/run/odoo/nginx.sock";
+      };
+    };
+  };
+  # Evaluated for its assertions only: a socket straight in /run.
+  badSocket = eval { services.odoo-nix.nginx.socketPath = "/run/nginx.sock"; };
+  journaldOn = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      logging.journald = true;
+    };
+  };
+  journaldOff = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      logging.journald = false;
+    };
+  };
+  fileQuiet = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      logging = {
+        file = "/var/log/odoo/odoo.log";
+        journald = false;
+      };
+    };
+  };
   tuned = eval {
     services.odoo-nix = {
       dbName = "acme";
@@ -74,6 +117,17 @@ let
 
   fields = cfg: unit: cfg.systemd.services.${unit}.serviceConfig.LogExtraFields;
   site = [ "APP_SITE=acme" ];
+  odooUnits = [
+    "odoo"
+    "odoo-migrate"
+    "odoo-init"
+  ];
+  sc = cfg: unit: cfg.systemd.services.${unit}.serviceConfig;
+  role =
+    cfg: unit:
+    lib.removePrefix "APP_SERVICE=" (lib.findFirst (lib.hasPrefix "APP_SERVICE=") "" (fields cfg unit));
+  warns = cfg: infix: lib.any (lib.hasInfix infix) cfg.warnings;
+  failed = cfg: map (a: a.message) (lib.filter (a: !a.assertion) cfg.assertions);
 in
 {
   module-log-fields-web = {
@@ -113,35 +167,158 @@ in
       nginx = fields multi "nginx";
     };
   };
+  # SyslogIdentifier=odoo-<role> (CONVENTIONS.md, Journald vocabulary).
   module-syslog-identifiers = {
     expected = {
-      odoo = "odoo";
+      odoo = "odoo-web";
       odoo-migrate = "odoo-migrate";
       odoo-init = "odoo-init";
     };
-    actual = lib.genAttrs [ "odoo" "odoo-migrate" "odoo-init" ] (
-      u: pinned.systemd.services.${u}.serviceConfig.SyslogIdentifier
-    );
+    actual = lib.genAttrs odooUnits (u: (sc pinned u).SyslogIdentifier);
   };
 
-  # The switch the CLI reads (lib/odoo_nix_cli/journald.py): on by default,
-  # off -- with a warning, not an error -- once logging.file takes the
-  # records away from stderr.
-  module-journald-env = {
+  # Every role a unit carries is one of python-devops-nix's written list --
+  # the same assertion frappe-nix's tests/logging-fields.nix makes -- and the
+  # identifier is the product's prefix and that role.
+  module-log-roles = {
     expected = {
-      odoo = "1";
-      odoo-migrate = "1";
-      toFile = null;
-      toFileWarns = true;
-      defaultWarns = false;
+      known = true;
+      identifiers = true;
     };
     actual = {
-      odoo = pinned.systemd.services.odoo.environment.ODOO_NIX_JOURNALD or null;
-      odoo-migrate = pinned.systemd.services.odoo-migrate.environment.ODOO_NIX_JOURNALD or null;
-      toFile = toFile.systemd.services.odoo.environment.ODOO_NIX_JOURNALD or null;
-      toFileWarns = lib.any (lib.hasInfix "logging.file is set") toFile.warnings;
-      defaultWarns = lib.any (lib.hasInfix "services.odoo-nix") pinned.warnings;
+      known = lib.all (u: lib.elem (role pinned u) base.journald.roles) (
+        odooUnits
+        ++ [
+          "postgresql"
+          "postgresql-setup"
+          "nginx"
+        ]
+      );
+      identifiers = lib.all (u: (sc pinned u).SyslogIdentifier == "odoo-${role pinned u}") odooUnits;
     };
+  };
+
+  # Journald formatting is always on (the odoo_journald graft); nothing sets
+  # the old switch. logging.journald is a deprecated no-op that warns, except
+  # where `false` silences the logging.file warning it always did.
+  module-journald = {
+    expected = {
+      env = [ ];
+      toFileWarns = true;
+      defaultWarns = false;
+      onWarns = true;
+      offWarns = true;
+      fileQuiet = [ ];
+    };
+    actual = {
+      env = lib.filter (u: (pinned.systemd.services.${u}.environment.ODOO_NIX_JOURNALD or null) != null) (
+        odooUnits
+      );
+      toFileWarns = warns toFile "logging.file is set";
+      defaultWarns = warns pinned "services.odoo-nix";
+      onWarns = warns journaldOn "logging.journald has no effect";
+      offWarns = warns journaldOff "no longer turns that off";
+      fileQuiet = lib.filter (lib.hasInfix "services.odoo-nix") fileQuiet.warnings;
+    };
+  };
+
+  # python-devops-nix's sandboxing baseline on every unit odoo-nix defines,
+  # with no UMask anywhere (odoo-nix#51: nginx reads the filestore through
+  # the group), the state directory writable, and W+X memory only where Odoo
+  # runs (wkhtmltopdf, rtlcss).
+  module-hardening = {
+    expected = {
+      baseline = lib.genAttrs odooUnits (_: {
+        NoNewPrivileges = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        PrivateTmp = true;
+        CapabilityBoundingSet = "";
+        SystemCallFilter = [
+          "@system-service"
+          "~@privileged"
+        ];
+        umask = false;
+        writable = true;
+      });
+      jit = {
+        odoo = false;
+        odoo-migrate = false;
+        odoo-init = true;
+      };
+      families = [ "AF_UNIX" ];
+      logDir = true;
+    };
+    actual = {
+      baseline = lib.genAttrs odooUnits (
+        u:
+        let
+          c = sc pinned u;
+        in
+        {
+          inherit (c)
+            NoNewPrivileges
+            ProtectSystem
+            ProtectHome
+            PrivateTmp
+            CapabilityBoundingSet
+            SystemCallFilter
+            ;
+          umask = c ? UMask;
+          writable = lib.elem "/var/lib/odoo" c.ReadWritePaths;
+        }
+      );
+      jit = lib.genAttrs odooUnits (u: (sc pinned u).MemoryDenyWriteExecute);
+      families = (sc pinned "odoo-init").RestrictAddressFamilies;
+      logDir = lib.elem "/var/log/odoo" (sc toFile "odoo").ReadWritePaths;
+    };
+  };
+
+  # Production secrets (CONVENTIONS.md): init runs as the service user, and
+  # the secret files reach it through LoadCredential, not by reading them.
+  module-init-credentials = {
+    expected = {
+      user = "odoo";
+      credentials = [
+        "db_password:/run/agenix/odoo-db"
+        "admin_passwd:/run/agenix/odoo-admin"
+      ];
+      none = [ ];
+    };
+    actual = {
+      user = (sc secrets "odoo-init").User;
+      credentials = (sc secrets "odoo-init").LoadCredential;
+      none = (sc pinned "odoo-init").LoadCredential;
+    };
+  };
+
+  # nginx's socket in its own 0770 directory (lib.nixos.unixSocket), and the
+  # assertion for one that is not.
+  module-socket = {
+    expected = {
+      rule = true;
+      refused = true;
+    };
+    actual = {
+      rule = lib.elem "d /run/odoo 0770 odoo odoo -" socket.systemd.tmpfiles.rules;
+      refused = lib.any (lib.hasPrefix "services.odoo-nix.nginx.socketPath must be an absolute path inside its own directory") (
+        failed badSocket
+      );
+    };
+  };
+
+  # The migrate.* options: python-devops-nix's four, with their defaults,
+  # beside odoo-nix's own full and timeout.
+  module-migrate-options = {
+    expected = {
+      enable = true;
+      snapshot = true;
+      rollbackOnFailure = true;
+      snapshotRetention = 3;
+      full = false;
+      timeout = "infinity";
+    };
+    actual = pinned.services.odoo-nix.migrate;
   };
 
   # services.odoo-nix.environmentFiles reaches the units that run Odoo (the
@@ -179,9 +356,30 @@ in
       off = true;
     };
     actual = {
-      format = lib.hasInfix "log_format journal_json escape=json '{\"time\":\"$time_iso8601\",\"site\":\"$host\"" pinned.services.nginx.commonHttpConfig;
+      format = lib.hasInfix base.nixos.nginx.journalJsonFormat pinned.services.nginx.commonHttpConfig;
       journal = lib.hasInfix "access_log syslog:server=unix:/dev/log,tag=nginx_access,nohostname journal_json;" pinned.services.nginx.commonHttpConfig;
       off = lib.hasInfix "access_log off;" tuned.services.nginx.commonHttpConfig;
+    };
+  };
+
+  # The error log over syslog, so it keeps its severity; the real-IP block and
+  # the socket headers only on a unix-socket listener.
+  module-nginx-socket = {
+    expected = {
+      errorLog = "syslog:server=unix:/dev/log,tag=nginx,nohostname error";
+      realIp = true;
+      tcpRealIp = false;
+      headers = true;
+    };
+    actual = {
+      errorLog = pinned.services.nginx.logError;
+      realIp = lib.hasInfix base.nixos.nginx.cloudflareRealIp socket.services.nginx.virtualHosts.odoo.extraConfig;
+      tcpRealIp =
+        lib.hasInfix "real_ip_header"
+          pinned.services.nginx.virtualHosts."odoo.example.com".extraConfig;
+      headers =
+        lib.hasInfix base.nixos.nginx.socketProxyHeaders
+          socket.services.nginx.virtualHosts.odoo.locations."/".extraConfig;
     };
   };
 }

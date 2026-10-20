@@ -6,8 +6,9 @@
 # plus the gevent/websocket process itself (no separate longpolling unit).
 #
 # Config synthesis: a base odoo.conf (no secrets) is written to the Nix store
-# via pkgs.formats.ini; an odoo-init oneshot copies it to a 0600 runtime file
-# and appends db_password / admin_passwd from secret files (ConfigParser
+# via pkgs.formats.ini; an odoo-init oneshot, running as the service user,
+# copies it to a 0600 runtime file and appends db_password / admin_passwd
+# from the secret files systemd hands it (LoadCredential; ConfigParser
 # last-wins), so secret *values* never enter /nix/store.
 #
 # Schema follows code: odoo-migrate runs `odoo db migrate` before every start
@@ -17,9 +18,16 @@
 #
 # Logging goes to journald, not files: every unit this module defines or
 # enables carries APP_SERVICE/APP_SITE journal fields (LogExtraFields), and
-# Odoo's records reach the journal with their real syslog priority (see
-# logging.journald and lib/odoo_nix_cli/journald.py) -- what a log shipper
-# reading the journal (Vector -> Loki, `journalctl -p warning`) filters on.
+# Odoo's records reach the journal with their real syslog priority (the
+# odoo_journald graft, lib/journald.nix) -- what a log shipper reading the
+# journal (Vector -> Loki, `journalctl -p warning`) filters on.
+#
+# Every unit this module defines runs under python-devops-nix's systemd
+# sandboxing baseline (lib.nixos.hardening; CONVENTIONS.md, Unit hardening),
+# with what it legitimately needs named next to it. There is no UMask: Odoo
+# writes the filestore that nginx serves through the service group
+# (nginx.xSendfile, odoo-nix#51); backups and snapshots get their modes where
+# they are written.
 #
 # python-devops-nix's library arrives as the module argument `odooNixBase`:
 # flake.nixosModules.default sets it, so import that, not this file alone.
@@ -44,22 +52,46 @@ let
   inherit (cfg) dbName;
   socketAuth = cfg.database.createLocally && cfg.database.passwordFile == null;
 
-  # The journal-field contract shared with frappe-nix and wordpress-nix:
-  # APP_SERVICE names the role, APP_SITE the site the unit serves. With no
-  # pinned dbName (multi-database via dbFilter) no one site is served, so
-  # APP_SITE is left out rather than guessed. LogExtraFields applies to
-  # everything journald attributes to the unit's cgroup -- stdout/stderr and
-  # syslog alike -- so nginx's access log (syslog, below) carries them too.
-  logFields = role: [ "APP_SERVICE=${role}" ] ++ lib.optional (dbName != null) "APP_SITE=${dbName}";
+  # The journal-field contract shared with frappe-nix and wordpress-nix
+  # (python-devops-nix lib.journald.fields; CONVENTIONS.md, Journald
+  # vocabulary): APP_SERVICE names the role, APP_SITE the site the unit
+  # serves, and a unit this module defines has SyslogIdentifier=odoo-<role>.
+  # With no pinned dbName (multi-database via dbFilter) no one site is
+  # served, so APP_SITE is left out rather than guessed. LogExtraFields
+  # applies to everything journald attributes to the unit's cgroup --
+  # stdout/stderr and syslog alike -- so nginx's access log (syslog, below)
+  # carries them too. The upstream units (db, nginx) keep their identifiers.
+  journalFields =
+    role:
+    odooNixBase.journald.fields {
+      prefix = "odoo";
+      inherit role;
+      site = dbName;
+    };
 
-  # Odoo writes its own records to stderr only when neither logfile nor
-  # syslog is configured -- they are mutually exclusive in init_logger, and
-  # either one takes the records away from the journal's stream.
-  journaldActive =
-    cfg.logging.journald
-    && cfg.logging.file == null
-    && !(cfg.settings ? logfile)
-    && !(cfg.settings ? syslog);
+  # What the units that run Odoo may write, under ProtectSystem=strict: the
+  # state directory (the runtime odoo.conf, data_dir: filestore, sessions,
+  # backups), data_dir if `settings` moved it, and logging.file's directory.
+  # A host adds its own with systemd.services.<unit>.serviceConfig.ReadWritePaths.
+  odooWritePaths = [
+    cfg.stateDir
+  ]
+  ++ lib.optional (cfg.settings ? data_dir) (toString cfg.settings.data_dir)
+  ++ lib.optional (cfg.logging.file != null) (builtins.dirOf cfg.logging.file);
+
+  # The sandbox for odoo.service and odoo-migrate, which run the same Odoo
+  # code. Odoo shells out to wkhtmltopdf for PDF reports (QtWebKit's JIT) and
+  # to rtlcss, a Node program (V8's JIT), when it compiles a right-to-left
+  # asset bundle, so both need W+X memory. odoo-migrate gets the same: a
+  # module's install or migration hook may render a report, and a refused
+  # JIT there would fail the deploy and keep Odoo down.
+  odooHardening = odooNixBase.nixos.hardening {
+    readWritePaths = odooWritePaths;
+    profiles = [
+      "wkhtmltopdf"
+      "jit"
+    ];
+  };
 
   # nginx serves the public side over a unix socket; Odoo itself stays on
   # loopback TCP. Verified against the Odoo 18.0 source this module builds:
@@ -70,7 +102,22 @@ let
   # AF_INET in socket.fromfd. (19.x adds http_socket_activation but still passes
   # AF_INET explicitly, which CPython does not verify against the real fd.)
   nginxSocket = cfg.nginx.socketPath != "";
-  nginxSocketDir = builtins.dirOf cfg.nginx.socketPath;
+
+  # nginx's listen socket in its own directory (lib.nixos.unixSocket): 0770,
+  # since nginx -- a member of cfg.group, not the owner -- creates the socket
+  # in it, and nginx chmods the socket itself to 0666, so the directory is
+  # the gate.
+  sockets = odooNixBase.nixos.unixSocket {
+    inherit (cfg) user group;
+    sockets = [
+      {
+        option = "services.odoo-nix.nginx.socketPath";
+        path = cfg.nginx.socketPath;
+        peerCreates = true;
+        example = "/run/odoo/nginx.sock";
+      }
+    ];
+  };
 
   # The vhost only needs a name to key it; with a single server block on the
   # socket it is the default server, so server_name never has to match.
@@ -80,15 +127,8 @@ let
   # emits its include AFTER a location's extraConfig, so the wrong scheme cannot
   # be overridden from there — Odoo's proxy_mode would then build http URLs and
   # drop the Secure flag on session cookies. Opt each location out and set the
-  # whole header block explicitly.
-  socketProxyHeaders = optionalString nginxSocket ''
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto https;
-    proxy_set_header X-Forwarded-Host $host;
-    proxy_set_header X-Forwarded-Server $hostname;
-  '';
+  # whole header block explicitly (lib.nixos.nginx.socketProxyHeaders).
+  socketProxyHeaders = optionalString nginxSocket odooNixBase.nixos.nginx.socketProxyHeaders;
 
   xSendfile = cfg.nginx.enable && cfg.nginx.xSendfile;
 
@@ -163,9 +203,6 @@ let
     LANG = "C.UTF-8";
   }
   // odooNixBase.python.threadCaps
-  # Read by the odoo CLI (lib/odoo_nix_cli/journald.py), which also checks
-  # that stderr really is the journal stream before changing anything.
-  // lib.optionalAttrs journaldActive { ODOO_NIX_JOURNALD = "1"; }
   // cfg.extraEnv;
 
   # The `odoo` an operator runs from a root shell (`odoo db backup`, `odoo db
@@ -200,19 +237,35 @@ let
     exec ${cfg.package}/bin/odoo "$@"
   '';
 
+  # The secret files, as systemd credentials: systemd reads them (as root,
+  # wherever the host keeps them) and hands odoo-init private copies under
+  # $CREDENTIALS_DIRECTORY, so init runs as the service user with no
+  # capabilities (python-devops-nix CONVENTIONS.md, Production secrets).
+  credentials =
+    lib.optional (cfg.database.passwordFile != null) {
+      name = "db_password";
+      file = cfg.database.passwordFile;
+    }
+    ++ lib.optional (cfg.adminPasswordFile != null) {
+      name = "admin_passwd";
+      file = cfg.adminPasswordFile;
+    };
+
+  # As the service user, into the state directory it owns (tmpfiles creates
+  # it, and data/, before any unit starts). The runtime conf is written to a
+  # private temporary file and renamed into place, so Odoo never reads a
+  # half-written one. umask is the script's own, not the unit's: nothing else
+  # is created here.
   mkInitScript = pkgs.writeShellScript "odoo-nix-init" ''
     set -euo pipefail
     umask 077
-    mkdir -p "${cfg.stateDir}/data"
-    cp ${baseConf} ${runtimeConf}
-    chmod 0600 ${runtimeConf}
-    ${optionalString (cfg.database.passwordFile != null) ''
-      printf 'db_password = %s\n' "$(cat ${cfg.database.passwordFile})" >> ${runtimeConf}
-    ''}
-    ${optionalString (cfg.adminPasswordFile != null) ''
-      printf 'admin_passwd = %s\n' "$(cat ${cfg.adminPasswordFile})" >> ${runtimeConf}
-    ''}
-    chown ${cfg.user}:${cfg.group} ${runtimeConf} "${cfg.stateDir}/data"
+    tmp=${runtimeConf}.tmp
+    cat ${baseConf} > "$tmp"
+    ${lib.concatMapStrings (c: ''
+      printf '${c.name} = %s\n' "$(cat "$CREDENTIALS_DIRECTORY/${c.name}")" >> "$tmp"
+    '') credentials}
+    chmod 0600 "$tmp"
+    mv -f "$tmp" ${runtimeConf}
   '';
 
   mg = cfg.migrate;
@@ -379,19 +432,15 @@ in
         description = "Minimum level mirrored to the database (log_db_level).";
       };
       journald = mkOption {
-        type = types.bool;
-        default = true;
+        type = types.nullOr types.bool;
+        default = null;
         description = ''
-          Log to the journal natively: Odoo's stderr records (and the odoo
-          CLI's, for odoo-migrate) are rendered as `<N>dbname logger: message`,
-          where `<N>` is the record's syslog priority (DEBUG 7, INFO 6,
-          WARNING 4, ERROR 3, CRITICAL 2) on every line of the record,
-          tracebacks included, and the asctime/pid/colour journald already
-          records or cannot use are dropped. Without it every line lands at
-          PRIORITY=6. Only takes effect when `logging.file` is null and
-          `settings` sets neither `logfile` nor `syslog`, and only when stderr
-          is the journal stream; needs the CLI package (`packages.default`),
-          the raw builtOdoo tree keeps Odoo's format.
+          Deprecated, and without effect: Odoo logs to the journal natively
+          whenever stderr is the journal stream, as `<N>logger [db] message`
+          (the odoo_journald graft in the project's Python environment;
+          python-devops-nix CONVENTIONS.md, Journald enablement). Accepted,
+          with a warning, through 1.x. `false` still silences the warning
+          about `logging.file`.
         '';
       };
       file = mkOption {
@@ -400,7 +449,7 @@ in
         description = ''
           Write logs to this file (logfile) instead of stderr/journald.
           Leave it null under systemd: the journal already timestamps,
-          rotates and ships the log, with priorities (`logging.journald`).
+          rotates and ships the log, with priorities.
           Odoo's file and stderr log handlers are mutually exclusive, so
           setting this stops Odoo's own log records from reaching
           `journalctl -u odoo` (uncaught tracebacks printed before logging
@@ -547,57 +596,40 @@ in
       '';
     };
 
-    migrate = {
-      enable = mkOption {
-        type = types.bool;
-        default = true;
-        description = ''
-          Bring the database schema in line with the code before every start of
-          odoo.service (odoo-migrate.service). Updates the modules whose code
-          changed (content checksums recorded in the database, the same ones OCA
-          module_auto_update uses) or whose manifest version is ahead of the
-          database; the first run on a database with no recorded checksums
-          updates everything once. odoo.service does not start if it fails.
-          Requires the CLI package (the project flake's `packages.default`).
-        '';
+    # python-devops-nix's shared migrate.{enable,snapshot,rollbackOnFailure,
+    # snapshotRetention} (CONVENTIONS.md, Migrate on deploy), plus odoo-nix's
+    # own full and timeout. odoo-migrate.service runs before every start of
+    # odoo.service and updates the modules whose code changed (content
+    # checksums recorded in the database, the same ones OCA
+    # module_auto_update uses) or whose manifest version is ahead of the
+    # database; the first run on a database with no recorded checksums updates
+    # everything once. The snapshot is the database alone: attachments are
+    # content-addressed and only ever added, so a migration never needs the
+    # filestore rolled back. Requires the CLI package (the project flake's
+    # `packages.default`).
+    migrate =
+      odooNixBase.nixos.migrate.options {
+        what = "`odoo db migrate` (odoo-migrate.service, before every start of odoo.service, which does not start if it fails)";
+        dumpTool = "pg_dump, custom format";
+        where = "per database, under `<data_dir>/backups/<db>/premigrate/`";
+      }
+      // {
+        full = mkOption {
+          type = types.bool;
+          default = false;
+          description = "Update every installed module (`-u all`) on each new build instead of only the changed ones.";
+        };
+        timeout = mkOption {
+          type = types.str;
+          default = "infinity";
+          example = "30min";
+          description = ''
+            TimeoutStartSec for odoo-migrate.service. A first migration of a large
+            database updates every module and can take many minutes; killing it
+            part-way leaves a half-updated schema for the rollback to undo.
+          '';
+        };
       };
-      full = mkOption {
-        type = types.bool;
-        default = false;
-        description = "Update every installed module (`-u all`) on each new build instead of only the changed ones.";
-      };
-      snapshot = mkOption {
-        type = types.bool;
-        default = true;
-        description = ''
-          Take a `pg_dump` snapshot before updating anything, under
-          `<data_dir>/backups/<db>/premigrate/`. Schema changes are DDL and
-          Odoo commits module by module, so a snapshot is the only way back.
-          The filestore is not included: attachments are content-addressed and
-          only ever added, so a migration never needs it rolled back.
-        '';
-      };
-      rollbackOnFailure = mkOption {
-        type = types.bool;
-        default = true;
-        description = "Restore the snapshot if the migration fails. No effect without migrate.snapshot.";
-      };
-      snapshotRetention = mkOption {
-        type = types.ints.positive;
-        default = 3;
-        description = "How many pre-migrate snapshots to keep per database.";
-      };
-      timeout = mkOption {
-        type = types.str;
-        default = "infinity";
-        example = "30min";
-        description = ''
-          TimeoutStartSec for odoo-migrate.service. A first migration of a large
-          database updates every module and can take many minutes; killing it
-          part-way leaves a half-updated schema for the rollback to undo.
-        '';
-      };
-    };
 
     nginx = {
       enable = mkEnableOption "an nginx reverse proxy for Odoo";
@@ -633,7 +665,8 @@ in
 
           nginx chmods its unix listen sockets to 0666, so the socket file does
           not restrict access. Give it its own directory; this module creates
-          that 0750 and owned by the service user, which is the real gate.
+          that 0770 and owned by the service user and group (nginx, in the
+          group, creates the socket there), which is the real gate.
         '';
       };
       xSendfile = mkOption {
@@ -691,15 +724,26 @@ in
   config = mkIf cfg.enable {
     environment.systemPackages = lib.optional cfg.adminCli adminCli;
 
-    # A warning, not an assertion: logging.file predates logging.journald and
-    # a configuration that sets it must keep evaluating.
-    warnings = lib.optional (cfg.logging.journald && cfg.logging.file != null) ''
-      services.odoo-nix.logging.file is set, so Odoo logs to ${cfg.logging.file}
-      and logging.journald has no effect: `journalctl -u odoo` sees only output
-      from before Odoo's logging starts, and without per-record priorities.
-      Leave logging.file null to log to the journal, or set
-      logging.journald = false to keep the file and silence this warning.
-    '';
+    # Warnings, not assertions: a configuration that sets these must keep
+    # evaluating.
+    warnings =
+      lib.optional (cfg.logging.journald != false && cfg.logging.file != null) ''
+        services.odoo-nix.logging.file is set, so Odoo logs to ${cfg.logging.file}:
+        `journalctl -u odoo` sees only output from before Odoo's logging starts,
+        and without per-record priorities. Leave logging.file null to log to the
+        journal, or set logging.journald = false to keep the file and silence
+        this warning.
+      ''
+      ++
+        lib.optional
+          (cfg.logging.journald == true || (cfg.logging.journald == false && cfg.logging.file == null))
+          ''
+            services.odoo-nix.logging.journald has no effect: Odoo logs to the journal
+            natively whenever stderr is the journal stream (python-devops-nix
+            CONVENTIONS.md, Journald enablement)${
+              lib.optionalString (cfg.logging.journald == false) ", and `false` no longer turns that off"
+            }. Remove it; it is accepted through odoo-nix 1.x.
+          '';
 
     assertions = [
       {
@@ -722,17 +766,6 @@ in
         message = "services.odoo-nix.nginx.enable requires nginx.domain (or nginx.socketPath, which needs no server name).";
       }
       {
-        # nginx chmods its listen socket to 0666, so the 0750 directory around it
-        # is what keeps it private.
-        assertion =
-          !nginxSocket
-          || (lib.hasPrefix "/" cfg.nginx.socketPath && nginxSocketDir != "/run" && nginxSocketDir != "/");
-        message =
-          "services.odoo-nix.nginx.socketPath must be an absolute path inside its own directory"
-          + " (e.g. /run/odoo/nginx.sock), not directly in /run — the directory's 0750 mode is"
-          + " what keeps the socket private.";
-      }
-      {
         assertion = !cfg.logging.rotate || cfg.logging.file != null;
         message = "services.odoo-nix.logging.rotate requires logging.file to be set.";
       }
@@ -740,7 +773,10 @@ in
         assertion = cfg.database.ensureExtensions == [ ] || (cfg.database.createLocally && dbName != null);
         message = "services.odoo-nix.database.ensureExtensions requires database.createLocally and a pinned dbName.";
       }
-    ];
+    ]
+    # nginx chmods its listen socket to 0666, so the directory around it is
+    # what keeps it private.
+    ++ sockets.assertions;
 
     users.users = lib.mkMerge [
       (mkIf (cfg.user == "odoo") {
@@ -771,7 +807,7 @@ in
     # group member (added to cfg.group below), so it needs group write on the
     # directory, not just traversal. The directory is the access gate because
     # nginx chmods the socket itself to 0666.
-    ++ lib.optional nginxSocket "d ${nginxSocketDir} 0770 ${cfg.user} ${cfg.group} -"
+    ++ sockets.tmpfiles
     # Odoo's own os.makedirs() fallback for logfile's parent dir silently
     # reverts to stderr logging on PermissionError under a non-root user, so
     # pre-create it with the right owner.
@@ -786,10 +822,18 @@ in
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
+        User = cfg.user;
+        Group = cfg.group;
         ExecStart = mkInitScript;
-        SyslogIdentifier = "odoo-init";
-        LogExtraFields = logFields "init";
-      };
+        LoadCredential = map (c: "${c.name}:${c.file}") credentials;
+      }
+      # It writes the runtime conf into the state directory and opens no
+      # socket of its own.
+      // odooNixBase.nixos.hardening {
+        readWritePaths = [ cfg.stateDir ];
+        addressFamilies = [ "AF_UNIX" ];
+      }
+      // journalFields "init";
     };
 
     # A oneshot WITHOUT RemainAfterExit: it goes back to inactive when it
@@ -820,9 +864,9 @@ in
         TimeoutStartSec = mg.timeout;
         EnvironmentFile = cfg.environmentFiles;
         ExecStart = "${cfg.package}/bin/odoo ${migrateArgs}";
-        SyslogIdentifier = "odoo-migrate";
-        LogExtraFields = logFields "migrate";
-      };
+      }
+      // odooHardening
+      // journalFields "migrate";
     };
 
     systemd.services.odoo = {
@@ -882,12 +926,12 @@ in
         ExecStart = "${cfg.package}/bin/odoo -c ${runtimeConf}";
         Restart = "always";
         RestartSec = "5";
-        # Otherwise each Exec line's own executable name (ExecStartPre's is a
-        # generated script's), which follows the package, not the role --
-        # stable names are what a query can key on.
-        SyslogIdentifier = "odoo";
-        LogExtraFields = logFields "web";
-      };
+      }
+      // odooHardening
+      # SyslogIdentifier=odoo-web: otherwise each Exec line's own executable
+      # name (ExecStartPre's is a generated script's), which follows the
+      # package, not the role -- stable names are what a query can key on.
+      // journalFields "web";
     };
 
     # Odoo has no internal log rotation; its WatchedFileHandler detects when
@@ -932,14 +976,14 @@ in
     };
 
     # The upstream units this module turns on serve this instance alone, so
-    # they carry its journal fields too (see logFields).
-    systemd.services.postgresql.serviceConfig.LogExtraFields = mkIf cfg.database.createLocally (
-      logFields "db"
-    );
-    systemd.services.postgresql-setup.serviceConfig.LogExtraFields = mkIf cfg.database.createLocally (
-      logFields "db"
-    );
-    systemd.services.nginx.serviceConfig.LogExtraFields = mkIf cfg.nginx.enable (logFields "nginx");
+    # they carry its journal fields too (see journalFields), and keep their
+    # own SyslogIdentifiers.
+    systemd.services.postgresql.serviceConfig.LogExtraFields =
+      mkIf cfg.database.createLocally (journalFields "db").LogExtraFields;
+    systemd.services.postgresql-setup.serviceConfig.LogExtraFields =
+      mkIf cfg.database.createLocally (journalFields "db").LogExtraFields;
+    systemd.services.nginx.serviceConfig.LogExtraFields = mkIf cfg.nginx.enable (journalFields "nginx")
+    .LogExtraFields;
 
     # postgresql-setup runs as the postgres superuser and already owns
     # ensureDatabases; append so the database exists before the extensions go
@@ -960,23 +1004,14 @@ in
       enable = true;
       recommendedProxySettings = true;
       recommendedGzipSettings = true;
-      # http-level, so every server block inherits it. commonHttpConfig
-      # rather than appendHttpConfig: a log_format has to be defined before
-      # the first access_log that names it, and the vhosts come in between.
-      # To syslog on /dev/log, i.e. journald, with its own identifier so the
-      # request lines are separable from nginx's error log (stderr, same
-      # unit). escape=json makes each line a valid JSON object; $status,
-      # $body_bytes_sent and $request_time are always numeric, so unquoted.
-      commonHttpConfig =
-        if cfg.logging.accessLog then
-          ''
-            log_format journal_json escape=json '{"time":"$time_iso8601","site":"$host","method":"$request_method","uri":"$request_uri","status":$status,"bytes":$body_bytes_sent,"request_time":$request_time,"upstream_time":"$upstream_response_time","remote_addr":"$remote_addr","user_agent":"$http_user_agent","referer":"$http_referer"}';
-            access_log syslog:server=unix:/dev/log,tag=nginx_access,nohostname journal_json;
-          ''
-        else
-          ''
-            access_log off;
-          '';
+      # The error log over syslog, so each line keeps its severity (on
+      # stderr every line is info). nginx-wide, as logError is; mkDefault, so
+      # the host may send it elsewhere.
+      logError = lib.mkDefault odooNixBase.nixos.nginx.errorLog;
+      # The access log as one JSON object per request, to the journal under
+      # SYSLOG_IDENTIFIER=nginx_access (lib.nixos.nginx.accessLog). http-level,
+      # so every server block inherits it.
+      commonHttpConfig = odooNixBase.nixos.nginx.accessLog cfg.logging.accessLog;
       upstreams.odoo.servers."127.0.0.1:${toString cfg.http.port}" = { };
       upstreams.odoochat.servers."127.0.0.1:${toString cfg.http.longpollingPort}" = { };
       virtualHosts.${vhostName} = {
@@ -988,10 +1023,7 @@ in
         extraConfig = ''
           client_max_body_size ${cfg.nginx.clientMaxBodySize};
         ''
-        + optionalString nginxSocket ''
-          set_real_ip_from unix:;
-          real_ip_header CF-Connecting-IP;
-        '';
+        + optionalString nginxSocket odooNixBase.nixos.nginx.cloudflareRealIp;
 
         # In socket mode this module owns the complete header set (the
         # recommended include is off per location, and its $scheme is wrong here).

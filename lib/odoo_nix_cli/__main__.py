@@ -56,24 +56,31 @@ def _raw_odoo_bin() -> str:
 
 
 def _setup_journald() -> None:
-    """journald-native logging (services.odoo-nix sets $ODOO_NIX_JOURNALD; see
-    journald.py). Both halves are set up here, before dispatch, because this
-    is the one point every invocation passes through: the in-process handler
-    for our own commands, and -- since most invocations leave this process
-    through os.execv -- the sitecustomize directory on PYTHONPATH, which is
-    what carries the patch into odoo-bin and whatever it spawns."""
-    from . import journald
+    """journald-native logging for this process (odoo_journald, grafted into
+    the Python environment this CLI imports Odoo from; lib/journald.nix).
 
-    if not journald.enabled():
-        return
-    site_dir = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "_journald_site"
-    )
-    current = os.environ.get("PYTHONPATH")
-    os.environ["PYTHONPATH"] = (
-        f"{site_dir}{os.pathsep}{current}" if current else site_dir
-    )
-    journald.install_root_handler()
+    odoo-bin and everything it spawns get it from the environment's `.pth`
+    graft. This interpreter is a separate one (rich + click) with the
+    environment only on PYTHONPATH, where `.pth` files are not processed, so
+    it installs the graft itself, plus a handler for its own in-process
+    commands, where Odoo's init_logger never runs. Both do nothing unless
+    stderr is the journal.
+    """
+    try:
+        import odoo_journald
+    except ImportError:
+        odoo_journald = None
+    if odoo_journald is not None:
+        odoo_journald.install()
+        odoo_journald.install_root_handler()
+    if "ODOO_NIX_JOURNALD" in os.environ:
+        # Accepted, and ignored, through 1.x; removed in 2.0.0.
+        import logging
+
+        logging.getLogger("odoo_nix").warning(
+            "$ODOO_NIX_JOURNALD is no longer read: Odoo logs to the journal natively whenever "
+            "stderr is the journal stream. Remove it: it is ignored through odoo-nix 1.x."
+        )
 
 
 def _install_devguard() -> None:

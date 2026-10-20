@@ -18,8 +18,11 @@
 #   - backups and pre-migrate snapshots are owner-only, though nginx is in
 #     the service group, while what a migration writes to the filestore stays
 #     readable to nginx through that group;
-#   - logs: Odoo's records reach the journal with their syslog priority on
-#     every line (tracebacks too), no asctime/pid, and the journal fields.
+#   - logs: Odoo's records reach the journal as `<N>logger [db] message`,
+#     with their syslog priority on every line (tracebacks too), no
+#     asctime/pid, and the journal fields;
+#   - the units run under python-devops-nix's hardening baseline, and
+#     odoo-init as the service user.
 #
 # Run: nix build .#checks.<system>.module-odoo-18   (needs KVM)
 {
@@ -156,19 +159,26 @@ pkgs.testers.runNixOSTest {
             return [e for e in journal(f"_SYSTEMD_UNIT={unit}") if e.get("_PID") != "1"]
 
         web = odoo_entries("odoo.service")
-        version = next(e for e in web if "odoo: Odoo version" in text(e))
-        # <6> consumed by journald as the priority; dbname ('?': no request)
-        # and logger stay, asctime and pid (fields journald has) go
-        assert text(version).startswith("? odoo: Odoo version ${series}"), version
+        version = next(e for e in web if "Odoo version" in text(e))
+        # <6> consumed by journald as the priority; the logger stays, with no
+        # [db] (no request, no database), and asctime and pid (fields journald
+        # has) go
+        assert text(version).startswith("odoo Odoo version ${series}"), version
         assert version["PRIORITY"] == "6", version
-        assert version["SYSLOG_IDENTIFIER"] == "odoo", version
+        assert version["SYSLOG_IDENTIFIER"] == "odoo-web", version
         assert version["APP_SERVICE"] == "web" and version["APP_SITE"] == "acme", version
         # Not one line in Odoo's terminal format -- the prefork workers and
         # the separately exec'd gevent process included.
         stamped = [text(e) for e in web if re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ ", text(e))]
         assert not stamped, stamped[:5]
-        # the request log of the curls above, with Odoo's perf_info
-        assert any(re.search(r"werkzeug: .*\"GET /web/login HTTP/1\.[01]\" 200 ", text(e)) for e in web)
+        # the request log of the curls above, with Odoo's perf_info, and the
+        # database it served in brackets
+        assert any(
+            re.search(r"^werkzeug (\[acme\] )?.*\"GET /web/login HTTP/1\.[01]\" 200 ", text(e))
+            for e in web
+        ), [text(e) for e in web if "werkzeug" in text(e)][-5:]
+        # what Odoo logs about a database names it: `<logger> [acme] ...`
+        assert any(re.match(r"^odoo\.\S+ \[acme\] ", text(e)) for e in web), [text(e) for e in web][-10:]
 
         migrate = odoo_entries("odoo-migrate.service")
         assert any("provisioned 'acme'" in text(e) for e in migrate), migrate[-5:]
@@ -184,13 +194,12 @@ pkgs.testers.runNixOSTest {
         machine.execute(
             "systemd-run --wait --collect --unit odoo-journald-probe"
             " -p User=odoo -p Group=odoo -p WorkingDirectory=/var/lib/odoo"
-            " -p Environment=ODOO_NIX_JOURNALD=1"
             " ${odooCli}/bin/odoo -c /var/lib/odoo/odoo.conf --load=base,web,no_such_module"
             " --workers=0 --max-cron-threads=0 --stop-after-init"
         )
         probe = odoo_entries("odoo-journald-probe.service")
         failed = next(i for i, e in enumerate(probe) if "Failed to load server-wide module `no_such_module`" in text(e))
-        assert text(probe[failed]).startswith("? odoo.service.server: Failed to load"), probe[failed]
+        assert text(probe[failed]).startswith("odoo.service.server Failed to load"), probe[failed]
         assert text(probe[failed + 1]) == "Traceback (most recent call last):", probe[failed:failed + 3]
         # ...down to the exception itself, the record's last line
         last = next(i for i in range(failed, len(probe)) if "No module named" in text(probe[i]))
@@ -203,6 +212,23 @@ pkgs.testers.runNixOSTest {
         assert access["site"] == "odoo.example.com" and access["uri"] == "/web/login", access
         assert access["status"] == 200, access
         assert entry["APP_SERVICE"] == "nginx" and entry["APP_SITE"] == "acme", entry
+
+    with subtest("the units run sandboxed, init as the service user"):
+        def prop(unit, name):
+            return machine.succeed(f"systemctl show {unit} -P {name}").strip()
+
+        for unit in ("odoo.service", "odoo-migrate.service", "odoo-init.service"):
+            assert prop(unit, "ProtectSystem") == "strict", unit
+            assert prop(unit, "NoNewPrivileges") == "yes", unit
+            assert prop(unit, "CapabilityBoundingSet") == "", (unit, prop(unit, "CapabilityBoundingSet"))
+            # No unit-wide umask: the filestore subtest below needs group read.
+            assert prop(unit, "UMask") == "0022", (unit, prop(unit, "UMask"))
+        assert prop("odoo-init.service", "User") == "odoo"
+        # The runtime conf odoo-init wrote, as the service user, private.
+        machine.succeed("stat -c '%a %U:%G' /var/lib/odoo/odoo.conf | grep -x '600 odoo:odoo'")
+        # Odoo itself cannot write outside its state directory.
+        pid = prop("odoo.service", "MainPID")
+        machine.succeed(f"awk '$5 == \"/\" {{ print $6 }}' /proc/{pid}/mountinfo | grep -q '^ro'")
 
     with subtest("root's odoo runs as the service, with its tools and config"):
         # pg_dump is on no root PATH here: the wrapper brings the service's.
