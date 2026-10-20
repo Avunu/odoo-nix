@@ -471,12 +471,14 @@
                 zizmor --offline --config .github/zizmor.yml .github/workflows
               '';
 
-          # The scaffolder, offline (git and uv stood in): the identity it
-          # writes is `odoo-nix.name`.
+          # The scaffolder, offline (odoo-nix-sources and uv stood in, git
+          # real): every flag and branch, its exit codes, and what it writes
+          # (tests/odoo-init.sh).
           scaffold =
             mkCheck pkgs "scaffold"
               {
                 nativeCheckInputs = with pkgs; [
+                  git
                   jq
                   gawk
                   gnused
