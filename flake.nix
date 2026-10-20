@@ -213,6 +213,7 @@
         }:
         import ./lib/devguard.nix { inherit pkgs base settings; };
       cliPackage = pkgs: import ./lib/cli-package.nix { inherit pkgs base; };
+      shellTools = pkgs: import ./lib/shell-tools.nix { inherit pkgs base; };
 
       relock =
         pkgs:
@@ -264,6 +265,7 @@
       #   journald-formatter                                  the CLI's journald output (all systems)
       #   devguard-core, devguard, devguard-baked             the dev guard rails: base core, odoo-nix's side (all systems)
       #   sources                                             shell entry's submodule checkout (all systems)
+      #   bootstrap, eval-bootstrap-lock-*                    the fresh-clone checkout before `use flake` (all systems)
       #   scaffold                                            odoo-init's generated project, offline (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
@@ -487,6 +489,22 @@
                 bash ${./tests/odoo-init.sh} ${(odooInit pkgs).script}
               '';
 
+          # odoo-nix-bootstrap and the template's .envrc: a fresh clone, its
+          # tree dirty, gets its submodules from the pinned odoo-nix-sources
+          # before `use flake`; `nix` is a stub (tests/bootstrap.sh).
+          bootstrap =
+            mkCheck pkgs "bootstrap"
+              {
+                nativeCheckInputs = [
+                  pkgs.git
+                  pkgs.gawk
+                ];
+              }
+              ''
+                bash ${./tests/bootstrap.sh} ${lib.getExe (shellTools pkgs).bootstrap} \
+                  ${./templates/project/.envrc} odoo-nix
+              '';
+
           # odoo-nix-sources (python-devops-nix's lib.sources, configured in
           # lib/shell-tools.nix): odoo-nix's acceptance test of it.
           sources =
@@ -499,9 +517,7 @@
                 ];
               }
               ''
-                bash ${./tests/sources.sh} ${
-                  lib.getExe (import ./lib/shell-tools.nix { inherit pkgs base; }).sources
-                }
+                bash ${./tests/sources.sh} ${lib.getExe (shellTools pkgs).sources}
               '';
         }
         // lib.optionalAttrs isLinux {
@@ -523,12 +539,62 @@
               }
               ''
                 bash ${inputs.python-devops-nix}/tests/db-nocow.sh \
-                  ${
-                    lib.getExe (import ./lib/shell-tools.nix { inherit pkgs base; }).dbNocow
-                  } parent pidfile odoo-nix
+                  ${lib.getExe (shellTools pkgs).dbNocow} parent pidfile odoo-nix
               '';
         }
         // perSeries
+        // evalChecks "" (
+          # lib/bootstrap-lock.nix: the pinned odoo-nix, from the lock alone.
+          let
+            pinned = import ./lib/bootstrap-lock.nix;
+            lock = {
+              version = 7;
+              root = "root";
+              nodes = {
+                root.inputs = {
+                  odoo-nix = "odoo-nix_2";
+                  nixpkgs = [
+                    "odoo-nix_2"
+                    "nixpkgs"
+                  ];
+                };
+                odoo-nix_2.locked = {
+                  type = "github";
+                  owner = "Avunu";
+                  repo = "odoo-nix";
+                  rev = "5557173c4cfb5cd2e245763c181236678c5293a4";
+                  narHash = "sha256-OlOiOcu7OpTvDBKYSHgEIQ9HbJQLCVoGKvLLMlhjKPA=";
+                  lastModified = 1792505124;
+                };
+              };
+            };
+          in
+          {
+            bootstrap-lock-renamed-node = {
+              expected = "github:Avunu/odoo-nix/5557173c4cfb5cd2e245763c181236678c5293a4?narHash=sha256-OlOiOcu7OpTvDBKYSHgEIQ9HbJQLCVoGKvLLMlhjKPA%3D";
+              actual = pinned {
+                inherit lock;
+                input = "odoo-nix";
+              };
+            };
+            bootstrap-lock-follows = {
+              expected = false;
+              actual =
+                (builtins.tryEval (pinned {
+                  inherit lock;
+                  input = "nixpkgs";
+                })).success;
+            };
+            bootstrap-lock-no-input = {
+              expected = false;
+              actual =
+                (builtins.tryEval (pinned {
+                  inherit lock;
+                  input = "frappe-nix";
+                })).success;
+            };
+          }
+        )
         // evalChecks "" (
           import ./tests/lock-audit.nix {
             inherit pkgs lib inputs;
@@ -600,8 +666,13 @@
       );
 
       # `nix run github:<owner>/odoo-nix` scaffolds a new Odoo + OCA project.
+      # sources and bootstrap are the submodule checkout, outside the dev
+      # shell: a project's .envrc runs bootstrap on a fresh clone, before Nix
+      # evaluates the project's flake (lib/bootstrap.sh), and bootstrap runs
+      # sources from the revision the project's flake.lock pins.
       packages = forAllSystems (pkgs: rec {
         odoo-init = odooInit pkgs;
+        inherit (shellTools pkgs) sources bootstrap;
         odoo-ls = import ./lib/odoo-ls.nix {
           inherit pkgs;
           inherit (pkgs) lib;
@@ -628,6 +699,20 @@
         {
           default = app;
           odoo-init = app;
+          # `nix run github:Avunu/odoo-nix#bootstrap -- ROOT`: a fresh clone's
+          # submodules, before its flake is evaluated (a project's .envrc).
+          bootstrap = {
+            type = "app";
+            program = pkgs.lib.getExe (shellTools pkgs).bootstrap;
+            meta.description = "Check out a fresh clone's submodules before Nix evaluates the project's flake";
+          };
+          # `nix run github:Avunu/odoo-nix/<rev>#sources -- enter --treeless odoo ROOT`:
+          # the dev shell's submodule checkout, outside it.
+          sources = {
+            type = "app";
+            program = pkgs.lib.getExe (shellTools pkgs).sources;
+            meta.description = "Check out a project's submodules as shell entry does (odoo-nix-sources)";
+          };
           # `nix run .#relock [-- --upgrade]`: regenerate tests/fixtures/*/uv.lock
           # against the pinned OCB inputs (needs network; never runs in a check).
           relock = {

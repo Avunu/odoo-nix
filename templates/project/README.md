@@ -19,11 +19,16 @@ distribution + **OCA** modules, managed declaratively with
 ## Quick start
 
 ```sh
-git clone --recurse-submodules <this-repo> && cd @PROJECT_NAME@
-direnv allow          # or: nix develop --no-pure-eval
+git clone <this-repo> && cd @PROJECT_NAME@
+direnv allow          # checks out the submodules, then loads the dev shell
 devenv up             # start postgres + odoo + mailpit
 odoo db provision     # (another shell) create the DB + install modules.txt
 ```
+
+Nix reads the submodules while it evaluates `flake.nix`, so a fresh clone needs
+them checked out first; `.envrc` does that with odoo-nix's own tool, as partial
+clones. Without direnv, run `nix run github:Avunu/odoo-nix#bootstrap` before
+`nix develop --no-pure-eval`.
 
 Open <http://localhost:8069>. Mailpit UI is at <http://localhost:8025>.
 

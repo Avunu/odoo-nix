@@ -9,6 +9,12 @@
 #                       scope), and a checkout recurses into its own submodules.
 #                       The core path is passed at run time (`--treeless`), so
 #                       one command serves every layout.
+#   odoo-nix-bootstrap  lib/bootstrap.sh: odoo-nix-sources from the revision a
+#                       project's flake.lock pins, run before Nix evaluates
+#                       the project's flake, which reads its submodules. A
+#                       project's .envrc runs it on a fresh clone
+#                       (`nix run github:Avunu/odoo-nix#bootstrap`), OCB
+#                       (odoo/) commits-only when the project has it there.
 #   odoo-nix-db-nocow   lib.dbNocow: the dev PostgreSQL datadir off btrfs
 #                       copy-on-write. devenv runs initdb only when $PGDATA is
 #                       missing, so the parent is marked until it has made it;
@@ -24,13 +30,32 @@
   # The dev shell passes the project's, so the shell carries no second one.
   python ? pkgs.python3,
 }:
-{
+rec {
   sources = base.sources.command {
     inherit pkgs python;
     label = "odoo-nix";
     noun = "project";
     recursive = true;
     updateCommand = "odoo project update";
+  };
+
+  bootstrap = pkgs.writeShellApplication {
+    name = "odoo-nix-bootstrap";
+    runtimeInputs = [
+      pkgs.git
+      pkgs.gnugrep
+      pkgs.coreutils
+    ];
+    text = ''
+      LABEL=odoo-nix
+      INPUT=odoo-nix
+      SOURCES=${pkgs.lib.getExe sources}
+      LOCKREF=${./bootstrap-lock.nix}
+      STATUS=--recursive
+      TREELESS=odoo
+    ''
+    + builtins.readFile ./bootstrap.sh;
+    meta.description = "Check out a fresh clone's submodules before Nix evaluates the project's flake";
   };
 
   dbNocow = base.dbNocow {
