@@ -216,9 +216,7 @@ in
       fileQuiet = [ ];
     };
     actual = {
-      env = lib.filter (u: (pinned.systemd.services.${u}.environment.ODOO_NIX_JOURNALD or null) != null) (
-        odooUnits
-      );
+      env = lib.filter (u: pinned.systemd.services.${u}.environment ? ODOO_NIX_JOURNALD) odooUnits;
       toFileWarns = warns toFile "logging.file is set";
       defaultWarns = warns pinned "services.odoo-nix";
       onWarns = warns journaldOn "logging.journald has no effect";
