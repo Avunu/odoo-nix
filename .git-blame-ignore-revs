@@ -5,3 +5,7 @@
 # chore: nix fmt, and a nix-lint check (#43) -- the first `nix fmt` over the
 # repo, squashed with statix's `inherit` rewrites and deadnix's unused names.
 0c475f5a4c33d8d04483c193120f08f56155ea03
+
+# style(tooling): pass every prek hook over the whole tree (#76) -- ruff format
+# and import order across the tree, the first prek sweep.
+e8ae504bd71322b323e947ae82f71d22b7ccd035
