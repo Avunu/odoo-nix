@@ -15,5 +15,9 @@ def migrate(cr, version):
     )
     env = api.Environment(cr, 1, {})
     env["ir.attachment"].create(
-        {"name": "odoo_nix_fixture_migrated.txt", "raw": b"written during migrate", "public": True}
+        {
+            "name": "odoo_nix_fixture_migrated.txt",
+            "raw": b"written during migrate",
+            "public": True,
+        }
     )

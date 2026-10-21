@@ -1,8 +1,7 @@
 import socket
 
-from odoo.tests import TransactionCase
-
 import odoo_devguard
+from odoo.tests import TransactionCase
 from odoo_devguard import DevGuardBlocked, settings
 
 
@@ -58,4 +57,6 @@ class TestDevguard(TransactionCase):
         # have raised DevGuardBlocked had it tried).
         server = self.env["ir.mail_server"]
         connect = getattr(server, "_connect__", None) or server.connect
-        self.assertIsNone(connect(host="smtp.example.com", port=25, user="u", password="p"))
+        self.assertIsNone(
+            connect(host="smtp.example.com", port=25, user="u", password="p")
+        )

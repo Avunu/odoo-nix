@@ -86,7 +86,7 @@ def extract_dict_from_source(content: str) -> dict | None:
         try:
             manifest = eval(dict_str, {"__builtins__": {}}, {})
             return manifest if isinstance(manifest, dict) else None
-        except Exception:
+        except Exception:  # noqa: BLE001 -- whatever eval raises, the manifest is unparseable
             return None
 
 
@@ -161,7 +161,10 @@ def process_ref(git_dir: Path, repo: str, series: str) -> tuple[list[dict], int]
         module_name = path.split("/", 1)[0]
         manifest = extract_dict_from_source(content)
         if manifest is None:
-            print(f"  [WARN] Could not parse manifest: {repo}@{series}:{path}", file=sys.stderr)
+            print(
+                f"  [WARN] Could not parse manifest: {repo}@{series}:{path}",
+                file=sys.stderr,
+            )
             skipped += 1
             continue
 
@@ -248,7 +251,10 @@ def main():
     for series, count in per_series.items():
         print(f"  {series}: {count}", file=sys.stderr)
     if total_skipped:
-        print(f"  ({total_skipped} skipped: unparseable or version/branch mismatch)", file=sys.stderr)
+        print(
+            f"  ({total_skipped} skipped: unparseable or version/branch mismatch)",
+            file=sys.stderr,
+        )
     print(f"Output: {output_path}", file=sys.stderr)
     return 0
 

@@ -51,8 +51,10 @@ def _local_modules(modules_dir, custom_dir):
     patterns = []
     if modules_dir:
         patterns += [
-            os.path.join(modules_dir, "*", "*", "__manifest__.py"),  # modules/<repo>/<module>
-            os.path.join(modules_dir, "*", "__manifest__.py"),       # modules/<module>
+            # modules/<repo>/<module>
+            os.path.join(modules_dir, "*", "*", "__manifest__.py"),
+            # modules/<module>
+            os.path.join(modules_dir, "*", "__manifest__.py"),
         ]
     if custom_dir:
         patterns += [os.path.join(custom_dir, "*", "__manifest__.py")]
@@ -66,7 +68,8 @@ def _local_modules(modules_dir, custom_dir):
 def _is_packaged(module_dir):
     """True when uv can build the module dir (whool pyproject or legacy setup.py)."""
     return any(
-        os.path.isfile(os.path.join(module_dir, f)) for f in ("pyproject.toml", "setup.py")
+        os.path.isfile(os.path.join(module_dir, f))
+        for f in ("pyproject.toml", "setup.py")
     )
 
 
@@ -131,7 +134,8 @@ def update(pyproject, modules_txt, modules_dir, custom_dir, core_src):
 
     roots = []
     if modules_txt and os.path.isfile(modules_txt):
-        roots = [ln.strip() for ln in open(modules_txt, encoding="utf-8") if ln.strip()]
+        with open(modules_txt, encoding="utf-8") as f:
+            roots = [ln.strip() for ln in f if ln.strip()]
     # Only emit roots that exist locally; a root whose repo isn't cloned would
     # make uv fall back to PyPI (version conflicts). Warn so the user can add it
     # via `odoo module add` (which clones its repo).
@@ -141,10 +145,12 @@ def update(pyproject, modules_txt, modules_dir, custom_dir, core_src):
         sys.stderr.write(
             "odoo-nix: note — install modules not found on disk (skipped; "
             "add them with `odoo module add` to clone their repo): "
-            + ", ".join(sorted(missing)) + "\n"
+            + ", ".join(sorted(missing))
+            + "\n"
         )
 
-    text = open(pyproject, encoding="utf-8").read()
+    with open(pyproject, encoding="utf-8") as f:
+        text = f.read()
     indent = re.search(r"^([ \t]*)" + re.escape(DEP_BEGIN), text, re.MULTILINE)
     pad = indent.group(1) if indent else "    "
 
@@ -166,11 +172,15 @@ def update(pyproject, modules_txt, modules_dir, custom_dir, core_src):
 
     text, ok1 = _replace_block(text, DEP_BEGIN, DEP_END, dep_body, label="dependencies")
     text, ok2 = _replace_block(text, SRC_BEGIN, SRC_END, src_body, label="sources")
-    open(pyproject, "w", encoding="utf-8").write(text)
+    with open(pyproject, "w", encoding="utf-8") as f:
+        f.write(text)
     sys.stderr.write(
         f"odoo-nix: synced {len(roots)} install root(s) + {len(sources)} module source(s)"
-        + (f" ({len(local) - len(sources)} unpackaged module(s) on addons_path only)"
-           if len(local) > len(sources) else "")
+        + (
+            f" ({len(local) - len(sources)} unpackaged module(s) on addons_path only)"
+            if len(local) > len(sources)
+            else ""
+        )
         + "\n"
     )
     return 0 if (ok1 and ok2) else 1

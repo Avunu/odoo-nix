@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(sys.argv.pop(1)))
 
-from odoo_nix_cli.backups import BackupError, backups  # noqa: E402
+from odoo_nix_cli.backups import BackupError, backups
 
 NAMES = [
     "2026_10_01_03_00_00.dump",
@@ -37,12 +37,21 @@ class OdooBackupsTest(unittest.TestCase):
         for name in NAMES:
             (self.root / "prod" / name).write_bytes(name.encode())
         # Not backups: must never be listed or selected.
-        for junk in ("notes.txt", "2026_10_05_03_00_00.dump.partial", "latest.dump", "2026_13_01_00_00_00.dump"):
+        for junk in (
+            "notes.txt",
+            "2026_10_05_03_00_00.dump.partial",
+            "latest.dump",
+            "2026_13_01_00_00_00.dump",
+        ):
             (self.root / "prod" / junk).write_text("x")
         (self.root / "prod" / "nested").mkdir()
         (self.root / "prod" / "nested" / "2026_10_06_03_00_00.dump").write_text("x")
         self.cache = Path(tmp.name, "cache")
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("BACKUPS_", "ODOO_NIX_"))}
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(("BACKUPS_", "ODOO_NIX_"))
+        }
         env["ODOO_NIX_BACKUP_SOURCE"] = str(self.root)
         patcher = unittest.mock.patch.dict(os.environ, env, clear=True)
         patcher.start()
@@ -74,7 +83,12 @@ class OdooBackupsTest(unittest.TestCase):
                 (NAMES[0], NAMES[0]),
             ):
                 with self.subTest(at=at):
-                    self.assertEqual(backups.fetch(store, "prod", dest=self.cache, at=at, keep=0).backup.name, want)
+                    self.assertEqual(
+                        backups.fetch(
+                            store, "prod", dest=self.cache, at=at, keep=0
+                        ).backup.name,
+                        want,
+                    )
             with self.assertRaises(BackupError) as ctx:
                 backups.fetch(store, "prod", dest=self.cache, at="2001")
             self.assertIn("no backup matches --at 2001", ctx.exception.message)
@@ -87,23 +101,26 @@ class OdooBackupsTest(unittest.TestCase):
         with backups.store() as store:
             backups.fetch(store, "prod", dest=self.cache)
             backups.fetch(store, "prod", dest=self.cache, at="2026_10_03")
-            got = backups.fetch(store, "prod", dest=self.cache, at="2026_10_01").paths["dump"]
+            got = backups.fetch(store, "prod", dest=self.cache, at="2026_10_01").paths[
+                "dump"
+            ]
             self.assertTrue(got.is_file())
             self.assertEqual(got.read_bytes(), NAMES[0].encode())
 
     def test_a_database_without_backups_says_what_is_there(self):
-        with backups.store() as store:
-            with self.assertRaises(BackupError) as ctx:
-                backups.fetch(store, "other", dest=self.cache)
+        with backups.store() as store, self.assertRaises(BackupError) as ctx:
+            backups.fetch(store, "other", dest=self.cache)
         self.assertIn("no backups under", ctx.exception.message)
-        self.assertIn("<prefix>/<database>/<YYYY_MM_DD_HH_MM_SS>.dump[.zip]", "\n".join(ctx.exception.details))
+        self.assertIn(
+            "<prefix>/<database>/<YYYY_MM_DD_HH_MM_SS>.dump[.zip]",
+            "\n".join(ctx.exception.details),
+        )
 
     def test_missing_credentials_name_the_way_out(self):
         with unittest.mock.patch.dict(os.environ, {}, clear=True):
             self.assertFalse(backups.has_credentials())
-            with self.assertRaises(BackupError) as ctx:
-                with backups.store():
-                    pass
+            with self.assertRaises(BackupError) as ctx, backups.store():
+                pass
         text = ctx.exception.render(backups.label)
         self.assertTrue(text.startswith("odoo-nix: "))
         self.assertIn("BACKUPS_BUCKET", text)

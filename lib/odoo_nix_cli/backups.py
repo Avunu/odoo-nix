@@ -10,10 +10,19 @@ Connection: the BACKUPS_* variables of the backup-access secret. Overrides:
 ODOO_NIX_BACKUP_SOURCE (a directory, or an mc target, laid out like the
 bucket), ODOO_NIX_MC (the minio-client binary).
 """
+
 from . import _backups, backup_layout
 from ._backups import BackupError, BackupSet, Fetched, Store, parse_at, pick
 
-__all__ = ["BackupError", "BackupSet", "Fetched", "Store", "parse_at", "backups", "pick"]
+__all__ = [
+    "BackupError",
+    "BackupSet",
+    "Fetched",
+    "Store",
+    "backups",
+    "parse_at",
+    "pick",
+]
 
 #: The fetch layer, as odoo-nix names it: messages are "odoo-nix: ...", the
 #: overrides are ODOO_NIX_*, and the throwaway mc alias is `odoonix`.
