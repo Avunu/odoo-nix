@@ -1040,7 +1040,6 @@ in
           python = "${pythonEnvs.devPythonEnv}/bin/python";
           inherit (cfg) odooSeries layout coreSource;
           ocaDataset = ../data/oca-modules.json;
-          ocaLib = ../lib/oca-lib.sh;
           bundlesFile = ../data/oca-bundles.json;
         };
 
@@ -1406,7 +1405,6 @@ in
 
                 # Tooling
                 uv
-                gum
                 gawk
                 mailpit
                 curl
