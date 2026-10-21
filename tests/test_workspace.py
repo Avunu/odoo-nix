@@ -11,7 +11,6 @@ Run: python3 -I tests/test_workspace.py <dir holding odoo_nix_cli> <data dir>
 import contextlib
 import io
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(sys.argv.pop(1)))
 DATA = Path(sys.argv.pop(1)).resolve()
 
-from odoo_nix_cli.workspace import config, remove
+from odoo_nix_cli.workspace import config, lock, remove, update
 from odoo_nix_cli.workspace.add import Stop
 from odoo_nix_cli.workspace.common import read_modules, write_modules
 
@@ -33,7 +32,11 @@ GOOD = {
     "ocaBundles": str(DATA / "oca-bundles.json"),
     "layout": {"coreSrc": "odoo", "externalDir": "modules", "customDir": "custom"},
     "sources": "odoo-nix-sources",
-    "regenerate": shutil.which("true") or "/bin/true",
+    "python": sys.executable,
+    "ocaSources": "oca_sources.py",
+    "uv": "uv",
+    "buildDeps": "odoo-nix-build-deps",
+    "coreSource": None,
 }
 
 
@@ -85,9 +88,24 @@ class ArgsTest(unittest.TestCase):
                 remove.parse_args(argv)
 
 
+def stub(path, name, rc_var):
+    """An executable at PATH that logs ``NAME argv…`` to $STUB_LOG and exits
+    with $RC_VAR (0 when unset)."""
+    Path(path).write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "with open(os.environ['STUB_LOG'], 'a') as f:\n"
+        f"    f.write(' '.join([{name!r}, *sys.argv[1:]]) + '\\n')\n"
+        f"sys.exit(int(os.environ.get({rc_var!r}, '0')))\n"
+    )
+    os.chmod(path, 0o755)
+
+
 class Workspace(unittest.TestCase):
     """A workspace in a fresh directory: submodules registered in .gitmodules
-    (paths only, nothing cloned), modules on disk where a test puts them."""
+    (paths only, nothing cloned), modules on disk where a test puts them. The
+    re-lock's tools (oca_sources.py, uv, odoo-nix-build-deps) are stubs that log
+    to $STUB_LOG and exit with $RC_SOURCES, $RC_UV and $RC_BUILD_DEPS."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -95,7 +113,24 @@ class Workspace(unittest.TestCase):
         cwd = os.getcwd()
         os.chdir(tmp.name)
         self.addCleanup(os.chdir, cwd)
-        self.cfg = config.parse(GOOD)
+        tools = Path(tmp.name, ".tools")
+        tools.mkdir()
+        stub(tools / "oca_sources.py", "oca_sources", "RC_SOURCES")
+        stub(tools / "uv", "uv", "RC_UV")
+        stub(tools / "build-deps", "build-deps", "RC_BUILD_DEPS")
+        self.cfg = config.parse(
+            {
+                **GOOD,
+                "ocaSources": str(tools / "oca_sources.py"),
+                "uv": str(tools / "uv"),
+                "buildDeps": str(tools / "build-deps"),
+            }
+        )
+        self.log = tools / "log"
+        self.log.touch()
+        env = unittest.mock.patch.dict(os.environ, {"STUB_LOG": str(self.log)})
+        env.start()
+        self.addCleanup(env.stop)
 
     def sub(self, path, *modules, depends=None):
         git("config", "-f", ".gitmodules", f"submodule.{path}.path", path)
@@ -295,6 +330,192 @@ class RemoveTest(Workspace):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(remove.remove(self.cfg, ["a"]), 0)
         self.assertEqual(read_modules(), ["b"])
+
+
+class RelockTest(Workspace):
+    """odoo_nix_cli.workspace.update's relock and regenerate, with oca_sources.py,
+    uv and odoo-nix-build-deps stood in."""
+
+    def calls(self):
+        return self.log.read_text().splitlines()
+
+    @contextlib.contextmanager
+    def quiet(self, **rcs):
+        """The stubs' statuses set to RCS, and the output caught: yields (out, err)."""
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            unittest.mock.patch.dict(os.environ, rcs),
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+        ):
+            yield out, err
+
+    def relock(self, *uv_args, **rcs):
+        with self.quiet(**rcs) as (out, err):
+            r = update.relock(self.cfg, uv_args)
+        return r, out.getvalue(), err.getvalue()
+
+    def test_sequence(self):
+        r, out, err = self.relock("--upgrade-package", "lxml")
+        self.assertEqual((r.status, err), (0, ""))
+        self.assertEqual(
+            self.calls(),
+            [
+                "oca_sources update pyproject.toml modules.txt modules custom odoo",
+                "uv lock --upgrade-package lxml",
+                "build-deps update pyproject.toml uv.lock",
+                "uv lock",
+            ],
+        )
+        self.assertIn("==> Regenerating uv path-sources…", out)
+        self.assertIn("==> Re-locking Python environment (uv lock)…", out)
+
+    def test_failed_path_sources_stop_it(self):
+        r, _, _ = self.relock(RC_SOURCES="3")
+        self.assertEqual((r.sources, r.status), (3, 3))
+        self.assertEqual(len(self.calls()), 1)
+        with self.quiet(RC_SOURCES="3"):
+            self.assertEqual(update.regenerate(self.cfg), 3)
+
+    def test_failed_lock_is_said_and_nothing_follows(self):
+        r, _, err = self.relock(RC_UV="2")
+        self.assertEqual((r.sources, r.lock, r.status), (0, 2, 2))
+        self.assertIn(update.LOCK_FAILED, err)
+        self.assertEqual(self.calls()[-1], "uv lock")
+        self.assertEqual(len(self.calls()), 2)
+        # module add|remove and project update carry on past it, as before.
+        with self.quiet(RC_UV="2"):
+            self.assertEqual(update.regenerate(self.cfg), 0)
+
+    def test_failed_build_deps_still_relocks(self):
+        r, _, _ = self.relock(RC_BUILD_DEPS="4")
+        self.assertEqual((r.lock, r.after, r.status), (0, 4, 4))
+        self.assertEqual(self.calls()[-1], "uv lock")
+
+    def test_fixtures_main(self):
+        tools = ["--uv", self.cfg.uv, "--build-deps", self.cfg.build_deps]
+        with self.quiet():
+            self.assertEqual(lock.main([*tools, "--", "-U"]), 0)
+        self.assertEqual(self.calls()[0], "uv lock -U")
+        # Unlike a project's relock, any failed step fails it.
+        with self.quiet(RC_BUILD_DEPS="1"):
+            self.assertEqual(lock.main(tools), 1)
+        with self.quiet():
+            self.assertEqual(lock.main(tools[:2]), 2)
+
+
+class CoreShadowTest(unittest.TestCase):
+    """The lock-time shadow of a store-resident OCB (coreSource)."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.store = root / "store"
+        for d in ("odoo", "addons", "setup"):
+            (self.store / d).mkdir(parents=True)
+        (self.store / "setup" / "odoo").write_text("backend\n")
+        (self.store / "setup.py").write_text("setup()\n")
+        (self.store / ".hidden").write_text("x\n")
+        for p in sorted(self.store.rglob("*"), reverse=True):
+            p.chmod(0o555 if p.is_dir() else 0o444)
+        self.store.chmod(0o555)
+        self.addCleanup(
+            lambda: [p.chmod(0o755) for p in [self.store, *self.store.rglob("*")]]
+        )
+        self.link = root / "odoo"
+        self.link.symlink_to(self.store)
+
+    def test_shadow_while_locking(self):
+        with lock.core_shadow(str(self.link), str(self.store)) as shadow:
+            self.assertEqual(os.readlink(self.link), shadow)
+            for big in ("odoo", "addons"):
+                self.assertEqual(os.readlink(Path(shadow, big)), str(self.store / big))
+            self.assertFalse(Path(shadow, "setup.py").is_symlink())
+            self.assertEqual(Path(shadow, "setup", "odoo").read_text(), "backend\n")
+            self.assertTrue(Path(shadow, ".hidden").exists())
+            # setuptools' egg_info writes at the root: it can.
+            Path(shadow, "odoo.egg-info").mkdir()
+        self.assertEqual(os.readlink(self.link), str(self.store))
+        self.assertFalse(os.path.exists(shadow))
+
+    def test_restored_on_failure(self):
+        with (
+            self.assertRaises(RuntimeError),
+            lock.core_shadow(str(self.link), str(self.store)) as shadow,
+        ):
+            raise RuntimeError
+        self.assertEqual(os.readlink(self.link), str(self.store))
+        self.assertFalse(os.path.exists(shadow))
+
+    def test_a_checkout_or_no_core_source_is_left_alone(self):
+        with lock.core_shadow(str(self.link), None) as shadow:
+            self.assertIsNone(shadow)
+            self.assertEqual(os.readlink(self.link), str(self.store))
+        checkout = self.link.parent / "checkout"
+        checkout.mkdir()
+        with lock.core_shadow(str(checkout), str(self.store)) as shadow:
+            self.assertIsNone(shadow)
+
+
+class FetchDepthTest(Workspace):
+    """How much of a submodule's pinned branch `project update` fetches."""
+
+    def test_by_how_it_was_cloned(self):
+        git("init", "-q", "-b", "main", "full")
+        git(
+            "-C",
+            "full",
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "1",
+        )
+        git(
+            "-C",
+            "full",
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "2",
+        )
+        self.assertEqual(update.fetch_depth("full", "odoo"), [])
+        url = Path("full").resolve().as_uri()
+        git("clone", "-q", "--depth", "1", url, "shallow")
+        self.assertEqual(update.fetch_depth("shallow", "odoo"), ["--depth=1"])
+        for path in ("partial", "odoo"):
+            git("clone", "-q", url, path)
+            git("-C", path, "config", "remote.origin.promisor", "true")
+        self.assertEqual(update.fetch_depth("partial", "odoo"), ["--filter=blob:none"])
+        self.assertEqual(update.fetch_depth("odoo", "odoo"), [])
+
+    def test_pinned_branch(self):
+        git("init", "-q", "-b", "17.0", "sub")
+        self.assertEqual(update.pinned_branch("sub"), "17.0")
+        git("config", "-f", ".gitmodules", "submodule.sub.branch", "18.0")
+        self.assertEqual(update.pinned_branch("sub"), "18.0")
+
+
+class CoreSourceConfigTest(unittest.TestCase):
+    def test_nullable(self):
+        self.assertIsNone(config.parse(GOOD).core_source)
+        c = config.parse({**GOOD, "coreSource": "/nix/store/x-ocb"})
+        self.assertEqual(c.core_source, "/nix/store/x-ocb")
+        for bad in ("", 1):
+            with self.assertRaises(config.ConfigError):
+                config.parse({**GOOD, "coreSource": bad})
+        with self.assertRaises(config.ConfigError):
+            config.parse({**GOOD, "python": None})
 
 
 if __name__ == "__main__":

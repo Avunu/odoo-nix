@@ -1,12 +1,12 @@
-"""What add and remove share: modules.txt, a submodule's registration, and
-the re-lock."""
+"""What add and remove share: modules.txt and a submodule's registration.
+The re-lock they share with ``odoo project update`` is
+odoo_nix_cli.workspace.update's ``regenerate``."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from odoo_nix_cli.init.proc import attempt, git, probe, run
-from odoo_nix_cli.workspace.config import WorkspaceConfig
+from odoo_nix_cli.init.proc import git, probe, run
 
 MODULES_TXT = Path("modules.txt")
 
@@ -52,10 +52,3 @@ def register(url: str, branch: str, path: str) -> None:
     """An already cloned PATH as a shallow submodule on BRANCH."""
     run(git("submodule", "add", "-q", "--force", "-b", branch, "--", url, path))
     run(git("config", "-f", ".gitmodules", f"submodule.{path}.shallow", "true"))
-
-
-def regenerate(cfg: WorkspaceConfig) -> int:
-    """pyproject.toml's path sources and install set from what is on disk, then
-    `uv lock`: lib/cli-scripts.nix's regenerateAndLock, which keeps a
-    store-resident OCB writable for the lock (lib/core-shadow.sh). Its status."""
-    return attempt([cfg.regenerate])

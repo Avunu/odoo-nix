@@ -2,8 +2,7 @@
 # odoo-bin" means for this caller) with the `odoo` CLI: db/module/project
 # subcommands implemented in Python, everything else passed straight through
 # to `rawOdooBin`. See lib/odoo_nix_cli/ for the Python side and
-# lib/cli-scripts.nix for the workspace configuration and the bash
-# `project update` delegates to.
+# lib/cli-scripts.nix for the workspace configuration it reads.
 #
 # Two shapes, both built from this one file:
 #
@@ -52,9 +51,10 @@
   rawOdooBin,
   targetPythonEnv,
   mirrorTree ? null,
-  # lib/cli-scripts.nix's { workspaceConfig, projectUpdate }, or null: `odoo
-  # module add|add-bundle|remove` and `odoo project update` then fail with a clear
-  # message instead of being wired to scripts that assume a git checkout.
+  # lib/cli-scripts.nix's { workspaceConfig }, or null: `odoo module
+  # add|add-bundle|remove` and `odoo project update|relock` then fail with a
+  # clear message instead of being wired to a workspace that assumes a git
+  # checkout.
   cliScripts ? null,
   # inputs.python-devops-nix.lib: lib/cli-package.nix vendors its post-import
   # hook and backup fetch layer into the package (PLAN.md, design rule 6).
@@ -93,7 +93,6 @@ let
     ]
     ++ lib.optionals (cliScripts != null) [
       ''--set ODOO_NIX_WORKSPACE_CONFIG "${cliScripts.workspaceConfig}"''
-      ''--set ODOO_NIX_PROJECT_UPDATE "${cliScripts.projectUpdate}"''
     ]
     ++ lib.optionals (mcBin != null) [
       ''--set ODOO_NIX_MC "${mcBin}"''

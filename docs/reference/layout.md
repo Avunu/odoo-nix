@@ -25,10 +25,10 @@ lib/
   odoo.nix                   # builtOdoo, the assembled tree
   cli.nix                    # wraps builtOdoo, or the live checkout, in the odoo command
   cli-package.nix            # the odoo_nix_cli package
-  cli-scripts.nix            # the workspace configuration `odoo module` reads, and `project update`'s script
+  cli-scripts.nix            # the workspace configuration `odoo module` and `odoo project update|relock` read
   odoo_nix_cli/              # the odoo command (Python: click and rich)
     commands/                #   db, module, project, shell, test
-    workspace/               #   module add, add-bundle, remove
+    workspace/               #   module add, add-bundle, remove; project update, relock (lock.py: the lock, shared with nix run .#relock)
     init/                    #   odoo-init, the scaffolder
     oca.py                   #   the OCA catalog and bundles
     migrate_plan.py          #   what odoo db migrate updates
@@ -43,7 +43,6 @@ lib/
   odoo-ls.nix, odoo-ls-Cargo.lock  # odoo-ls, with a vendored lock (upstream commits none)
   overrides.nix              # lib.overrides
   build-deps.nix             # odoo-nix-build-deps
-  core-shadow.sh             # the writable lock-time shadow of a store-resident OCB (coreSource)
   shell-tools.nix            # odoo-nix-sources, -bootstrap, -db-nocow, -banner
   bootstrap.sh               # odoo-nix-bootstrap
   bootstrap-lock.nix         # the odoo-nix a project's flake.lock pins, read without evaluating it
@@ -102,7 +101,7 @@ nix run .#relock            # or: nix run .#relock -- --upgrade
 git add tests/fixtures/*/uv.lock tests/fixtures/*/pyproject.toml
 ```
 
-It runs `uv lock` in each fixture with the series' interpreter, then syncs the build-dependency block, the same tail `odoo project update` runs in a project.
+It runs `uv lock` in each fixture with the series' interpreter, then syncs the build-dependency block, with the same code a project's `odoo project relock` locks with (`lib/odoo_nix_cli/workspace/lock.py`), including the lock-time shadow of the store path, except that any failed step fails it. It is odoo-nix's own: a project re-locks with [`odoo project relock`](../development/locks.md#re-locking-a-project).
 
 odoo-ls does not commit a `Cargo.lock` upstream, so odoo-nix vendors one at `lib/odoo-ls-Cargo.lock`. A bump of `odoo-ls-src` needs it refreshed, or `nix build .#odoo-ls` fails:
 
