@@ -267,7 +267,7 @@
       #   devguard-core, devguard, devguard-baked             the dev guard rails: base core, odoo-nix's side (all systems)
       #   sources                                             shell entry's submodule checkout (all systems)
       #   bootstrap, eval-bootstrap-lock-*                    the fresh-clone checkout before `use flake` (all systems)
-      #   scaffold                                            odoo-init's generated project, offline (all systems)
+      #   scaffold, odoo-init-unit                            odoo-init: its projects, offline; its pieces (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
@@ -473,12 +473,14 @@
                 zizmor --offline --config .github/zizmor.yml .github/workflows
               '';
 
-          # The scaffolder, offline (git and uv stood in): the identity it
-          # writes is `odoo-nix.name`.
+          # The scaffolder, offline (odoo-nix-sources and uv stood in, git
+          # real): every flag and branch, its exit codes, and what it writes
+          # (tests/odoo-init.sh).
           scaffold =
             mkCheck pkgs "scaffold"
               {
                 nativeCheckInputs = with pkgs; [
+                  git
                   jq
                   gawk
                   gnused
@@ -490,6 +492,25 @@
               ''
                 bash ${./tests/odoo-init.sh} ${(odooInit pkgs).script}
               '';
+
+          # Its pieces, without git remotes, uv or a terminal: the command
+          # line, the config and presets schemas, the template, the OCA
+          # catalog (odoo_nix_cli.oca), mode and series detection, and the
+          # prompts (rich faked). On odoo-init's interpreter and on every one
+          # a preset runs the `odoo` CLI on, which imports odoo_nix_cli.oca.
+          odoo-init-unit = mkCheck pkgs "odoo-init-unit" { nativeCheckInputs = [ pkgs.git ]; } (
+            lib.concatMapStrings
+              (py: ''
+                ODOO_PRESETS=${./lib/odoo-presets.json} ${py.interpreter} -I ${./tests/test_odoo_init.py} \
+                  ${cliPackage pkgs} ${./data} ${./templates/project}
+              '')
+              (
+                lib.unique (
+                  [ pkgs.python3 ]
+                  ++ map (py: pkgs.${py}) (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
+                )
+              )
+          );
 
           # odoo-nix-bootstrap and the template's .envrc: a fresh clone, its
           # tree dirty, gets its submodules from the pinned odoo-nix-sources
