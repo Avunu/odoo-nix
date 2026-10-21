@@ -1,12 +1,17 @@
-"""lib/odoo_nix_cli/journald.py without Odoo: the formatter's contract
-(level -> sd-daemon prefix, every line of a traceback prefixed, no asctime /
-pid / colour), and the whole path a production start takes -- `odoo` puts the
-sitecustomize on PYTHONPATH and execs "odoo-bin", whose init_logger is
-patched on import -- against a stand-in `odoo.netsvc` shaped like OCB's
-(DBFormatter on a stderr StreamHandler, the asctime/pid format).
+"""odoo_journald (lib/journald/odoo_journald, as lib/journald.nix grafts it)
+without Odoo: the line format (python-devops-nix CONVENTIONS.md, Journald
+line format: `<N>{logger} [{db}] msg`, every line of a traceback prefixed,
+Odoo's perf_info after the message), and the whole path a production start
+takes -- the `odoo` CLI execs "odoo-bin", whose environment's `.pth` graft
+patches init_logger as it is imported -- against a stand-in `odoo.netsvc`
+shaped like OCB's (DBFormatter on a stderr StreamHandler, the asctime/pid
+format).
 
-Run: python3 tests/test_journald.py <path to lib/>   (checks.journald-formatter)
+Run: python3 tests/test_journald.py <graft> <cli package>   (checks.journald-formatter)
+  graft        lib/journald.nix's output ($out/odoo_journald)
+  cli package  lib/cli-package.nix's output ($out/odoo_nix_cli)
 """
+
 import logging
 import os
 import subprocess
@@ -15,10 +20,11 @@ import tempfile
 import threading
 import unittest
 
-LIB = os.path.abspath(sys.argv.pop(1)) if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "lib")
-sys.path.insert(0, LIB)
+CLI = os.path.abspath(sys.argv.pop(2))
+GRAFT = os.path.abspath(sys.argv.pop(1))
+sys.path.insert(0, GRAFT)
 
-from odoo_nix_cli import journald
+import odoo_journald
 
 # OCB 18.0's netsvc, reduced to what init_logger does with the stderr handler.
 FAKE_NETSVC = """
@@ -44,21 +50,25 @@ def init_logger():
     logging.getLogger().setLevel(logging.INFO)
 """
 
-# Stands in for odoo-bin: imports netsvc the way tools/config.py does and
-# calls it through the module attribute.
+# Stands in for odoo-bin run by the environment's interpreter: the site
+# directory's .pth files run first (as `site` does for a virtualenv), then it
+# imports netsvc the way tools/config.py does and calls it through the module
+# attribute.
 FAKE_ODOO_BIN = """
-import logging, os, threading
+import site, sys
+site.addsitedir(sys.argv[1])
+import logging, threading
 import odoo.netsvc
 odoo.netsvc.init_logger()
-threading.current_thread().dbname = 'acme'
 log = logging.getLogger('odoo.fake')
+log.info('starting')
+threading.current_thread().dbname = 'acme'
 log.info('hello')
 log.warning('careful')
 try:
     raise ValueError('boom')
 except ValueError:
     log.exception('failed')
-print('SHADOWED=' + os.environ.get('SHADOWED_SITECUSTOMIZE_RAN', '0'))
 """
 
 
@@ -67,6 +77,10 @@ def record(level, msg, exc_info=None, **attrs):
     for k, v in attrs.items():
         setattr(rec, k, v)
     return rec
+
+
+def fmt(rec):
+    return odoo_journald.OdooFormatter().format(rec)
 
 
 class Formatter(unittest.TestCase):
@@ -80,51 +94,52 @@ class Formatter(unittest.TestCase):
             (logging.ERROR, 3),
             (logging.CRITICAL, 2),
         ]:
-            self.assertEqual(journald.priority(level), prio, level)
+            self.assertTrue(fmt(record(level, "x")).startswith(f"<{prio}>"), level)
 
     def test_line(self):
-        out = journald.JournaldFormatter().format(record(logging.WARNING, "hi", dbname="acme"))
-        self.assertEqual(out, "<4>acme odoo.test: hi")
+        self.assertEqual(
+            fmt(record(logging.WARNING, "hi", dbname="acme")), "<4>odoo.test [acme] hi"
+        )
 
     def test_dbname_from_thread_and_perf_info(self):
         # 18.0: dbname is not on the record, only on the thread
         threading.current_thread().dbname = "t1"
         try:
-            out = journald.JournaldFormatter().format(record(logging.INFO, "GET /", perf_info="3 0.002 0.010"))
+            out = fmt(record(logging.INFO, "GET /", perf_info="3 0.002 0.010"))
         finally:
             del threading.current_thread().dbname
-        self.assertEqual(out, "<6>t1 odoo.test: GET / 3 0.002 0.010")
-        self.assertEqual(journald.JournaldFormatter().format(record(logging.INFO, "x")), "<6>? odoo.test: x")
+        self.assertEqual(out, "<6>odoo.test [t1] GET / 3 0.002 0.010")
+
+    def test_no_database(self):
+        # Odoo's "no database" is '?': no brackets at all, as with none
+        self.assertEqual(fmt(record(logging.INFO, "x")), "<6>odoo.test x")
+        self.assertEqual(fmt(record(logging.INFO, "x", dbname="?")), "<6>odoo.test x")
 
     def test_ansi_stripped(self):
-        out = journald.JournaldFormatter().format(record(logging.INFO, "\x1b[1;32mgreen\x1b[0m", dbname="d"))
-        self.assertEqual(out, "<6>d odoo.test: green")
+        out = fmt(record(logging.INFO, "\x1b[1;32mgreen\x1b[0m", dbname="d"))
+        self.assertEqual(out, "<6>odoo.test [d] green")
 
     def test_traceback_every_line_prefixed(self):
         try:
             raise RuntimeError("boom")
         except RuntimeError:
             exc_info = sys.exc_info()
-        out = journald.JournaldFormatter().format(record(logging.ERROR, "failed\nsecond", exc_info, dbname="d"))
+        out = fmt(
+            record(
+                logging.ERROR,
+                "failed\nsecond",
+                exc_info,
+                dbname="d",
+                perf_info="1 0.1 0.2",
+            )
+        )
         lines = out.split("\n")
         self.assertGreater(len(lines), 3)
-        self.assertEqual(lines[0], "<3>d odoo.test: failed")
+        # perf_info stays on the message's line, not after the traceback
+        self.assertEqual(lines[0], "<3>odoo.test [d] failed 1 0.1 0.2")
         self.assertEqual(lines[1], "<3>second")
         self.assertTrue(all(line.startswith("<3>") for line in lines), lines)
         self.assertEqual(lines[-1], "<3>RuntimeError: boom")
-
-    def test_root_handler(self):
-        root = logging.getLogger()
-        before = list(root.handlers)
-        try:
-            journald.install_root_handler()
-            journald.install_root_handler()  # idempotent
-            added = [h for h in root.handlers if h not in before]
-            self.assertEqual(len(added), 1)
-            self.assertIsInstance(added[0].formatter, journald.JournaldFormatter)
-            self.assertEqual(added[0].level, logging.WARNING)
-        finally:
-            root.handlers[:] = before
 
 
 class EndToEnd(unittest.TestCase):
@@ -136,57 +151,101 @@ class EndToEnd(unittest.TestCase):
             pass
         with open(os.path.join(t, "fake", "odoo", "netsvc.py"), "w") as f:
             f.write(FAKE_NETSVC)
+        # The environment's site-packages, as lib.python.withGrafts leaves it.
+        self.site = os.path.join(t, "site")
+        os.makedirs(self.site)
+        os.symlink(
+            os.path.join(GRAFT, "odoo_journald"),
+            os.path.join(self.site, "odoo_journald"),
+        )
+        with open(os.path.join(self.site, "zzz-odoo-journald.pth"), "w") as f:
+            f.write("import odoo_journald; odoo_journald.install()\n")
+        script = os.path.join(t, "odoo-bin.py")
+        with open(script, "w") as f:
+            f.write(FAKE_ODOO_BIN)
         self.odoo_bin = os.path.join(t, "odoo-bin")
         with open(self.odoo_bin, "w") as f:
-            f.write(f"#!{sys.executable}\n{FAKE_ODOO_BIN}")
+            f.write(f'#!/bin/sh\nexec {sys.executable} {script} {self.site} "$@"\n')
         os.chmod(self.odoo_bin, 0o755)
-        # An existing sitecustomize further down the path (nixpkgs' own
-        # interpreter ships one) must still run.
-        os.makedirs(os.path.join(t, "shadowed"))
-        with open(os.path.join(t, "shadowed", "sitecustomize.py"), "w") as f:
-            f.write("import os\nos.environ['SHADOWED_SITECUSTOMIZE_RAN'] = '1'\n")
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_odoo(self, journal_stream_matches=True, flag="1"):
+    def run_odoo(self, journal_stream_matches=True, extra_env=None):
+        """`odoo -c ...` as odoo.service runs it: the CLI, with the
+        environment on PYTHONPATH, execs odoo-bin."""
         t = self.tmp.name
         err_path = os.path.join(t, "stderr")
         with open(err_path, "w") as err:
             st = os.fstat(err.fileno())
             env = {
                 "PATH": os.environ.get("PATH", ""),
-                "PYTHONPATH": os.pathsep.join([LIB, os.path.join(t, "fake"), os.path.join(t, "shadowed")]),
+                "PYTHONPATH": os.pathsep.join([CLI, os.path.join(t, "fake"), GRAFT]),
                 "ODOO_NIX_RAW_ODOO": self.odoo_bin,
-                "ODOO_NIX_JOURNALD": flag,
                 "JOURNAL_STREAM": f"{st.st_dev}:{st.st_ino + (0 if journal_stream_matches else 1)}",
+                **(extra_env or {}),
             }
-            out = subprocess.run(
+            subprocess.run(
                 [sys.executable, "-m", "odoo_nix_cli", "-c", "/dev/null"],
                 env=env,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=err,
-                text=True,
                 check=True,
-            ).stdout
+            )
         with open(err_path) as f:
-            return out, f.read().splitlines()
+            return f.read().splitlines()
 
     def test_journald(self):
-        out, lines = self.run_odoo()
-        self.assertIn("SHADOWED=1", out)
-        self.assertEqual(lines[0], "<6>acme odoo.fake: hello")
-        self.assertEqual(lines[1], "<4>acme odoo.fake: careful")
-        self.assertEqual(lines[2], "<3>acme odoo.fake: failed")
-        self.assertTrue(all(line.startswith("<3>") for line in lines[2:]), lines)
+        lines = self.run_odoo()
+        self.assertEqual(lines[0], "<6>odoo.fake starting")
+        self.assertEqual(lines[1], "<6>odoo.fake [acme] hello")
+        self.assertEqual(lines[2], "<4>odoo.fake [acme] careful")
+        self.assertEqual(lines[3], "<3>odoo.fake [acme] failed")
+        self.assertTrue(all(line.startswith("<3>") for line in lines[3:]), lines)
         self.assertEqual(lines[-1], "<3>ValueError: boom")
 
     def test_not_the_journal(self):
         # $JOURNAL_STREAM inherited, but stderr is somewhere else: Odoo's format
-        for kwargs in ({"journal_stream_matches": False}, {"flag": ""}):
-            out, lines = self.run_odoo(**kwargs)
-            self.assertIn("SHADOWED=1", out)
-            self.assertRegex(lines[0], r"^\d{4}-\d\d-\d\d .* \d+ INFO acme odoo\.fake: hello $", kwargs)
+        lines = self.run_odoo(journal_stream_matches=False)
+        self.assertRegex(
+            lines[1], r"^\d{4}-\d\d-\d\d .* \d+ INFO acme odoo\.fake: hello $"
+        )
+
+    def test_old_switch_warns_and_changes_nothing(self):
+        # $ODOO_NIX_JOURNALD is accepted, and ignored with a warning, through
+        # 1.x: "0" no longer turns the journal format off.
+        lines = self.run_odoo(extra_env={"ODOO_NIX_JOURNALD": "0"})
+        self.assertRegex(
+            lines[0], r"^<4>odoo_nix \$ODOO_NIX_JOURNALD is no longer read"
+        )
+        self.assertEqual(lines[2], "<6>odoo.fake [acme] hello")
+        self.assertFalse(any("no longer read" in line for line in self.run_odoo()))
+
+    def test_cli_root_handler(self):
+        # The CLI's own commands, where init_logger never runs: WARNING and up
+        # through the journal format, once, only when stderr is the journal.
+        code = (
+            "import logging, odoo_journald\n"
+            "odoo_journald.install_root_handler(); odoo_journald.install_root_handler()\n"
+            "root = logging.getLogger()\n"
+            "print(len(root.handlers), type(root.handlers[0].formatter).__name__ if root.handlers else '-',"
+            " root.handlers[0].level if root.handlers else '-')\n"
+        )
+        for matches, expected in ((True, "1 OdooFormatter 30"), (False, "0 - -")):
+            with tempfile.TemporaryFile() as err:
+                st = os.fstat(err.fileno())
+                out = subprocess.run(
+                    [sys.executable, "-c", code],
+                    env={
+                        "PYTHONPATH": GRAFT,
+                        "JOURNAL_STREAM": f"{st.st_dev}:{st.st_ino + (0 if matches else 1)}",
+                    },
+                    stdout=subprocess.PIPE,
+                    stderr=err,
+                    text=True,
+                    check=True,
+                ).stdout.strip()
+            self.assertEqual(out, expected, matches)
 
 
 if __name__ == "__main__":

@@ -67,6 +67,8 @@ let
     virtualisation.memorySize = 1024;
     services.odoo-nix = {
       enable = true;
+      # Off by default through 1.x; the VM tests keep the sandbox covered.
+      hardening.enable = true;
       package = stubOdoo;
       dbName = "odoo";
       database.createLocally = true;
@@ -88,6 +90,13 @@ pkgs.testers.runNixOSTest {
           enable = true;
           socketPath = "/run/odoo/nginx.sock";
         };
+        # A secret only root can read: odoo-init, running as the service
+        # user, gets it through LoadCredential.
+        services.odoo-nix.adminPasswordFile = "/etc/odoo-admin-passwd";
+        environment.etc."odoo-admin-passwd" = {
+          text = "s3cret";
+          mode = "0400";
+        };
       };
 
     # ---- tcp: the pre-existing named-vhost behaviour, plus logging ----
@@ -105,6 +114,7 @@ pkgs.testers.runNixOSTest {
           file = "/var/log/odoo/odoo.log";
           rotate = true;
           # a log file on purpose; this is how to say so without a warning
+          # (logging.journald is otherwise a deprecated no-op)
           journald = false;
         };
         # What OCA base_geoengine needs from the database
@@ -166,6 +176,14 @@ pkgs.testers.runNixOSTest {
         out = m.succeed("journalctl -o json --no-pager " + " ".join(matches))
         return [json.loads(line) for line in out.splitlines() if line.strip()]
 
+    # init ran as the service user, sandboxed, and the secret it cannot read
+    # itself reached the runtime conf through its credential
+    socket.succeed("systemctl show odoo-init -P User | grep -x odoo")
+    socket.succeed("grep -qx 'admin_passwd = s3cret' /var/lib/odoo/odoo.conf")
+    socket.fail("sudo -u odoo cat /etc/odoo-admin-passwd")
+    for unit in ("odoo", "odoo-init"):
+        socket.succeed(f"systemctl show {unit} -P ProtectSystem | grep -x strict")
+
     socket.wait_until_succeeds(
         "journalctl -o json SYSLOG_IDENTIFIER=nginx_access | grep -q MESSAGE"
     )
@@ -186,7 +204,7 @@ pkgs.testers.runNixOSTest {
         e for e in journal(socket, "_SYSTEMD_UNIT=odoo.service")
         if e.get("MESSAGE") == "stub odoo listening"
     )
-    assert entry["SYSLOG_IDENTIFIER"] == "odoo", entry
+    assert entry["SYSLOG_IDENTIFIER"] == "odoo-web", entry
     assert entry["APP_SERVICE"] == "web" and entry["APP_SITE"] == "odoo", entry
     assert any(
         "database system is ready" in e.get("MESSAGE", "")
@@ -197,6 +215,16 @@ pkgs.testers.runNixOSTest {
     socket.succeed("sudo -u postgres psql -d odoo -c 'select pg_catalog.no_such_function()' || true")
     socket.wait_until_succeeds(
         "journalctl APP_SERVICE=db -o cat --no-pager | grep -E '^odoo postgres ERROR:.*no_such_function'"
+    )
+
+    # nginx's error log reaches the journal over syslog, at its own severity:
+    # the stub has no gevent port, so /websocket is a 502 nginx logs at error
+    socket.succeed(
+        "curl -sS -o /dev/null -w '%{http_code}' --unix-socket /run/odoo/nginx.sock"
+        " http://odoo/websocket | grep -x 502"
+    )
+    socket.wait_until_succeeds(
+        "journalctl SYSLOG_IDENTIFIER=nginx -p err -o cat --no-pager | grep -q 'connect() failed'"
     )
 
     # nothing listens on the network in socket mode

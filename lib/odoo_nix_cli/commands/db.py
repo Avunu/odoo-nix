@@ -8,11 +8,13 @@ own -u/-i/--stop-after-init makes) -- nothing here reimplements Odoo's module
 loading or database management, it only adds progress feedback and CLI
 ergonomics around them.
 """
+
 from __future__ import annotations
 
 import contextlib
 import datetime as dt
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -27,6 +29,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .. import migrate_plan, odooenv
+from .._migrate import migrate as flow
 from ..backups import BackupError, backups
 from ..progress import MigrationProgress
 
@@ -63,7 +66,9 @@ def db_list(ctx):
     table.add_column("Database")
     table.add_column("Status")
     for name in names:
-        table.add_row(name, "[red]incompatible[/]" if name in incompatible else "[green]ok[/]")
+        table.add_row(
+            name, "[red]incompatible[/]" if name in incompatible else "[green]ok[/]"
+        )
     console.print(table)
 
 
@@ -89,8 +94,14 @@ def _read_modules_file(path: Path) -> list[str]:
 
 @db_group.command("provision")
 @click.argument("db_name", required=False)
-@click.option("--modules-file", default="modules.txt", show_default=True, type=click.Path())
-@click.option("--no-backup", is_flag=True, help="Skip the automatic pre-migrate backup when the database already exists.")
+@click.option(
+    "--modules-file", default="modules.txt", show_default=True, type=click.Path()
+)
+@click.option(
+    "--no-backup",
+    is_flag=True,
+    help="Skip the automatic pre-migrate backup when the database already exists.",
+)
 @click.pass_context
 def db_provision(ctx, db_name, modules_file, no_backup):
     """Create + install modules.txt (new database), or migrate it (existing).
@@ -102,12 +113,16 @@ def db_provision(ctx, db_name, modules_file, no_backup):
     odoo_config = _load(ctx)
     target = odooenv.resolve_database(db_name, odoo_config)
     if not target:
-        raise click.UsageError("no database name given, and none configured (db_name / $ODOO_NIX_DB).")
+        raise click.UsageError(
+            "no database name given, and none configured (db_name / $ODOO_NIX_DB)."
+        )
 
     from odoo.service import db as odoo_db
 
     if odoo_db.exp_db_exist(target) and _has_odoo_schema(target):
-        console.print(f"==> '{target}' already exists — migrating instead of installing.")
+        console.print(
+            f"==> '{target}' already exists — migrating instead of installing."
+        )
         _migrate_one(target, MigrateOptions(snapshot="none" if no_backup else "zip"))
         return
     _provision_one(target, Path(modules_file))
@@ -118,7 +133,11 @@ def _provision_one(target: str, modules_file: Path) -> None:
 
     exists = odoo_db.exp_db_exist(target)
     modules = _read_modules_file(modules_file)
-    say(f"==> Provisioning '{target}' with: base,{','.join(modules)}" if modules else f"==> Provisioning '{target}' with: base")
+    say(
+        f"==> Provisioning '{target}' with: base,{','.join(modules)}"
+        if modules
+        else f"==> Provisioning '{target}' with: base"
+    )
     if not exists:
         # Registry.new() (what run_module_update calls) opens a cursor
         # against an existing database -- it does not create one. odoo-bin's
@@ -154,7 +173,12 @@ def _has_odoo_schema(db_name: str) -> bool:
 @db_group.command("upgrade")
 @click.argument("modules")
 @click.argument("database", required=False)
-@click.option("--all", "all_dbs", is_flag=True, help="Upgrade on every database matching dbfilter.")
+@click.option(
+    "--all",
+    "all_dbs",
+    is_flag=True,
+    help="Upgrade on every database matching dbfilter.",
+)
 @click.pass_context
 def db_upgrade(ctx, modules, database, all_dbs):
     """Upgrade MODULES (comma-separated) on one, several, or --all databases."""
@@ -171,7 +195,9 @@ def _upgrade_one(db_name: str, modules: list[str]) -> None:
 
 @db_group.command("migrate")
 @click.argument("database", required=False)
-@click.option("--all", "all_dbs", is_flag=True, help="Migrate every database matching dbfilter.")
+@click.option(
+    "--all", "all_dbs", is_flag=True, help="Migrate every database matching dbfilter."
+)
 @click.option(
     "--full",
     is_flag=True,
@@ -182,7 +208,9 @@ def _upgrade_one(db_name: str, modules: list[str]) -> None:
     is_flag=True,
     help="Do nothing when this build ($ODOO_NIX_BUILD) already migrated the database.",
 )
-@click.option("--also", default="", help="Comma-separated modules to update even when unchanged.")
+@click.option(
+    "--also", default="", help="Comma-separated modules to update even when unchanged."
+)
 @click.option(
     "--snapshot",
     type=click.Choice(["zip", "dump", "none"]),
@@ -208,7 +236,9 @@ def _upgrade_one(db_name: str, modules: list[str]) -> None:
     is_flag=True,
     help="Install base (+ --modules-file) when the database has no Odoo schema, instead of skipping it.",
 )
-@click.option("--modules-file", default="modules.txt", show_default=True, type=click.Path())
+@click.option(
+    "--modules-file", default="modules.txt", show_default=True, type=click.Path()
+)
 @click.pass_context
 def db_migrate(
     ctx,
@@ -234,7 +264,9 @@ def db_migrate(
     """
     odoo_config = _load(ctx)
     if rollback and (no_backup or snapshot == "none"):
-        raise click.UsageError("--rollback needs a snapshot to roll back to (drop --no-backup / --snapshot none).")
+        raise click.UsageError(
+            "--rollback needs a snapshot to roll back to (drop --no-backup / --snapshot none)."
+        )
     options = MigrateOptions(
         full=full,
         if_needed=if_needed,
@@ -291,8 +323,15 @@ def _migrate_one(db_name: str, options: MigrateOptions | None = None) -> None:
         import odoo.sql_db
 
         with odoo.sql_db.db_connect(db_name).cursor() as cr:
-            if options.if_needed and build and migrate_plan.get_param(cr, migrate_plan.PARAM_MIGRATED_BUILD) == build:
-                say(f"[green]✓[/] {db_name}: already migrated by this build — up to date")
+            if (
+                options.if_needed
+                and build
+                and migrate_plan.get_param(cr, migrate_plan.PARAM_MIGRATED_BUILD)
+                == build
+            ):
+                say(
+                    f"[green]✓[/] {db_name}: already migrated by this build — up to date"
+                )
                 return
             plan = migrate_plan.build_plan(cr, full=options.full, also=options.also)
 
@@ -306,22 +345,33 @@ def _migrate_one(db_name: str, options: MigrateOptions | None = None) -> None:
             say(f"[green]✓[/] {db_name}: up to date")
             return
 
-        snap = None
+        runner = snap = None
         if options.snapshot != "none":
             say(f"==> snapshotting '{db_name}' before migrating…")
-            snap = _snapshot(db_name, options.snapshot)
+            runner = _SnapshotRunner.for_database(
+                db_name, options.snapshot, options.keep
+            )
+            try:
+                snap = runner.take()
+            except (flow.MigrateError, OSError) as exc:
+                raise click.ClickException(
+                    f"{exc}; '{db_name}' was not migrated (no safety net)"
+                ) from exc
 
         try:
             with MigrationProgress(db_name, console):
                 odooenv.run_module_update(db_name, update=plan.update)
         except Exception:
-            if options.rollback and snap is not None:
-                _rollback(db_name, snap)
+            if options.rollback and runner is not None and runner.restore(snap):
+                say(
+                    f"[bold red]✗ {db_name}: migration failed; database restored from {snap}[/]"
+                )
             raise
 
         _record_success(db_name)
-        if snap is not None and options.keep:
-            _prune_snapshots(snap.parent, options.keep)
+        if runner is not None and options.keep:
+            runner.prune()
+            runner.prune_legacy()
 
 
 def _record_success(db_name: str) -> None:
@@ -339,8 +389,8 @@ def _raw_connect(db_name: str):
     """A plain psycopg2 connection with Odoo's own connection settings --
     for the operations Odoo's pooled Cursor is the wrong tool for: holding a
     session-level lock for the whole run, and dropping/creating a database."""
-    import psycopg2
     import odoo.sql_db
+    import psycopg2
 
     _name, info = odoo.sql_db.connection_info_for(db_name)
     conn = psycopg2.connect(**info)
@@ -357,110 +407,235 @@ def _migration_lock(db_name: str):
     try:
         conn = _raw_connect("postgres")
     except Exception as exc:  # noqa: BLE001 -- the lock is a guard, not a precondition
-        say(f"[yellow]warning:[/] could not take the migration lock ({exc}); continuing without it")
+        say(
+            f"[yellow]warning:[/] could not take the migration lock ({exc}); continuing without it"
+        )
         yield
         return
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (f"odoo_nix.migrate:{db_name}",))
+            cur.execute(
+                "SELECT pg_try_advisory_lock(hashtext(%s))",
+                (f"odoo_nix.migrate:{db_name}",),
+            )
             if not cur.fetchone()[0]:
-                raise click.ClickException(f"another migration of '{db_name}' is already running")
+                raise click.ClickException(
+                    f"another migration of '{db_name}' is already running"
+                )
         yield
     finally:
         conn.close()
 
 
-def _snapshot(db_name: str, fmt: str) -> Path:
-    """A pre-migrate snapshot in its own folder next to the regular backups,
-    so count-based pruning (--keep) never touches a backup somebody took on
-    purpose. Verified before anything relies on it: dump_db() streams the
-    custom format straight from a pg_dump pipe and never checks its exit
-    status, so a failed dump would otherwise leave a truncated safety net."""
-    import odoo.tools
+class _SnapshotRunner(flow.Runner):
+    """python-devops-nix's migrate flow (lib.nixos.migrate.modules, vendored
+    as odoo_nix_cli/_migrate), for the steps `odoo db migrate` takes itself:
+    take(), restore() and prune(). The flow's own run() does not fit: the
+    migration decides in-process, from its plan, whether there is anything
+    to snapshot at all, under a lock it holds throughout.
 
-    directory = Path(odoo.tools.config["data_dir"]) / "backups" / db_name / "premigrate"
-    snap = _backup_one(db_name, str(directory), fmt)
-    if fmt == "dump":
+    The flow names its dump, verify and restore steps as executables; here
+    they are Python callables, run in this process, because each needs what
+    only this process has: Odoo's dump_db (the zip format carries the
+    filestore) with this run's connection settings (--db-host, ...), and,
+    before a rollback drops the database, this process's own registry and
+    pooled connections closed. `call` runs a callable in place and passes
+    anything else to the flow as an executable.
+
+    What the flow brings: the snapshot in a 0700 directory, 0600 from its
+    first byte (odoo-nix#51: nginx is in the service group), fsynced, then
+    verified, and removed -- stopping the migration -- when it is empty or
+    does not verify; `<N>`-prefixed messages on the journal; retention by
+    count.
+    """
+
+    @classmethod
+    def for_database(cls, db_name: str, fmt: str, keep: int) -> _SnapshotRunner:
+        import odoo.tools
+
+        directory = (
+            Path(odoo.tools.config["data_dir"]) / "backups" / db_name / "premigrate"
+        )
+        # Every missing parent owner-only too (<data_dir>/backups/<db> is
+        # where `odoo db backup` writes); the flow makes only the last 0700.
+        _private_dir(directory)
+        steps = _SnapshotSteps(db_name, fmt)
+        config = flow.Config(
+            label="odoo-migrate",
+            target=db_name,
+            migrate="odoo db migrate",
+            snapshot=flow.Snapshot(
+                dir=directory,
+                prefix=f"premigrate-{db_name}",
+                extension=f".{_backup_extension(fmt)}",
+                # --keep 0 keeps everything: prune() is then never called.
+                retention=max(keep, 1),
+                dump=steps.dump,
+                verify=steps.verify,
+                restore=steps.restore,
+            ),
+        )
+        return cls(config)
+
+    def call(self, command, *args, env=None, **kwargs) -> int:
+        if callable(command):
+            self.stderr.flush()
+            return command(*args, **kwargs)
+        return super().call(command, *args, env=env, **kwargs)
+
+    #: Snapshots named before odoo-nix took its flow from python-devops-nix:
+    #: `odoo db backup`'s own names, `2026_01_01_12_00_00.dump`.
+    _LEGACY = re.compile(r"\d{4}(_\d\d){5}\.dump(\.zip)?")
+
+    def prune_legacy(self) -> None:
+        """Remove the snapshots named the old way once as many new ones as
+        the retention keeps exist: the count they were kept by is this one."""
+        snap = self.require_snapshot()
+        if len(self.snapshots()) < snap.retention:
+            return
+        legacy = [
+            p
+            for p in snap.dir.iterdir()
+            if p.is_file() and self._LEGACY.fullmatch(p.name)
+        ]
+        for path in legacy:
+            path.unlink(missing_ok=True)
+        if legacy:
+            self.say(f"pruned {len(legacy)} snapshot(s) named the old way")
+
+
+@dataclass
+class _SnapshotSteps:
+    """The dump, verify and restore steps of one database's snapshot."""
+
+    db_name: str
+    fmt: str
+
+    def dump(self, stdout: int) -> int:
+        """Odoo's own dump into the file the flow opened. dump_db() streams
+        the custom format straight from a pg_dump pipe and never checks its
+        exit status, which is why verify() follows."""
+        from odoo.service import db as odoo_db
+
+        try:
+            with os.fdopen(os.dup(stdout), "wb") as stream:
+                odoo_db.dump_db(self.db_name, stream, backup_format=self.fmt)
+        except Exception as exc:  # noqa: BLE001 -- reported as the step's status, as an executable's would be
+            say(f"[red]dump of '{self.db_name}' failed:[/] {exc}")
+            return 1
+        return 0
+
+    def verify(self, snapshot: str) -> int:
+        """A custom-format dump is whole when pg_restore can read its table
+        of contents (the same check as lib.nixos.migrate.verifiers.pgRestoreList,
+        with the pg_restore Odoo itself uses); a zip when every member's CRC
+        checks out and it has the database's dump.sql."""
+        if self.fmt == "zip":
+            try:
+                with zipfile.ZipFile(snapshot) as zf:
+                    bad = zf.testzip()
+                    whole = bad is None and "dump.sql" in zf.namelist()
+            except (zipfile.BadZipFile, OSError) as exc:
+                say(f"[red]{snapshot} is not a readable zip:[/] {exc}")
+                return 1
+            return 0 if whole else 1
+
         from odoo.tools.misc import exec_pg_environ, find_pg_tool
 
         check = subprocess.run(
-            [find_pg_tool("pg_restore"), "--list", str(snap)],
+            [find_pg_tool("pg_restore"), "--list", snapshot],
             env=exec_pg_environ(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
+            check=False,
         )
-        if check.returncode != 0 or snap.stat().st_size == 0:
-            snap.unlink(missing_ok=True)
-            raise click.ClickException(f"pre-migrate snapshot of '{db_name}' is unreadable: {check.stderr.strip()}")
-    return snap
+        if check.returncode != 0:
+            say(f"[red]pg_restore cannot read {snapshot}:[/] {check.stderr.strip()}")
+        return check.returncode
 
+    def restore(self, snapshot: str) -> int:
+        """Put the database back exactly as the snapshot has it.
 
-def _prune_snapshots(directory: Path, keep: int) -> None:
-    snaps = sorted(p for p in directory.iterdir() if p.is_file())
-    for stale in snaps[:-keep]:
-        stale.unlink()
-        say(f"  [dim]pruned {stale.name}[/]")
+        Not odoo.service.db.exp_drop + restore_db: exp_drop also deletes the
+        filestore, which a schema-only snapshot cannot bring back (and the
+        filestore needs no rollback -- attachments are content-addressed and
+        only ever added), and restore_db loads a registry of the NEW code
+        against the restored OLD schema before returning, which is the very
+        mismatch a failed migration leaves behind. So: drop the database only,
+        recreate it with the same encoding and collation, load the snapshot,
+        and stop there.
+        """
+        import odoo.sql_db
+        from odoo.modules.registry import Registry
+        from odoo.tools.misc import exec_pg_environ, find_pg_tool
+        from psycopg2 import sql
 
+        db_name = self.db_name
+        Registry.delete(db_name)
+        odoo.sql_db.close_db(db_name)
 
-def _rollback(db_name: str, snap: Path) -> None:
-    """Put the database back exactly as the snapshot has it.
-
-    Not odoo.service.db.exp_drop + restore_db: exp_drop also deletes the
-    filestore, which a schema-only snapshot cannot bring back (and the
-    filestore needs no rollback -- attachments are content-addressed and
-    only ever added), and restore_db loads a registry of the NEW code against
-    the restored OLD schema before returning, which is the very mismatch a
-    failed migration leaves behind. So: drop the database only, recreate it
-    with the same encoding and collation, load the snapshot, and stop there.
-    """
-    from psycopg2 import sql
-
-    import odoo.sql_db
-    from odoo.modules.registry import Registry
-    from odoo.tools.misc import exec_pg_environ, find_pg_tool
-
-    say(f"[bold red]==> rolling '{db_name}' back to {snap}[/]")
-    Registry.delete(db_name)
-    odoo.sql_db.close_db(db_name)
-
-    conn = _raw_connect("postgres")
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT pg_encoding_to_char(encoding), datcollate, datctype FROM pg_database WHERE datname = %s",
-                (db_name,),
-            )
-            encoding, collate, ctype = cur.fetchone()
-            cur.execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
-                (db_name,),
-            )
-            cur.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(db_name)))
-            cur.execute(
-                sql.SQL("CREATE DATABASE {} ENCODING {} LC_COLLATE {} LC_CTYPE {} TEMPLATE template0").format(
-                    sql.Identifier(db_name), sql.Literal(encoding), sql.Literal(collate), sql.Literal(ctype)
+        conn = _raw_connect("postgres")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT pg_encoding_to_char(encoding), datcollate, datctype FROM pg_database WHERE datname = %s",
+                    (db_name,),
                 )
-            )
-    finally:
-        conn.close()
+                encoding, collate, ctype = cur.fetchone()
+                cur.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
+                    (db_name,),
+                )
+                cur.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(db_name)))
+                cur.execute(
+                    sql.SQL(
+                        "CREATE DATABASE {} ENCODING {} LC_COLLATE {} LC_CTYPE {} TEMPLATE template0"
+                    ).format(
+                        sql.Identifier(db_name),
+                        sql.Literal(encoding),
+                        sql.Literal(collate),
+                        sql.Literal(ctype),
+                    )
+                )
+        finally:
+            conn.close()
 
-    env = exec_pg_environ()
-    with tempfile.TemporaryDirectory() as tmp:
-        if zipfile.is_zipfile(snap):
-            with zipfile.ZipFile(snap) as zf:
-                zf.extract("dump.sql", tmp)
-            cmd = [find_pg_tool("psql"), "-q", "-v", "ON_ERROR_STOP=1", f"--dbname={db_name}", "-f", os.path.join(tmp, "dump.sql")]
-        else:
-            cmd = [find_pg_tool("pg_restore"), "--no-owner", "--exit-on-error", f"--dbname={db_name}", str(snap)]
-        result = subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    if result.returncode != 0:
-        say(
-            f"[bold red]✗ rollback of '{db_name}' FAILED — the database may be incomplete. "
-            f"Snapshot preserved at {snap}.[/]\n{result.stderr.strip()}"
-        )
-        return
-    say(f"[bold red]✗ {db_name}: migration failed; database restored from {snap}[/]")
+        env = exec_pg_environ()
+        with tempfile.TemporaryDirectory() as tmp:
+            if zipfile.is_zipfile(snapshot):
+                with zipfile.ZipFile(snapshot) as zf:
+                    zf.extract("dump.sql", tmp)
+                cmd = [
+                    find_pg_tool("psql"),
+                    "-q",
+                    "-v",
+                    "ON_ERROR_STOP=1",
+                    f"--dbname={db_name}",
+                    "-f",
+                    os.path.join(tmp, "dump.sql"),
+                ]
+            else:
+                cmd = [
+                    find_pg_tool("pg_restore"),
+                    "--no-owner",
+                    "--exit-on-error",
+                    f"--dbname={db_name}",
+                    snapshot,
+                ]
+            result = subprocess.run(
+                cmd,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+        if result.returncode != 0:
+            say(
+                f"[red]loading {snapshot} into '{db_name}' failed:[/]\n{result.stderr.strip()}"
+            )
+        return result.returncode
 
 
 def _run_multi(
@@ -495,7 +670,9 @@ def _run_multi(
 @db_group.command("duplicate")
 @click.argument("source")
 @click.argument("dest")
-@click.option("--neutralize", is_flag=True, help="Disable outgoing mail/cron on the copy.")
+@click.option(
+    "--neutralize", is_flag=True, help="Disable outgoing mail/cron on the copy."
+)
 @click.pass_context
 def db_duplicate(ctx, source, dest, neutralize):
     """Duplicate SOURCE to DEST (schema + filestore)."""
@@ -527,7 +704,9 @@ def db_drop(ctx, db_name, yes):
     """Drop a database and its filestore."""
     _load(ctx)
     if not yes:
-        click.confirm(f"Drop '{db_name}' and its filestore? This cannot be undone.", abort=True)
+        click.confirm(
+            f"Drop '{db_name}' and its filestore? This cannot be undone.", abort=True
+        )
     from odoo.service import db as odoo_db
 
     if not odoo_db.exp_drop(db_name):
@@ -580,9 +759,13 @@ def _private_dir(path: Path) -> None:
 def _backup_path(db_name: str, out_dir: str | None, fmt: str) -> Path:
     import odoo.tools
 
-    base = Path(out_dir) if out_dir else Path(odoo.tools.config["data_dir"]) / "backups" / db_name
+    base = (
+        Path(out_dir)
+        if out_dir
+        else Path(odoo.tools.config["data_dir"]) / "backups" / db_name
+    )
     _private_dir(base)
-    stamp = dt.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")  # noqa: DTZ005 -- a local-time filename stamp, not a stored timestamp
+    stamp = dt.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     return base / f"{stamp}.{_backup_extension(fmt)}"
 
 
@@ -595,14 +778,20 @@ def _prune_backups_by_age(directory: Path, fmt: str, keep_days: int) -> None:
     if keep_days <= 0:
         return
     ext = _backup_extension(fmt)
-    threshold = (dt.datetime.now() - dt.timedelta(days=keep_days)).strftime("%Y_%m_%d_%H_%M_%S") + "." + ext  # noqa: DTZ005
+    threshold = (
+        (dt.datetime.now() - dt.timedelta(days=keep_days)).strftime("%Y_%m_%d_%H_%M_%S")
+        + "."
+        + ext
+    )
     for stale in sorted(directory.glob(f"*.{ext}")):
         if stale.name < threshold:
             stale.unlink()
             console.print(f"  [dim]pruned {stale.name}[/]")
 
 
-def _backup_one(db_name: str, out_dir: str | None, fmt: str = "zip", keep_days: int = 0) -> Path:
+def _backup_one(
+    db_name: str, out_dir: str | None, fmt: str = "zip", keep_days: int = 0
+) -> Path:
     from odoo.service import db as odoo_db
 
     dest = _backup_path(db_name, out_dir, fmt)
@@ -614,7 +803,9 @@ def _backup_one(db_name: str, out_dir: str | None, fmt: str = "zip", keep_days: 
     with os.fdopen(fd, "wb") as stream:
         odoo_db.dump_db(db_name, stream, backup_format=fmt)
     elapsed = time.monotonic() - start
-    say(f"[green]✓[/] {db_name} → {dest}  ({_human_size(dest.stat().st_size)}, {elapsed:.1f}s)")
+    say(
+        f"[green]✓[/] {db_name} → {dest}  ({_human_size(dest.stat().st_size)}, {elapsed:.1f}s)"
+    )
     if keep_days:
         _prune_backups_by_age(dest.parent, fmt, keep_days)
     return dest
@@ -769,8 +960,17 @@ def _with_files(files: bool | None, attachments: bool | None) -> bool:
 def _restore_options(func):
     for option in reversed(
         (
-            click.option("--no-force", is_flag=True, help="Refuse to overwrite a database that already exists."),
-            click.option("--force", is_flag=True, hidden=True, help="Deprecated: overwriting is the default."),
+            click.option(
+                "--no-force",
+                is_flag=True,
+                help="Refuse to overwrite a database that already exists.",
+            ),
+            click.option(
+                "--force",
+                is_flag=True,
+                hidden=True,
+                help="Deprecated: overwriting is the default.",
+            ),
             click.option(
                 "--migrate/--no-migrate",
                 default=None,
@@ -781,7 +981,12 @@ def _restore_options(func):
                 default=None,
                 help="Remote restore: mirror object-store attachments locally (default: off; restore.files).",
             ),
-            click.option("--attachments/--no-attachments", default=None, hidden=True, help="Deprecated: --files."),
+            click.option(
+                "--attachments/--no-attachments",
+                default=None,
+                hidden=True,
+                help="Deprecated: --files.",
+            ),
         )
     ):
         func = option(func)
@@ -796,7 +1001,11 @@ _KEEP_STORAGE_CODES = ("odoo_backup",)
 
 def _env_flag(name: str, default: bool) -> bool:
     value = os.environ.get(name)
-    return default if value is None else value.strip().lower() in ("1", "true", "yes", "on")
+    return (
+        default
+        if value is None
+        else value.strip().lower() in ("1", "true", "yes", "on")
+    )
 
 
 def _reexec_with_secrets() -> None:
@@ -804,10 +1013,14 @@ def _reexec_with_secrets() -> None:
     they are not in the environment, re-run this very command under the
     dev-shell wrapper that decrypts the backup-access secret first."""
     wrapper = os.environ.get("ODOO_NIX_WITH_SECRETS")
-    if backups.has_credentials() or not wrapper or os.environ.get("ODOO_NIX_SECRETS_LOADED"):
+    if (
+        backups.has_credentials()
+        or not wrapper
+        or os.environ.get("ODOO_NIX_SECRETS_LOADED")
+    ):
         return
     console.print("[dim]decrypting backup-access secret...[/]")
-    os.execv(wrapper, [wrapper, "odoo", *sys.argv[1:]])  # noqa: S606
+    os.execv(wrapper, [wrapper, "odoo", *sys.argv[1:]])
 
 
 def _restore_cache_dir() -> Path:
@@ -824,7 +1037,9 @@ def _remote_storages(db_name: str) -> list[dict]:
         cr.execute("SELECT to_regclass('fs_storage') IS NOT NULL")
         if not cr.fetchone()[0]:
             return []
-        cr.execute("SELECT id, code, protocol, directory_path FROM fs_storage ORDER BY id")
+        cr.execute(
+            "SELECT id, code, protocol, directory_path FROM fs_storage ORDER BY id"
+        )
         return [
             {"id": i, "code": c, "protocol": p, "directory_path": d}
             for i, c, p, d in cr.fetchall()
@@ -851,10 +1066,22 @@ def _localize_storages(db_name: str, storages: list[dict], root: Path) -> None:
                 "eval_options_from_env = false, directory_path = %s, base_url = '' WHERE id = %s",
                 (str(target), st["id"]),
             )
-            console.print(f"  [dim]storage '{st['code']}' ({st['protocol']}) → {target}[/]")
+            console.print(
+                f"  [dim]storage '{st['code']}' ({st['protocol']}) → {target}[/]"
+            )
 
 
-def _restore_remote(db_name, source_db, at, overwrite, neutralize, use_cache, files, list_only, migrate=False) -> None:
+def _restore_remote(
+    db_name,
+    source_db,
+    at,
+    overwrite,
+    neutralize,
+    use_cache,
+    files,
+    list_only,
+    migrate=False,
+) -> None:
     _reexec_with_secrets()
     prefix = os.environ.get("ODOO_NIX_RESTORE_PREFIX")
     if prefix and not os.environ.get("BACKUPS_PREFIX"):
@@ -865,7 +1092,11 @@ def _restore_remote(db_name, source_db, at, overwrite, neutralize, use_cache, fi
                 for backup in backups.require_sets(store, source_db):
                     say(f"{backup.name}  {_human_size(backup.objects['dump'].size)}")
                 return
-            console.print(f"[cyan]fetching[/] newest backup of '{source_db}'" if not at else f"[cyan]fetching[/] '{source_db}' @ {at}")
+            console.print(
+                f"[cyan]fetching[/] newest backup of '{source_db}'"
+                if not at
+                else f"[cyan]fetching[/] '{source_db}' @ {at}"
+            )
             fetched = backups.fetch(
                 store,
                 source_db,
@@ -874,17 +1105,27 @@ def _restore_remote(db_name, source_db, at, overwrite, neutralize, use_cache, fi
                 use_cache=use_cache,
                 progress=lambda msg: console.print(f"      [dim]{msg}[/]"),
             )
-            _restore_one(db_name, str(fetched.paths["dump"]), overwrite, neutralize, localize=False)
+            _restore_one(
+                db_name,
+                str(fetched.paths["dump"]),
+                overwrite,
+                neutralize,
+                localize=False,
+            )
 
             storages = _remote_storages(db_name)
             root = _attachments_root()
             for st in storages:
                 src = (st["directory_path"] or "").format(db_name=source_db)
                 if files and src and "$" not in src and not backups.is_local():
-                    console.print(f"[cyan]mirroring[/] attachments '{st['code']}' from {src}")
+                    console.print(
+                        f"[cyan]mirroring[/] attachments '{st['code']}' from {src}"
+                    )
                     store.mirror(src, root / st["code"])
                 elif files:
-                    console.print(f"[yellow]![/] not mirroring '{st['code']}' ({src or 'no directory path'})")
+                    console.print(
+                        f"[yellow]![/] not mirroring '{st['code']}' ({src or 'no directory path'})"
+                    )
             _localize_storages(db_name, storages, root)
     except BackupError as exc:
         raise click.ClickException("\n".join([exc.message, *exc.details])) from exc
@@ -900,19 +1141,43 @@ def _restore_remote(db_name, source_db, at, overwrite, neutralize, use_cache, fi
     default=None,
     help="Disable outgoing mail/cron on the restored copy. Default: on in the dev shell (restore.neutralize), off on a server.",
 )
-@click.option("--from", "source_db", default=None, help="Remote restore: source database folder (default: DB_NAME).")
+@click.option(
+    "--from",
+    "source_db",
+    default=None,
+    help="Remote restore: source database folder (default: DB_NAME).",
+)
 @click.option(
     "--at",
     default=None,
     help="Remote restore: the newest backup within this point in time: ISO 8601 (2026-10-02, 2026-10-02T03:00) "
     "or a backup's own name (2026_10_02_03_00_00), or any leading part of either.",
 )
-@click.option("--list", "list_only", is_flag=True, help="Remote restore: list available backups and exit.")
-@click.option("--no-cache", is_flag=True, help="Remote restore: download again even if cached.")
+@click.option(
+    "--list",
+    "list_only",
+    is_flag=True,
+    help="Remote restore: list available backups and exit.",
+)
+@click.option(
+    "--no-cache", is_flag=True, help="Remote restore: download again even if cached."
+)
 @_restore_options
 @click.pass_context
 def db_restore(
-    ctx, db_name, backup_path, neutralize, source_db, at, list_only, no_cache, no_force, force, migrate, files, attachments
+    ctx,
+    db_name,
+    backup_path,
+    neutralize,
+    source_db,
+    at,
+    list_only,
+    no_cache,
+    no_force,
+    force,
+    migrate,
+    files,
+    attachments,
 ):
     """Restore BACKUP_PATH into DB_NAME -- or, with no path, the newest backup
     from the remote store (S3 credentials from the backup-access secret).
@@ -936,4 +1201,14 @@ def db_restore(
     with_files = _with_files(files, attachments)
     if not list_only:
         _load(ctx)
-    _restore_remote(db_name, source_db, at, overwrite, neutralize, not no_cache, with_files, list_only, migrate=migrate)
+    _restore_remote(
+        db_name,
+        source_db,
+        at,
+        overwrite,
+        neutralize,
+        not no_cache,
+        with_files,
+        list_only,
+        migrate=migrate,
+    )

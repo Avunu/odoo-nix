@@ -213,6 +213,7 @@
         }:
         import ./lib/devguard.nix { inherit pkgs base settings; };
       cliPackage = pkgs: import ./lib/cli-package.nix { inherit pkgs base; };
+      journaldGraft = pkgs: import ./lib/journald.nix { inherit pkgs base; };
       shellTools = pkgs: import ./lib/shell-tools.nix { inherit pkgs base; };
 
       relock =
@@ -332,14 +333,15 @@
             grep -qE '^limit_time_real\s*=\s*1200$' "$f"
           '';
 
-          # lib/odoo_nix_cli/journald.py needs neither Odoo nor the CLI's
-          # click/rich, so it runs on plain interpreters: each one a series
-          # runs the CLI on. Against the package as lib/cli.nix ships it, which
-          # carries python-devops-nix's post-import hook.
+          # odoo_journald (lib/journald.nix) needs neither Odoo nor the CLI's
+          # click/rich, so it runs on plain interpreters: every one a preset
+          # names, since it loads into Odoo's own. Against the graft as
+          # lib/python.nix puts it in the environments, with python-devops-nix's
+          # core and hook beside it, and the CLI package that execs odoo-bin.
           journald-formatter = mkCheck pkgs "journald-formatter" { } (
             lib.concatMapStrings (py: ''
-              ${py}/bin/python3 ${./tests/test_journald.py} ${cliPackage pkgs}
-            '') (lib.unique (map (series: pkgs.${presets.${series}.python}) (lib.attrNames ocbInputs)))
+              ${pkgs.${py}.interpreter} -I ${./tests/test_journald.py} ${journaldGraft pkgs} ${cliPackage pkgs}
+            '') devguardInterpreters
           );
 
           # What shell entry does about the project's submodules: checks out a
@@ -690,7 +692,7 @@
         // lib.optionalAttrs isLinux (
           evalChecks "" (
             import ./tests/module-eval.nix {
-              inherit pkgs;
+              inherit pkgs base;
               odooModule = nixosModule;
             }
           )

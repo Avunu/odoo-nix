@@ -51,6 +51,12 @@ let
     settings.guards.mail.port = mailcatchPort;
   };
 
+  # journald-native log lines: every env gets them, odooPythonEnv included.
+  journald = import ../lib/journald.nix {
+    inherit pkgs;
+    base = inputs.python-devops-nix.lib;
+  };
+
   pythonEnvs = import ../lib/python.nix {
     inherit
       pkgs
@@ -59,6 +65,7 @@ let
       workspaceRoot
       projectName
       devguard
+      journald
       ;
     pythonLib = inputs.python-devops-nix.lib.python;
     coreSource = ocb;
@@ -284,7 +291,8 @@ in
     # base and lives under <ocb>/addons, so its presence proves the second
     # core root. This is the production wrapper and the production env, so the
     # dev guard rails must be absent from it: no odoo_devguard on disk, no
-    # banner in the log.
+    # banner in the log. The journald graft is there (inert: stderr is not
+    # the journal here, so Odoo's own format and the checks above stand).
     odoo-init = mkCheck "odoo-init-${major}" pg ''
       ${builtOdoo}/bin/odoo ${odooArgs} -i base 2>&1 | tee odoo.log
       ${noErrors}
@@ -296,6 +304,9 @@ in
       fi
       test ! -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/odoo_devguard
       test ! -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/zzz-odoo-devguard.pth
+      test -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/odoo_journald/_journald.py
+      grep -qxF 'import odoo_journald; odoo_journald.install()' \
+        ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/zzz-odoo-journald.pth
     '';
 
     # The fixture addon's Odoo tests, with the test env (prod wheels + dev
@@ -530,9 +541,10 @@ in
 
     # `odoo db migrate` from one build to the next, as the deploy-time
     # migration runs it (odoo-migrate.service): change detection, the
-    # --if-needed fast path, version drift, a verified snapshot, rollback of
-    # a migration that fails after committing, snapshot retention, and an
-    # uninitialised database left alone.
+    # --if-needed fast path, version drift, a verified snapshot (python-devops-nix's
+    # flow: lib.nixos.migrate.modules), rollback of a migration that fails
+    # after committing, snapshot retention, and an uninitialised database left
+    # alone.
     cli-migrate = mkCheck "cli-migrate-${major}" pg ''
       DBFLAGS="--db-host $PGHOST --db-user $PGUSER"
       DB="odoo_nix_migrate_${major}"
@@ -572,6 +584,12 @@ in
       psql -d "$DB" -tAc "select 1 from information_schema.columns where table_name = 'res_partner' and column_name = 'odoo_nix_fixture_flag'" | grep -qx 1
       test "$(icp odoo_nix.migrated_build)" = "${v2.cli}"
       test "$(snapshots)" = 1
+      # The flow's snapshot: named for the database, 0600 in a 0700
+      # directory, verified before the migration relied on it.
+      grep -q "odoo-migrate($DB): snapshot verified" v2.log
+      snap=$(find ./odoo-data/backups/"$DB"/premigrate -name "premigrate-$DB-*.dump")
+      test "$(stat -c %a "$snap")" = 600
+      test "$(stat -c %a ./odoo-data/backups/"$DB"/premigrate)" = 700
 
       # Version drift with unchanged checksums -- a database restored from
       # somewhere its modules were never updated -- is still migrated. The
@@ -602,6 +620,10 @@ in
       # applies --keep 2 (clearing the marker forces one; --also gives it
       # something to update, so it snapshots).
       test "$(snapshots)" = 3
+      grep -q "odoo-migrate($DB): rolling back from" v3.log
+      # A snapshot named before odoo-nix took the flow from python-devops-nix
+      # goes once as many new ones as --keep keeps exist.
+      touch ./odoo-data/backups/"$DB"/premigrate/2026_01_01_00_00_00.dump
       psql -d "$DB" -c "delete from ir_config_parameter where key = 'odoo_nix.migrated_build'"
       ${v2.cli}/bin/odoo -c ${v2.conf} $DBFLAGS db migrate "$DB" $SERVICE_ARGS --also odoo_nix_fixture 2>&1 | tee keep.log
       no_errors keep.log
