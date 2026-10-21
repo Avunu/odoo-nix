@@ -21,6 +21,8 @@ from pathlib import Path
 
 import click
 
+from . import odoo_db
+
 
 def repo_root() -> Path:
     return Path(os.environ.get("REPO_ROOT", os.getcwd()))
@@ -90,7 +92,7 @@ def db_connection_args(ctx_obj: dict) -> list[str]:
 
 def load_config(conf_path: Path, extra_args: list[str] | None = None):
     """Parse odoo.conf in-process; returns odoo.tools.config, ready to use
-    with odoo.service.db / Registry.new()."""
+    with odoo_db / Registry.new()."""
     import odoo.tools
 
     if not conf_path.is_file():
@@ -101,10 +103,12 @@ def load_config(conf_path: Path, extra_args: list[str] | None = None):
         ["-c", str(conf_path), *(extra_args or [])], setup_logging=False
     )
 
-    # odoo.service.db's mutating functions (dump_db, restore_db, exp_drop,
-    # exp_create_database, ...) are gated by config['list_db'] via
-    # @check_db_management_enabled -- the same flag that controls whether the
-    # *web* Database Manager / remote RPC can list/create/drop databases.
+    # Odoo's database-management functions (dump, restore, drop, create, ... --
+    # `odoo.service.db` through 19.0, `odoo.modules.db` from 20.0) are gated by
+    # config['list_db'] (@check_db_management_enabled, or
+    # verify_db_management_enabled in 20.0) -- the same flag that controls
+    # whether the *web* Database Manager / remote RPC can list/create/drop
+    # databases.
     # That gate exists to stop an unauthenticated network client; it says
     # nothing about this process, which is already running locally as
     # whoever has filesystem access to odoo.conf (and therefore to Postgres
@@ -116,7 +120,7 @@ def load_config(conf_path: Path, extra_args: list[str] | None = None):
     # odoo.tools.config reads $PGDATABASE (mirroring libpq's own env-var
     # convention for db_host/port/user/password too) as an implicit default
     # for db_name whenever the conf file itself does not set one. That
-    # silently narrows every db_name-gated odoo.service.db call -- not just
+    # silently narrows every db_name-gated database-management call -- not just
     # list_dbs(), but exp_drop()'s own "does this database exist" check,
     # which uses list_dbs() internally and returns False (not an error) for
     # anything outside that one database, so a drop/backup/restore on a
@@ -127,9 +131,17 @@ def load_config(conf_path: Path, extra_args: list[str] | None = None):
     # actually pins db_name -- odoo-nix's own dbName option does exactly
     # that, and that pin is real config, not an env artifact.
     if not _conf_pins_db_name(conf_path):
-        odoo.tools.config["db_name"] = False
+        clear_db_name(odoo.tools.config)
 
     return odoo.tools.config
+
+
+def clear_db_name(odoo_config) -> None:
+    """Leave db_name unset, in the type it has: a comma-separated list from
+    19.0 (`-d a,b`), which Odoo 20.0 iterates (`db_system in db_name`) and so
+    cannot take a bare False; a string through 18.0, where any falsy value
+    reads as unset, an empty list included."""
+    odoo_config["db_name"] = []
 
 
 def _conf_pins_db_name(conf_path: Path) -> bool:
@@ -150,7 +162,19 @@ def resolve_database(explicit: str | None, odoo_config) -> str | None:
     env = getenv("ODOO_NIX_DB", "ODOO_DB")
     if env:
         return env
-    return odoo_config["db_name"] or None
+    configured = odoo_config["db_name"]
+    # A list from 19.0, a (possibly comma-separated) string through 18.0.
+    names = (
+        [n.strip() for n in configured.split(",")]
+        if isinstance(configured, str)
+        else list(configured or [])
+    )
+    names = [n for n in names if n]
+    if len(names) > 1:
+        raise click.UsageError(
+            f"odoo.conf names several databases ({', '.join(names)}); pass one, or set $ODOO_NIX_DB."
+        )
+    return names[0] if names else None
 
 
 def list_all_databases(odoo_config) -> list[str]:
@@ -159,16 +183,14 @@ def list_all_databases(odoo_config) -> list[str]:
 
     odoo.tools.config reads $PGDATABASE (among other libpq-style env vars)
     as an implicit default for db_name when no -d/--database was given, and
-    odoo.service.db.list_dbs() treats *any* non-empty db_name as "the caller
+    list_dbs() treats *any* non-empty db_name as "the caller
     restricted the exposed list to this" -- short-circuiting straight past
     its own Postgres catalog query. $PGDATABASE being set is common (a
     shell profile, sandboxed test fixtures, container conventions) and has
     nothing to do with this command's own request for "every database", so
     that ambient default is cleared here, in-process only, before asking.
     """
-    from odoo.service import db as odoo_db
-
-    odoo_config["db_name"] = False
+    clear_db_name(odoo_config)
     return sorted(odoo_db.list_dbs(force=True))
 
 
