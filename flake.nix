@@ -245,7 +245,7 @@
       #   lock-audit-*                                        the stale-lock audit on a stale fixture (all systems)
       #   restore-*                                           the dev shell's restore options (Linux only)
       #   service-*                                           services.odoo-nix evaluation (Linux only)
-      #   container-name*                                     the OCI image's name (Linux only)
+      #   container-*                                         the OCI image's name, user, labels, healthcheck (Linux only)
       #   python-default-*                                    the series' default interpreter (Linux only)
       #   rename-*, identity-*                                renamed dev-shell options (Linux only)
       #   {ports,mailpit,watch}-*, ci-mode, tree              the dev shell's option tree and its ports (Linux only)

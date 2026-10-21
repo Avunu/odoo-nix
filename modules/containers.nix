@@ -12,6 +12,13 @@
 #   /var/lib/odoo/data   persistent filestore
 #   /secrets/db_password, /secrets/admin_passwd, /secrets/*.conf   secrets
 # PostgreSQL is external.
+#
+# The image carries the OCI labels and a HEALTHCHECK on /web/health
+# (python-devops-nix CONVENTIONS.md, Containers). Two parts of that convention
+# are opt-in through 1.x and the default in 2.0.0, because each breaks a
+# running deployment: containers.roleImageNames (<registry>/<name>/odoo
+# rather than <name>-odoo) and containers.nonRoot (uid/gid 1000 rather than
+# root).
 { inputs, ... }:
 {
   # Options live in ./devenv.nix (odoo-nix.containers.*). This module only adds
@@ -31,11 +38,91 @@
       # services.odoo-nix (python-devops-nix lib.python.threadCaps).
       inherit (inputs.python-devops-nix.lib.python) threadCaps;
 
-      # containers.registry prefixes the image name: "ghcr.io/avunu" (or
-      # "ghcr.io/avunu/") names it ghcr.io/avunu/<name>; "" leaves it bare.
-      # The same rule as frappe-nix's modules/containers.nix.
+      # With containers.roleImageNames the image is <name>/<role>, the same
+      # rule as frappe-nix's modules/containers.nix; without it (the 1.x
+      # default) it keeps 1.0's <name>-<role>. containers.registry prefixes
+      # either: "ghcr.io/avunu" (or "ghcr.io/avunu/") names it
+      # ghcr.io/avunu/<name>/odoo; "" leaves it bare.
+      inherit (cfg.containers) roleImageNames nonRoot;
       registry = lib.removeSuffix "/" cfg.containers.registry;
-      imageName = name: if registry == "" then name else "${registry}/${name}";
+      imageName =
+        role:
+        let
+          image = if roleImageNames then "${cfg.name}/${role}" else "${cfg.name}-${role}";
+        in
+        if registry == "" then image else "${registry}/${image}";
+
+      # The 1.x name, warned about when the image is built or its store path
+      # read (drvPath, outPath), not on every evaluation of the flake: a host
+      # that moves to the new name has to change what pulls or runs it, so it
+      # opts in rather than being renamed under a running deployment.
+      warnLegacyName =
+        image:
+        let
+          warn = lib.warn "odoo-nix: the container image is named ${image.imageName}, the 1.x default. Set odoo-nix.containers.roleImageNames = true to name it ${imageName' "odoo"}, python-devops-nix's <registry>/<name>/<role>, and update what pulls or runs it; that name is the default in 2.0.0.";
+        in
+        if roleImageNames then
+          image
+        else
+          image
+          // {
+            drvPath = warn image.drvPath;
+            outPath = warn image.outPath;
+          };
+      imageName' =
+        role: if registry == "" then "${cfg.name}/${role}" else "${registry}/${cfg.name}/${role}";
+
+      # The user the image runs as with containers.nonRoot; root otherwise, as
+      # before. Fixed, so a volume or a bind mount can be owned to match
+      # before the first start; the same uid as frappe-nix's images.
+      uid = 1000;
+      gid = 1000;
+      home = "/var/lib/odoo";
+      user = if nonRoot then "${toString uid}:${toString gid}" else "0:0";
+
+      # /etc/passwd and /etc/group, so the uid has a name and a home (Python's
+      # getpass, wkhtmltopdf's fontconfig cache).
+      containerUsers = pkgs.runCommand "odoo-nix-container-users" { } ''
+        mkdir -p $out/etc
+        cat > $out/etc/passwd <<'EOF'
+        root:x:0:0:root:/root:/bin/sh
+        odoo:x:${toString uid}:${toString gid}:odoo:${home}:/bin/sh
+        nobody:x:65534:65534:nobody:/var/empty:/bin/false
+        EOF
+        cat > $out/etc/group <<'EOF'
+        root:x:0:
+        odoo:x:${toString gid}:
+        nogroup:x:65534:
+        EOF
+      '';
+
+      # org.opencontainers.image.* labels. revision is odoo-nix's own commit
+      # when the project's flake has it as the `odoo-nix` input, as the
+      # scaffold does. containers.labels overrides any of them, for a project
+      # that labels its image with its own repository and version.
+      version = lib.trim (builtins.readFile ../version.txt);
+      revision = (inputs.odoo-nix or { }).rev or null;
+      labels = {
+        "org.opencontainers.image.title" = imageName "odoo";
+        "org.opencontainers.image.source" = "https://github.com/Avunu/odoo-nix";
+        "org.opencontainers.image.version" = version;
+        "org.opencontainers.image.licenses" = "MIT";
+      }
+      // lib.optionalAttrs (revision != null) {
+        "org.opencontainers.image.revision" = revision;
+      }
+      // cfg.containers.labels;
+
+      # Odoo's readiness endpoint, needing no database. Bash's /dev/tcp, since
+      # the image has no curl; the port is the entrypoint's.
+      healthProbe = pkgs.writeShellScript "odoo-healthcheck" ''
+        port="''${ODOO_NIX_HTTP_PORT:-''${ODOO_HTTP_PORT:-8069}}"
+        exec 3<>"/dev/tcp/127.0.0.1/$port" || exit 1
+        printf 'GET /web/health HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3
+        IFS= read -r -t 8 status <&3 || exit 1
+        [[ $status == "HTTP/1."?" 200 "* ]] || { echo "odoo-healthcheck: $status" >&2; exit 1; }
+      '';
+      second = 1000000000;
 
       runtimeDeps = with pkgs; [
         bashInteractive
@@ -139,36 +226,70 @@
         exec "$@"
       '';
 
-      odooImage = pkgs.dockerTools.buildLayeredImage {
-        name = imageName "${cfg.name}-odoo";
-        tag = "latest";
-        contents = [ odooPkg ] ++ runtimeDeps;
-        config = {
-          Entrypoint = [ "${entrypoint}" ];
-          Cmd = [
-            "${odooPkg}/bin/odoo"
-            "-c"
-            "/etc/odoo/odoo.conf"
-          ];
-          WorkingDir = "/var/lib/odoo";
-          ExposedPorts = {
-            "8069/tcp" = { };
-            "8072/tcp" = { };
+      odooImage =
+        let
+          config = {
+            User = user;
+            Labels = labels;
+            Healthcheck = {
+              Test = [
+                "CMD"
+                "${healthProbe}"
+              ];
+              Interval = 30 * second;
+              Timeout = 10 * second;
+              # The first start of a big database loads its registry first.
+              StartPeriod = 120 * second;
+              Retries = 3;
+            };
+            Entrypoint = [ "${entrypoint}" ];
+            Cmd = [
+              "${odooPkg}/bin/odoo"
+              "-c"
+              "/etc/odoo/odoo.conf"
+            ];
+            WorkingDir = "/var/lib/odoo";
+            ExposedPorts = {
+              "8069/tcp" = { };
+              "8072/tcp" = { };
+            };
+            Env = [
+              "ODOO_RC=/etc/odoo/odoo.conf"
+              "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              "LANG=C.UTF-8"
+              "LD_LIBRARY_PATH=${libraryPath}"
+            ]
+            # HOME only for the odoo user; root keeps the runtime's default.
+            ++ lib.optional nonRoot "HOME=${home}"
+            ++ (lib.mapAttrsToList (name: value: "${name}=${value}") threadCaps);
+            Volumes = {
+              "/var/lib/odoo/data" = { };
+            };
           };
-          Env = [
-            "ODOO_RC=/etc/odoo/odoo.conf"
-            "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-            "LANG=C.UTF-8"
-            "LD_LIBRARY_PATH=${libraryPath}"
+        in
+        pkgs.dockerTools.buildLayeredImage {
+          inherit config;
+          name = imageName "odoo";
+          tag = "latest";
+          contents = [
+            odooPkg
+            containerUsers
           ]
-          ++ (lib.mapAttrsToList (name: value: "${name}=${value}") threadCaps);
-          Volumes = {
-            "/var/lib/odoo/data" = { };
-          };
+          ++ runtimeDeps;
+          # What the user writes, owned by it with nonRoot: the config the
+          # entrypoint renders, the filestore (a fresh named volume takes this
+          # ownership) and /tmp.
+          enableFakechroot = true;
+          fakeRootCommands = ''
+            mkdir -p /tmp /etc/odoo /var/lib/odoo/data
+            chmod 1777 /tmp
+            ${lib.optionalString nonRoot "chown -R ${user} /etc/odoo /var/lib/odoo"}
+          '';
+          # The image config, readable without a build (tests/containers-eval.nix).
+          passthru.imageConfig = config;
         };
-      };
     in
     lib.mkIf (cfg.enable && cfg.containers.enable) {
-      packages.container-odoo = odooImage;
+      packages.container-odoo = warnLegacyName odooImage;
     };
 }

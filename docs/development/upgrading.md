@@ -70,6 +70,10 @@ Elsewhere:
 | `odoo db restore --force` | the default; `--no-force` refuses to overwrite. `--force` is accepted and does nothing. |
 | `odoo db restore --attachments` | `--files` |
 
+## Coming in 2.0.0: the container image's name and user
+
+In 2.0.0 the container image becomes `<name>/odoo` (python-devops-nix's `<REGISTRY>/<name>/<role>`) instead of `<name>-odoo`, and runs as a non-root user. Each changes a running deployment, so through 1.x they are opt-in: `containers.roleImageNames` and `containers.nonRoot`. See [The image name](../production/container.md#the-image-name) and [Running as non-root](../production/container.md#running-as-non-root).
+
 ## Renamed environment variables
 
 The variables odoo-nix's own tools read or export are `ODOO_NIX_*`. Odoo's own, such as `ODOO_RC`, and the guard rails' `ODOO_DEVGUARD_*` keep their names. An old name is still read, with a warning, through 1.x, and a new one that is set wins.

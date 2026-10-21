@@ -133,4 +133,7 @@ See [Restore a production backup](../development/restore-from-production.md).
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `containers.enable` | bool | `false` | Build `packages.container-odoo`. See [The container image](../production/container.md). |
-| `containers.registry` | string | `""` | A prefix for the image's name: `"ghcr.io/avunu"` names it `ghcr.io/avunu/<name>-odoo`. |
+| `containers.registry` | string | `""` | A prefix for the image's name: `"ghcr.io/avunu"` names it `ghcr.io/avunu/<name>-odoo`, or `ghcr.io/avunu/<name>/odoo` with `roleImageNames`. |
+| `containers.roleImageNames` | bool | `false` | Name the image `<name>/odoo` instead of 1.0's `<name>-odoo`; building under the old name warns. The default becomes `true` in 2.0.0. See [The image name](../production/container.md#the-image-name). |
+| `containers.nonRoot` | bool | `false` | Run the image as `odoo` (uid/gid 1000) instead of root. The default becomes `true` in 2.0.0; an existing filestore volume needs a one-time chown first. See [Running as non-root](../production/container.md#running-as-non-root). |
+| `containers.labels` | attribute set of strings | `{ }` | Image labels over the `org.opencontainers.image.*` ones, which describe odoo-nix. See [Labels](../production/container.md#labels). |
