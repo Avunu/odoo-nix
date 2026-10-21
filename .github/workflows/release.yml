@@ -8,9 +8,9 @@ name: release
 #                   minor; a major is only a `Release-As: <N>.0.0` footer
 #                   (pr-policy refuses `!` and BREAKING CHANGE).
 #   dispatch-ci     a GITHUB_TOKEN push raises no event, so this dispatches
-#                   check.yml (`flake`) and pr-policy.yml (`pr-policy`) on the
-#                   release pull request's branch, each only while its check is
-#                   absent on the head.
+#                   check.yml (`lint`, `flake`) and pr-policy.yml (`pr-policy`) on
+#                   the release pull request's branch, each only while its check
+#                   (`flake` for check.yml) is absent on the head.
 #   fast-forward    moves release-<major> (release-1 for every v1.* tag) to the
 #                   new tag: a PATCH with force=false, so it only ever
 #                   fast-forwards, or a POST on a major's first release. It then

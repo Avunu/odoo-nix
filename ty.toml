@@ -1,0 +1,36 @@
+[environment]
+# The oldest interpreter this code runs under (see ruff.toml).
+python-version = "3.11"
+# The working tree's packages, where the Nix builds put them on sys.path:
+# lib/cli-package.nix (odoo_nix_cli), lib/devguard.nix (odoo_devguard) and
+# lib/journald.nix (odoo_journald). The modules python-devops-nix supplies to
+# them (the devguard core, the journald core, _backups.py, _migrate.py) are
+# merged in at build time and are not in the working tree, so ty reports
+# their imports as unresolved here.
+extra-paths = [
+    "lib",
+    "lib/devguard",
+    "lib/journald",
+]
+
+[src]
+# Stand-ins for consumer projects and Odoo addons, checked by Odoo's own
+# test runner (checks.odoo-test-<major>).
+exclude = ["tests/fixtures"]
+
+[analysis]
+# Odoo itself is not in odoo-nix's own dev shell: it is built per series, from
+# the pinned OCB inputs, only inside the checks.
+allowed-unresolved-imports = ["odoo", "odoo.**"]
+
+# The suites stand Odoo, the database and the base's modules up as hand-built
+# stub modules and fakes, so the shapes ty infers for those are the stubs',
+# not the real thing's. Imports, names and syntax are still checked.
+[[overrides]]
+include = ["tests/**"]
+
+[overrides.rules]
+unresolved-attribute = "ignore"
+invalid-argument-type = "ignore"
+invalid-assignment = "ignore"
+not-iterable = "ignore"

@@ -16,3 +16,6 @@ __pycache__/
 
 # The base's backup fetch layer, vendored into the CLI package by lib/cli.nix.
 /lib/odoo_nix_cli/_backups.py
+
+# direnv (.envrc: the dev shell for working on odoo-nix itself).
+/.direnv/
