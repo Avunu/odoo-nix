@@ -17,7 +17,7 @@ All of these are under `perSystem.odoo-nix`. Secrets are declared at the top lev
 | `workspaceRoot` | path | required | The project root, where `pyproject.toml`, `odoo.conf` and the layout directories live. Usually `./.`. |
 | `coreSource` | null or path | `null` | OCB from outside the workspace, typically a `flake = false` input, instead of the `odoo/` submodule. See [A repository of modules](../scaffolding/write-the-flake.md#a-repository-of-modules). |
 | `odooSeries` | string | `"18.0"` | The Odoo series: the OCB and OCA branch and the catalog filter. It does not pick a nixpkgs package. |
-| `python` | package | the series' preset: `python311` for 18.0, `python312` for 19.0 | The interpreter. Match the series' `requires-python`. |
+| `python` | package | the series' preset: `python311` for 18.0, `python312` for 19.0 and 20.0 | The interpreter. Match the series' `requires-python`. |
 | `nodejs` | package | `pkgs.nodejs_22` | Node.js, for rtlcss and asset tooling. |
 | `pythonOverrides` | overlay | `_: _: { }` | A uv2nix package-set overlay, applied last. |
 | `pythonLibraries` | attrs of lists of packages | `{ }` | Native libraries for a Python package's build, by package name, e.g. `{ python-snappy = [ pkgs.snappy ]; }`. See [C extensions](../development/locks.md#c-extensions-that-need-a-library). |

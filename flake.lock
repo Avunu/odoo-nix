@@ -485,6 +485,23 @@
         "type": "github"
       }
     },
+    "ocb-20": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792535424,
+        "narHash": "sha256-78gB10a+uLs2WF1ickdX7DL/KHxPPoLzAGorZSX9JKs=",
+        "owner": "OCA",
+        "repo": "OCB",
+        "rev": "8de918db820aeb1497e09318fb87e169b8b0ed02",
+        "type": "github"
+      },
+      "original": {
+        "owner": "OCA",
+        "ref": "20.0",
+        "repo": "OCB",
+        "type": "github"
+      }
+    },
     "odoo-ls-src": {
       "flake": false,
       "locked": {
@@ -597,6 +614,7 @@
         "nixpkgs": "nixpkgs_2",
         "ocb-18": "ocb-18",
         "ocb-19": "ocb-19",
+        "ocb-20": "ocb-20",
         "odoo-ls-src": "odoo-ls-src",
         "odoo-ls-typeshed": "odoo-ls-typeshed",
         "pyproject-build-systems": "pyproject-build-systems",

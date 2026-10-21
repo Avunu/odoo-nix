@@ -64,6 +64,10 @@
       url = "github:OCA/OCB/19.0";
       flake = false;
     };
+    ocb-20 = {
+      url = "github:OCA/OCB/20.0";
+      flake = false;
+    };
 
     # odoo-ls (github.com/odoo/odoo-ls): the Odoo-aware Rust language server,
     # packaged in lib/odoo-ls.nix. Pinned to its stable 1.4.0 tag (even-minor
@@ -114,6 +118,7 @@
       ocbInputs = {
         "18.0" = inputs.ocb-18;
         "19.0" = inputs.ocb-19;
+        "20.0" = inputs.ocb-20;
       };
       presets = builtins.fromJSON (builtins.readFile ./lib/odoo-presets.json);
 
@@ -822,9 +827,11 @@
           ];
           OCB_18 = "${inputs.ocb-18}";
           OCB_19 = "${inputs.ocb-19}";
+          OCB_20 = "${inputs.ocb-20}";
           shellHook = ''
             echo "odoo-nix dev shell: ocb-18 -> $OCB_18"
             echo "                    ocb-19 -> $OCB_19"
+            echo "                    ocb-20 -> $OCB_20"
             echo "  nix flake check -L        run everything (needs KVM for the VM tests)"
             echo "  nix fmt                   format the Nix files (checks.nix-lint enforces it)"
             echo "  odoo-nix-relock           re-lock tests/fixtures/*/uv.lock"

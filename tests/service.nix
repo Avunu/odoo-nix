@@ -35,6 +35,10 @@
 }:
 let
   inherit (pkgs) lib;
+  # 20.0 removed ir.attachment's `datas` (it logs "Use raw, datas has been
+  # removed" and creates an empty attachment); `raw` takes the same base64
+  # over RPC.
+  attachmentField = if lib.versionAtLeast series "20.0" then "raw" else "datas";
 in
 # A test module: tests/series.nix registers it with lib.checks.mk's
 # nixosTest, which names it.
@@ -173,11 +177,12 @@ in
         stamped = [text(e) for e in web if re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ ", text(e))]
         assert not stamped, stamped[:5]
         # the request log of the curls above, with Odoo's perf_info, and the
-        # database it served in brackets
+        # database it served in brackets (werkzeug's logger through 19.0;
+        # 20.0 logs requests itself, as odoo.http.server)
         assert any(
-            re.search(r"^werkzeug (\[acme\] )?.*\"GET /web/login HTTP/1\.[01]\" 200 ", text(e))
+            re.search(r"^(?:werkzeug|odoo\.http\.server) (\[acme\] )?.*\"GET /web/login HTTP/1\.[01]\" 200 ", text(e))
             for e in web
-        ), [text(e) for e in web if "werkzeug" in text(e)][-5:]
+        ), [text(e) for e in web if "werkzeug" in text(e) or "odoo.http.server" in text(e)][-5:]
         # what Odoo logs about a database names it: `<logger> [acme] ...`
         assert any(re.match(r"^odoo\.\S+ \[acme\] ", text(e)) for e in web), [text(e) for e in web][-10:]
 
@@ -258,7 +263,7 @@ in
 
         uid = rpc("common", "login", "acme", "admin", "admin")
         att_id = rpc("object", "execute_kw", "acme", uid, "admin", "ir.attachment", "create",
-                     [{"name": "hello.txt", "datas": "aGVsbG8gZnJvbSB0aGUgZmlsZXN0b3Jl", "public": True}])
+                     [{"name": "hello.txt", "${attachmentField}": "aGVsbG8gZnJvbSB0aGUgZmlsZXN0b3Jl", "public": True}])
         [att] = rpc("object", "execute_kw", "acme", uid, "admin", "ir.attachment", "read",
                     [[att_id], ["store_fname"]])
         store_fname = att["store_fname"]

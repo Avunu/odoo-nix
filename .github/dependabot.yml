@@ -32,7 +32,7 @@ updates:
   # pyproject-nix and nixpkgs; bumping them through separate PRs can land a lock where
   # the followed and following inputs disagree. One PR keeps the graph consistent.
   #
-  # The OCB pins (ocb-18, ocb-19 -- the source trees the test suite builds) get their
+  # The OCB pins (ocb-18, ocb-19, ocb-20 -- the source trees the test suite builds) get their
   # own PR. A bump there is really "OCB moved; does odoo-nix still build it?", answered
   # by `nix flake check` on that PR, and it can legitimately go red: when OCB's
   # setup.py install_requires changed, `lock-fresh-<major>` fails and prints the fix

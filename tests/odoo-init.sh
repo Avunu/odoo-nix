@@ -127,7 +127,7 @@ check "an unknown flag prints the usage" hasF 'Usage: odoo-init' err
 # ── the series ───────────────────────────────────────────────────────────────
 init no-series acme
 expect_rc 5
-check "no series and no terminal: it is required" has 'is required \(one of: 18\.0 19\.0\)' err
+check "no series and no terminal: it is required" has 'is required \(one of: 18\.0 19\.0 20\.0\)' err
 check "nothing is written without a series" test ! -e acme
 
 init bad-series --version 17.0 acme
@@ -216,6 +216,16 @@ check "--flag=value: the series" has '^\s*odooSeries = "19\.0";$' eq/flake.nix
 check "--flag=value: 19.0's interpreter" has '^\s*python = pkgs\.python312;$' eq/flake.nix
 check "--flag=value: the name" has '^\s*name = "eq";$' eq/flake.nix
 check "--flag=value: the modules" eval '[ "$(cat eq/modules.txt)" = partner_firstname ]'
+
+# 20.0 has no OCA modules in the bundled catalog yet: plain core, on its own
+# branch and the interpreter the preset names.
+init twenty --version 20.0 acme
+expect_rc 0
+check "20.0: the series" has '^\s*odooSeries = "20\.0";$' acme/flake.nix
+check "20.0: its interpreter" has '^\s*python = pkgs\.python312;$' acme/flake.nix
+check "20.0: OCB is cloned from its branch" \
+  hasF 'clone --branch 20.0 --require-branch --treeless https://github.com/OCA/OCB.git odoo' "$STUB_LOG/sources"
+check "20.0: modules.txt starts empty" eval '[ ! -s acme/modules.txt ]'
 
 init apps --version 18.0 --apps partner_firstname acme
 expect_rc 0
