@@ -66,8 +66,8 @@
               #   files = true;                      # also download object-store attachments
               # };
 
-              # Build production OCI images with `nix build .#builtOdoo` and the
-              # container outputs once enabled:
+              # Build the production OCI image with `nix build .#container-odoo`
+              # once enabled:
               # containers.enable = true;
             };
           };
