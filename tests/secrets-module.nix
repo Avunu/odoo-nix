@@ -5,7 +5,7 @@
 # `odoo_` prefix, the backup-access secret encrypted to the host keys by
 # default, and the flake.lib.secrets output with its odooSecrets alias.
 # Same `pairs` shape as eval.nix; flake.nix turns each into a named
-# mkEvalCheck.
+# check (lib.checks.mk's `eval`).
 {
   pkgs,
   lib,

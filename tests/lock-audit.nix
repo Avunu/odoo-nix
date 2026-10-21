@@ -2,7 +2,7 @@
 # lib/python.nix) against tests/fixtures/stale-lock: 18.0's fixture after a
 # module was added to the install set without re-locking. uv2nix alone would
 # build the environment without it; the audit names it and fails evaluation.
-# Pure evaluation, so { name = { expected; actual; }; } for mkEvalCheck.
+# Pure evaluation, so { name = { expected; actual; }; } for lib.checks.mk's `eval`.
 {
   pkgs,
   lib,

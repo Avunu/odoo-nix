@@ -5,7 +5,7 @@ modules and repositories a removal takes, and the in-use check against
 databases, with odoo.sql_db and odooenv stood in.
 
 Run: python3 -I tests/test_workspace.py <dir holding odoo_nix_cli> <data dir>
-     (checks.module-unit)
+     (checks.odoo-module-unit)
 """
 
 import contextlib

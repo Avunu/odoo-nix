@@ -3,7 +3,7 @@
 # without containers.registry. A consumer's flake is evaluated through
 # lib.mkFlake and only the image's imageName is read, so nothing is built.
 # Same `pairs` shape as eval.nix; flake.nix turns each into a named
-# mkEvalCheck.
+# check (lib.checks.mk's `eval`).
 {
   pkgs,
   inputs,

@@ -1,8 +1,8 @@
 # NixOS VM test for services.odoo-nix's nginx front end, against a STUB Odoo.
 #
-# Run: nix build .#checks.<system>.module-nginx   (needs KVM)
+# Run: nix build .#checks.<system>.nginx   (needs KVM)
 #
-# The real-Odoo module tests are checks.module-odoo-<major> (tests/module-odoo.nix).
+# The real-Odoo module tests are checks.service-<major> (tests/service.nix).
 # This one deliberately keeps a stub in place of Odoo -- a Python HTTP server
 # that satisfies the three things the module consumes from `package` (a `name`,
 # `passthru.addonsPath`, `bin/odoo`) and echoes the request headers back as
@@ -72,14 +72,14 @@ let
       package = stubOdoo;
       dbName = "odoo";
       database.createLocally = true;
-      # The stub has no `odoo db migrate`; module-odoo covers the migration.
+      # The stub has no `odoo db migrate`; service-<major> covers the migration.
       migrate.enable = false;
     };
   };
 in
-pkgs.testers.runNixOSTest {
-  name = "odoo-nix";
-
+# A test module: flake.nix registers it with lib.checks.mk's nixosTest, which
+# names it.
+{
   nodes = {
     # ---- socket: nginx fronts Odoo over a unix socket, no TCP listener ----
     socket =

@@ -1,4 +1,4 @@
-# odoo-nix's stale-lock fixture (checks.eval-lock-audit-*): tests/fixtures/
+# odoo-nix's stale-lock fixture (checks.lock-audit-*): tests/fixtures/
 # 18.0 after a module was added to the install set without re-locking.
 # pyproject.toml declares odoo-addon-queue_job; uv.lock is 18.0's, which
 # predates it. Never re-locked: `nix run .#relock` leaves it alone.

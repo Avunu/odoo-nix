@@ -3,7 +3,7 @@
 # `watch`, `devguard`, `mailpit` and `ports`, their defaults, and the ports
 # a project derives from its name (python-devops-nix's lib.ports). A consumer's flake is
 # evaluated through lib.mkFlake and nothing is built. Same `pairs` shape as
-# eval.nix; flake.nix turns each into a named mkEvalCheck. The old names are
+# eval.nix; flake.nix turns each into a named check (lib.checks.mk's `eval`). The old names are
 # tests/renames-eval.nix's.
 {
   pkgs,

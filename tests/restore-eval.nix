@@ -3,7 +3,7 @@
 # environment, and the old `restore.attachments` read as `restore.files`. A
 # consumer's flake is evaluated through lib.mkFlake and only the shell's env
 # is read, so nothing is built. Same `pairs` shape as eval.nix; flake.nix turns
-# each into a named mkEvalCheck.
+# each into a named check (lib.checks.mk's `eval`).
 {
   pkgs,
   inputs,

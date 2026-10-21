@@ -1,15 +1,15 @@
 # Evaluation-level assertions over services.odoo-nix (modules/nixos.nix):
 # what the module hands systemd, PostgreSQL and nginx, without building or
 # booting anything. Same `pairs` shape as eval.nix; flake.nix turns each into
-# a named mkEvalCheck.
+# a named check (lib.checks.mk's `eval`).
 #
 # Mostly the contracts shared with frappe-nix through python-devops-nix
 # (PLAN.md, Phase 6): the journald vocabulary (APP_SERVICE/APP_SITE on every
 # unit, SyslogIdentifier=odoo-<role>, roles from lib.journald.roles), the
 # hardening baseline on every unit odoo-nix defines, init as the service user
 # with LoadCredential, the socket directory, nginx's logs, the migrate.*
-# options and the PostgreSQL log settings. The VM tests (module-nginx,
-# module-odoo-<major>) assert the same on a running system.
+# options and the PostgreSQL log settings. The VM tests (nginx,
+# service-<major>) assert the same on a running system.
 {
   pkgs,
   # inputs.python-devops-nix.lib
@@ -143,19 +143,19 @@ let
   failed = cfg: map (a: a.message) (lib.filter (a: !a.assertion) cfg.assertions);
 in
 {
-  module-log-fields-web = {
+  service-log-fields-web = {
     expected = [ "APP_SERVICE=web" ] ++ site;
     actual = fields pinned "odoo";
   };
-  module-log-fields-migrate = {
+  service-log-fields-migrate = {
     expected = [ "APP_SERVICE=migrate" ] ++ site;
     actual = fields pinned "odoo-migrate";
   };
-  module-log-fields-init = {
+  service-log-fields-init = {
     expected = [ "APP_SERVICE=init" ] ++ site;
     actual = fields pinned "odoo-init";
   };
-  module-log-fields-db = {
+  service-log-fields-db = {
     expected = {
       postgresql = [ "APP_SERVICE=db" ] ++ site;
       postgresql-setup = [ "APP_SERVICE=db" ] ++ site;
@@ -165,12 +165,12 @@ in
       postgresql-setup = fields pinned "postgresql-setup";
     };
   };
-  module-log-fields-nginx = {
+  service-log-fields-nginx = {
     expected = [ "APP_SERVICE=nginx" ] ++ site;
     actual = fields pinned "nginx";
   };
   # No pinned database, no one site: APP_SITE is left out, not guessed.
-  module-log-fields-multi-db = {
+  service-log-fields-multi-db = {
     expected = {
       odoo = [ "APP_SERVICE=web" ];
       nginx = [ "APP_SERVICE=nginx" ];
@@ -181,7 +181,7 @@ in
     };
   };
   # SyslogIdentifier=odoo-<role> (CONVENTIONS.md, Journald vocabulary).
-  module-syslog-identifiers = {
+  service-syslog-identifiers = {
     expected = {
       odoo = "odoo-web";
       odoo-migrate = "odoo-migrate";
@@ -193,7 +193,7 @@ in
   # Every role a unit carries is one of python-devops-nix's written list --
   # the same assertion frappe-nix's tests/logging-fields.nix makes -- and the
   # identifier is the product's prefix and that role.
-  module-log-roles = {
+  service-log-roles = {
     expected = {
       known = true;
       identifiers = true;
@@ -214,7 +214,7 @@ in
   # Journald formatting is always on (the odoo_journald graft); nothing sets
   # the old switch. logging.journald is a deprecated no-op that warns, except
   # where `false` silences the logging.file warning it always did.
-  module-journald = {
+  service-journald = {
     expected = {
       env = [ ];
       toFileWarns = true;
@@ -237,7 +237,7 @@ in
   # with no UMask anywhere (odoo-nix#51: nginx reads the filestore through
   # the group), the state directory writable, and W+X memory only where Odoo
   # runs (wkhtmltopdf, rtlcss).
-  module-hardening = {
+  service-hardening = {
     expected = {
       baseline = lib.genAttrs odooUnits (_: {
         NoNewPrivileges = true;
@@ -287,7 +287,7 @@ in
 
   # hardening.enable defaults to false through 1.x: then the units carry no
   # sandboxing key at all, while init still runs as the service user.
-  module-hardening-default = {
+  service-hardening-default = {
     expected = {
       enable = false;
       keys = lib.genAttrs odooUnits (_: [ ]);
@@ -311,7 +311,7 @@ in
 
   # Production secrets (CONVENTIONS.md): init runs as the service user, and
   # the secret files reach it through LoadCredential, not by reading them.
-  module-init-credentials = {
+  service-init-credentials = {
     expected = {
       user = "odoo";
       credentials = [
@@ -329,7 +329,7 @@ in
 
   # nginx's socket in its own 0770 directory (lib.nixos.unixSocket), and the
   # assertion for one that is not.
-  module-socket = {
+  service-socket = {
     expected = {
       rule = true;
       refused = true;
@@ -344,7 +344,7 @@ in
 
   # The migrate.* options: python-devops-nix's four, with their defaults,
   # beside odoo-nix's own full and timeout.
-  module-migrate-options = {
+  service-migrate-options = {
     expected = {
       enable = true;
       snapshot = true;
@@ -358,7 +358,7 @@ in
 
   # services.odoo-nix.environmentFiles reaches the units that run Odoo (the
   # auto_backup cron lives in the odoo process), and is empty by default.
-  module-environment-files = {
+  service-environment-files = {
     expected = {
       odoo = [ "/run/agenix/odoo-backup" ];
       odoo-migrate = [ "/run/agenix/odoo-backup" ];
@@ -371,7 +371,7 @@ in
     };
   };
 
-  module-postgresql-logging = {
+  service-postgresql-logging = {
     expected = {
       prefix = "%d %u ";
       defaultSlow = null;
@@ -388,7 +388,7 @@ in
     };
   };
 
-  module-nginx-access-log = {
+  service-nginx-access-log = {
     expected = {
       format = true;
       journal = true;
@@ -403,7 +403,7 @@ in
 
   # The error log over syslog, so it keeps its severity; the real-IP block and
   # the socket headers only on a unix-socket listener.
-  module-nginx-socket = {
+  service-nginx-socket = {
     expected = {
       errorLog = "syslog:server=unix:/dev/log,tag=nginx,nohostname error";
       realIp = true;

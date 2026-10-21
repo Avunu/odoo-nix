@@ -4,13 +4,13 @@ name: check
 # a laptop measure the same tree, and `lint`, every prek hook with no nix. This is what
 # you mark required on `main`: auto-merge (Dependabot PRs) is only as safe as what runs here.
 #
-#   eval-*, odoo-conf-render     pure tests of lib/addons.nix + lib/odoo-conf.nix
+#   addons-*, odoo-conf-*        pure tests of lib/addons.nix + lib/odoo-conf.nix
 #   lock-fresh-<18|19>           tests/fixtures/<series>/uv.lock matches the pinned OCB
-#   builtOdoo-<18|19>            a real Odoo assembled from the pin with the consumer code path
+#   built-odoo-<18|19>           a real Odoo assembled from the pin with the consumer code path
 #   odoo-init-<18|19>            `-i base` against an in-sandbox PostgreSQL
 #   odoo-test-<18|19>            the fixture addon's Odoo tests (incl. the devguard mail guard)
-#   module-nginx                 the NixOS module's nginx/socket contract (stub Odoo, KVM)
-#   module-odoo-<18|19>          the NixOS module bringing up the real Odoo (KVM)
+#   nginx                        the NixOS module's nginx/socket contract (stub Odoo, KVM)
+#   service-<18|19>              the NixOS module bringing up the real Odoo (KVM)
 #
 # OCB is pinned (inputs.ocb-18 / ocb-19, flake = false). Nothing drifts except when
 # flake.lock changes, and dependabot's weekly nix update is what proposes that -- as a
@@ -65,7 +65,7 @@ jobs:
       # just has determinate-nixd try to log into FlakeHub for a repo that isn't
       # registered there, logging a failure annotation on every run. `kvm` stays
       # at its default (on): the installer adds the udev rule so the daemon
-      # advertises the `kvm` system feature the module-* VM tests need.
+      # advertises the `kvm` system feature the VM tests need.
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         if: runner.environment == 'github-hosted'
         with:

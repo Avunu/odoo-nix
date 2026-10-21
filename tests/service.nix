@@ -1,5 +1,5 @@
 # NixOS VM test for services.odoo-nix with a REAL Odoo: the fixture's
-# production-shaped CLI package for one series. module-nginx.nix keeps a stub
+# production-shaped CLI package for one series. nginx.nix keeps a stub
 # so the nginx/socket contract is asserted independently of Odoo; this one
 # asserts the module can actually bring Odoo up -- and keep the schema in
 # step with the code across deploys:
@@ -24,7 +24,7 @@
 #   - the units run under python-devops-nix's hardening baseline, and
 #     odoo-init as the service user.
 #
-# Run: nix build .#checks.<system>.module-odoo-18   (needs KVM)
+# Run: nix build .#checks.<system>.service-18   (needs KVM)
 {
   pkgs,
   odooModule,
@@ -35,11 +35,10 @@
 }:
 let
   inherit (pkgs) lib;
-  major = lib.versions.major series;
 in
-pkgs.testers.runNixOSTest {
-  name = "odoo-nix-module-odoo-${major}";
-
+# A test module: tests/series.nix registers it with lib.checks.mk's
+# nixosTest, which names it.
+{
   nodes.machine =
     { ... }:
     {

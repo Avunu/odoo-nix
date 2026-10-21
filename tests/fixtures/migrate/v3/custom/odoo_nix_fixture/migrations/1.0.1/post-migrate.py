@@ -4,7 +4,7 @@ from odoo import api
 def migrate(cr, version):
     """Record that the 1.0.1 migration ran (and from which version), and
     write a filestore attachment, as a migration that loads data files with
-    images or regenerates assets does: module-odoo checks that nginx can
+    images or regenerates assets does: service-<major> checks that nginx can
     still send it under nginx.xSendfile."""
     cr.execute(
         """
