@@ -7,7 +7,7 @@
 # custom addon whose Odoo tests are what odoo-test-<major> runs.
 #
 # Returns:
-#   eval  -- { name = { expected; actual; }; } for flake.nix's mkEvalCheck
+#   eval  -- { name = { expected; actual; }; } for lib.checks.mk's `eval`
 #   all   -- derivations that run on every system (no Odoo process)
 #   linux -- derivations that run Odoo or a VM
 {
@@ -18,7 +18,8 @@
   ocb,
   python,
   odooNixAddons,
-  mkCheck,
+  scriptCheck,
+  nixosTest,
 }:
 let
   major = lib.versions.major series;
@@ -126,7 +127,7 @@ let
         dbUser = "odoo";
         dbPassword = "";
         dbName = null;
-        # Relative to CWD, which mkCheck sets to the build directory.
+        # Relative to CWD, which is the build directory a check runs in.
         dataDir = "./odoo-data";
         adminPasswd = "admin";
         httpInterface = "127.0.0.1";
@@ -184,7 +185,7 @@ let
   # exports PGHOST/PGUSER/PGDATABASE. Odoo hands db_host to psycopg2 verbatim
   # and libpq treats a `/`-prefixed host as a socket directory.
   pg = {
-    nativeCheckInputs = [
+    tools = [
       pkgs.postgresql_16
       pkgs.postgresqlTestHook
     ];
@@ -196,6 +197,15 @@ let
       postgresqlTestUserOptions = "LOGIN SUPERUSER CREATEDB";
     };
   };
+  # The hook attaches to the check phase, which a script check does not have,
+  # so the script runs the phase's hooks itself.
+  pgCheck =
+    name: text:
+    scriptCheck name pg ''
+      runHook preCheck
+      ${text}
+      runHook postCheck
+    '';
 
   odooArgs = ''-c ${conf} -d "$PGDATABASE" --db_host="$PGHOST" --db_user="$PGUSER" --stop-after-init'';
 
@@ -226,11 +236,11 @@ in
     # the workspace-relative components against the given root. `/ROOT` rather
     # than "${builtOdoo}" so this stays a pure eval check (no string context
     # that would pull the package -- and its odoo wheel -- into the build).
-    builtodoo-addons-path = {
+    built-odoo-addons-path = {
       expected = "${ocb}/odoo/addons,${ocb}/addons,/ROOT/custom";
       actual = builtOdoo.passthru.addonsPath "/ROOT";
     };
-    builtodoo-version = {
+    built-odoo-version = {
       expected = series;
       actual = builtOdoo.passthru.odooVersion;
     };
@@ -245,9 +255,9 @@ in
   all = {
     # uv.lock was locked against *this* pin: same series, same install_requires.
     lock-fresh =
-      mkCheck "lock-fresh-${major}"
+      scriptCheck "lock-fresh-${major}"
         {
-          nativeCheckInputs = [ (pkgs.python3.withPackages (ps: [ ps.setuptools ])) ];
+          tools = [ (pkgs.python3.withPackages (ps: [ ps.setuptools ])) ];
         }
         ''
           python3 ${./lock_fresh.py} ${workspaceRoot + "/uv.lock"} ${ocb} ${series}
@@ -256,7 +266,7 @@ in
     # The managed [tool.uv.extra-build-dependencies] block is what
     # odoo-nix-build-deps derives from this uv.lock (`nix run .#relock` keeps
     # it so).
-    build-deps = mkCheck "build-deps-${major}" { } ''
+    build-deps = scriptCheck "build-deps-${major}" { } ''
       ${lib.getExe buildDeps} check ${workspaceRoot + "/pyproject.toml"} ${workspaceRoot + "/uv.lock"}
     '';
   };
@@ -264,7 +274,7 @@ in
   linux = {
     # The deployable artifact assembles, its wrapper runs the real interpreter,
     # and it is the production env (no editable installs, no dev group).
-    builtOdoo = mkCheck "builtOdoo-${major}" { } ''
+    built-odoo = scriptCheck "built-odoo-${major}" { } ''
       test -x ${builtOdoo}/odoo/odoo-bin
       test -f ${builtOdoo}/custom/${fixtureAddon}/__manifest__.py
       grep -q '${pythonEnvs.odooPythonEnv}/bin/python' ${builtOdoo}/bin/odoo
@@ -293,7 +303,7 @@ in
     # dev guard rails must be absent from it: no odoo_devguard on disk, no
     # banner in the log. The journald graft is there (inert: stderr is not
     # the journal here, so Odoo's own format and the checks above stand).
-    odoo-init = mkCheck "odoo-init-${major}" pg ''
+    odoo-init = pgCheck "odoo-init-${major}" ''
       ${builtOdoo}/bin/odoo ${odooArgs} -i base 2>&1 | tee odoo.log
       ${noErrors}
       ${installed "base"}
@@ -312,7 +322,7 @@ in
     # The fixture addon's Odoo tests, with the test env (prod wheels + dev
     # group). Odoo reports a skipped test exactly like a passed one, so the
     # stats line must show the module's tests actually ran.
-    odoo-test = mkCheck "odoo-test-${major}" pg ''
+    odoo-test = pgCheck "odoo-test-${major}" ''
       ${pythonEnvs.testPythonEnv}/bin/python ${builtOdoo}/odoo/odoo-bin ${odooArgs} \
         -i ${fixtureAddon} --test-enable --test-tags /${fixtureAddon} 2>&1 | tee odoo.log
       ${noErrors}
@@ -328,7 +338,7 @@ in
     # restore) against a *different* database than the one `pg`/PGDATABASE
     # pre-creates, exercising --db-host/--db-user the same way odooArgs does
     # for the raw odoo-bin checks above.
-    cli-lifecycle = mkCheck "cli-lifecycle-${major}" pg ''
+    cli-lifecycle = pgCheck "cli-lifecycle-${major}" ''
       DBFLAGS="--db-host $PGHOST --db-user $PGUSER"
       CLIDB="odoo_nix_cli_${major}"
 
@@ -380,7 +390,7 @@ in
     # --files/--attachments, refused without the devguard unless
     # restore.requireDevguard is off, and --at in ISO 8601 or odoo-nix's
     # naming.
-    cli-remote-restore = mkCheck "cli-remote-restore-${major}" pg ''
+    cli-remote-restore = pgCheck "cli-remote-restore-${major}" ''
       DBFLAGS="--db-host $PGHOST --db-user $PGUSER"
       SRCDB="odoo_nix_rsrc_${major}"
       DSTDB="odoo_nix_rdst_${major}"
@@ -478,7 +488,7 @@ in
     # (every database matching dbfilter by default; explicit --restore DB
     # PATH pairs, no "latest" auto-discovery) -- a separate check from
     # cli-lifecycle so a failure here names this surface specifically.
-    cli-project-backup = mkCheck "cli-project-backup-${major}" pg ''
+    cli-project-backup = pgCheck "cli-project-backup-${major}" ''
       DBFLAGS="--db-host $PGHOST --db-user $PGUSER"
       CLIDB1="odoo_nix_proj1_${major}"
       CLIDB2="odoo_nix_proj2_${major}"
@@ -545,7 +555,7 @@ in
     # flow: lib.nixos.migrate.modules), rollback of a migration that fails
     # after committing, snapshot retention, and an uninitialised database left
     # alone.
-    cli-migrate = mkCheck "cli-migrate-${major}" pg ''
+    cli-migrate = pgCheck "cli-migrate-${major}" ''
       DBFLAGS="--db-host $PGHOST --db-user $PGUSER"
       DB="odoo_nix_migrate_${major}"
       SERVICE_ARGS="--if-needed --snapshot dump --keep 2 --rollback"
@@ -636,11 +646,13 @@ in
       grep -q "has no Odoo schema" empty.log
     '';
 
-    module-odoo = import ./module-odoo.nix {
-      inherit pkgs series odooCli;
-      odooCliV2 = v2.cli;
-      odooCliV3 = v3.cli;
-      odooModule = inputs.self.nixosModules.default;
-    };
+    service = nixosTest "service-${major}" (
+      import ./service.nix {
+        inherit pkgs series odooCli;
+        odooCliV2 = v2.cli;
+        odooCliV3 = v3.cli;
+        odooModule = inputs.self.nixosModules.default;
+      }
+    );
   };
 }

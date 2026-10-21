@@ -4,7 +4,7 @@
 # built with it evaluates (its Python version checks pass). A consumer's flake
 # is evaluated through lib.mkFlake and only the interpreter's version and the
 # image's drvPath are read, so nothing is built. Same `pairs` shape as
-# eval.nix; flake.nix turns each into a named mkEvalCheck.
+# eval.nix; flake.nix turns each into a named check (lib.checks.mk's `eval`).
 {
   pkgs,
   inputs,

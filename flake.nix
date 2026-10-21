@@ -140,70 +140,36 @@
       '';
 
       # One small derivation per assertion: `nix flake check` names what
-      # broke, and a slow Odoo run cannot mask a fast check. `script` runs in
-      # checkPhase so hooks that attach to preCheck -- postgresqlTestHook --
-      # work. HOME and CWD are the build directory. `refute CMD...` fails the
-      # check when CMD succeeds: a bare `! CMD` never does, bash exempts `!`
-      # pipelines from errexit.
-      mkCheck =
-        pkgs: name:
-        {
-          nativeCheckInputs ? [ ],
-          env ? { },
-        }:
-        script:
-        pkgs.stdenvNoCC.mkDerivation (
-          {
-            name = "odoo-nix-check-${name}";
-            dontUnpack = true;
-            dontConfigure = true;
-            dontBuild = true;
-            dontFixup = true;
-            doCheck = true;
-            inherit nativeCheckInputs;
-            checkPhase = ''
-              runHook preCheck
-              set -o pipefail
-              export HOME="$NIX_BUILD_TOP"
-              cd "$NIX_BUILD_TOP"
-              refute() {
-                if "$@"; then
-                  echo "refuted, but it succeeded: $*" >&2
-                  exit 1
-                fi
-              }
-              ${script}
-              runHook postCheck
-            '';
-            # Keep the Odoo log (if any) in the output for inspection.
-            installPhase = ''
-              mkdir -p $out
-              if [ -e odoo.log ]; then cp odoo.log $out/; fi
-            '';
-          }
-          // env
-        );
+      # broke, and a slow Odoo run cannot mask a fast check. Every check is
+      # registered through python-devops-nix's lib.checks.mk (CONVENTIONS.md,
+      # Tests): checks.<system>.<x>, built as odoo-nix-<x>-check, or
+      # vm-test-run-odoo-nix-<x> for a VM test.
+      checksFor =
+        pkgs:
+        base.checks.mk {
+          inherit pkgs;
+          product = "odoo-nix";
+        };
 
-      # A pure-eval assertion as a derivation: the two sides are serialised at
-      # evaluation time and compared in the sandbox, so a mismatch fails the
-      # named check rather than aborting the whole `nix flake check` evaluation.
-      mkEvalCheck =
-        pkgs: name:
-        { expected, actual }:
-        pkgs.runCommandLocal "odoo-nix-eval-${name}"
-          {
-            expected = builtins.toJSON expected;
-            actual = builtins.toJSON actual;
-          }
-          ''
-            if [ "$expected" != "$actual" ]; then
-              echo "eval check '${name}' failed" >&2
-              echo "  expected: $expected" >&2
-              echo "  actual:   $actual" >&2
+      # Its `script`, with two additions. `refute CMD...` fails the check when
+      # CMD succeeds: a bare `! CMD` never does, bash exempts `!` pipelines
+      # from errexit. And an Odoo log the script left (odoo.log) is kept in
+      # the output for inspection. The script runs in the build directory.
+      scriptCheck =
+        pkgs: name: args: text:
+        (checksFor pkgs).script name args ''
+          refute() {
+            if "$@"; then
+              echo "refuted, but it succeeded: $*" >&2
               exit 1
             fi
-            touch $out
-          '';
+          }
+          ${text}
+          if [ -e odoo.log ]; then
+            mkdir -p "$out"
+            cp odoo.log "$out/"
+          fi
+        '';
 
       # The interpreters every preset names: the devguard loads into Odoo's own.
       devguardInterpreters = base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; };
@@ -262,30 +228,32 @@
         odoo-ls = import ./lib/odoo-ls.nix;
       };
 
-      # checks.<system>:
-      #   eval-addons-*, eval-odoo-conf-*, odoo-conf-render   pure library tests (all systems)
+      # checks.<system> (names: python-devops-nix CONVENTIONS.md, Tests):
+      #   addons-*, odoo-conf-*, odoo-conf-render             pure library tests (all systems)
       #   journald-formatter                                  the CLI's journald output (all systems)
       #   devguard-core, devguard, devguard-baked             the dev guard rails: base core, odoo-nix's side (all systems)
       #   sources                                             shell entry's submodule checkout (all systems)
-      #   bootstrap, eval-bootstrap-lock-*                    the fresh-clone checkout before `use flake` (all systems)
+      #   bootstrap, bootstrap-lock-*                         the fresh-clone checkout before `use flake` (all systems)
       #   scaffold, odoo-init-unit                            odoo-init: its projects, offline; its pieces (all systems)
-      #   module-cli, module-unit                             `odoo module add|add-bundle|remove`, offline; their pieces (all systems)
+      #   odoo-module-cli, odoo-module-unit                   `odoo module add|add-bundle|remove`, offline; their pieces (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
-      #   eval-secrets-*                                      odoo-nix's secrets module (all systems)
-      #   eval-lock-audit-*                                   the stale-lock audit on a stale fixture (all systems)
-      #   eval-restore-*                                      the dev shell's restore options (Linux only)
-      #   eval-module-*                                       services.odoo-nix evaluation (Linux only)
-      #   eval-container-name*                                the OCI image's name (Linux only)
-      #   eval-python-default-*                               the series' default interpreter (Linux only)
-      #   eval-rename-*                                       renamed dev-shell options (Linux only)
-      #   eval-{ports,mailpit,watch}-*, eval-tree              the dev shell's option tree and its ports (Linux only)
-      #   eval-*-<major>, lock-fresh-<major>, build-deps-<major>
+      #   secrets-*                                           odoo-nix's secrets module (all systems)
+      #   lock-audit-*                                        the stale-lock audit on a stale fixture (all systems)
+      #   restore-*                                           the dev shell's restore options (Linux only)
+      #   service-*                                           services.odoo-nix evaluation (Linux only)
+      #   container-name*                                     the OCI image's name (Linux only)
+      #   python-default-*                                    the series' default interpreter (Linux only)
+      #   rename-*, identity-*                                renamed dev-shell options (Linux only)
+      #   {ports,mailpit,watch}-*, ci-mode, tree              the dev shell's option tree and its ports (Linux only)
+      #   fixture-requires-python-<major>, built-odoo-{addons-path,version}-<major>,
+      #   lock-audit-<major>, lock-fresh-<major>, build-deps-<major>
       #                                                       per-series, no Odoo run (all systems)
-      #   builtOdoo-<major>, odoo-init-<major>, odoo-test-<major>,
-      #   module-odoo-<major>, module-nginx                   run Odoo / a VM (Linux only)
+      #   built-odoo-<major>, odoo-init-<major>, odoo-test-<major>,
+      #   cli-*-<major>                                       run Odoo (Linux only)
+      #   service-<major>, nginx                              NixOS VM tests (Linux only)
       checks = forAllSystems (
         pkgs:
         let
@@ -294,7 +262,7 @@
           evalTests = import ./tests/eval.nix { inherit pkgs lib; };
           evalChecks =
             suffix:
-            lib.mapAttrs' (n: v: lib.nameValuePair "eval-${n}${suffix}" (mkEvalCheck pkgs "${n}${suffix}" v));
+            lib.mapAttrs' (n: v: lib.nameValuePair "${n}${suffix}" ((checksFor pkgs).eval "${n}${suffix}" v));
           perSeries = lib.concatMapAttrs (
             series: ocb:
             let
@@ -309,7 +277,8 @@
                   odooNixAddons
                   ;
                 python = pkgs.${presets.${series}.python};
-                mkCheck = mkCheck pkgs;
+                scriptCheck = scriptCheck pkgs;
+                inherit (checksFor pkgs) nixosTest;
               };
               suffixed = lib.mapAttrs' (n: v: lib.nameValuePair "${n}-${major}" v);
             in
@@ -320,7 +289,7 @@
         // {
           # The rendered INI, not just the attrset: pkgs.formats.ini is part of
           # the contract (True/False literals, extra sections verbatim).
-          odoo-conf-render = mkCheck pkgs "odoo-conf-render" { } ''
+          odoo-conf-render = scriptCheck pkgs "odoo-conf-render" { } ''
             f=${evalTests.rendered}
             grep -qE '^\[dev_mailcatch\]$' "$f"
             grep -qE '^enabled\s*=\s*True$' "$f"
@@ -339,7 +308,7 @@
           # names, since it loads into Odoo's own. Against the graft as
           # lib/python.nix puts it in the environments, with python-devops-nix's
           # core and hook beside it, and the CLI package that execs odoo-bin.
-          journald-formatter = mkCheck pkgs "journald-formatter" { } (
+          journald-formatter = scriptCheck pkgs "journald-formatter" { } (
             lib.concatMapStrings (py: ''
               ${pkgs.${py}.interpreter} -I ${./tests/test_journald.py} ${journaldGraft pkgs} ${cliPackage pkgs}
             '') devguardInterpreters
@@ -363,7 +332,7 @@
           # network: _product.py's names and defaults, and the Odoo-facing
           # guards against stand-in modules, in the package lib/devguard.nix
           # builds (the core merged in), on the same interpreters.
-          devguard = mkCheck pkgs "devguard" { } (
+          devguard = scriptCheck pkgs "devguard" { } (
             lib.concatMapStrings (py: ''
               ${pkgs.${py}.interpreter} -I ${./tests/test_devguard.py} ${devguardPackage pkgs { }}
             '') devguardInterpreters
@@ -381,7 +350,7 @@
                 };
               };
             in
-            mkCheck pkgs "devguard-baked" { } ''
+            scriptCheck pkgs "devguard-baked" { } ''
               test "${base.python.pthName pkg.module}" = zzz-odoo-devguard.pth
               PYTHONPATH=${pkg} ${pkgs.python3}/bin/python3 - <<'PY'
               import odoo_devguard as g
@@ -414,7 +383,7 @@
           # backup_layout.py): the layout, the names, `--at`, without Odoo or
           # a network, on the same interpreters, against the package as
           # lib/cli.nix vendors it.
-          backup-layout = mkCheck pkgs "backup-layout" { } (
+          backup-layout = scriptCheck pkgs "backup-layout" { } (
             lib.concatMapStrings (py: ''
               ${pkgs.${py}.interpreter} -I ${./tests/test_backups.py} ${cliPackage pkgs}
             '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
@@ -440,9 +409,9 @@
           # The pr-policy check (lib/pr_policy.py) against throwaway git
           # repositories, through the real committed and committed.toml.
           pr-policy =
-            mkCheck pkgs "pr-policy"
+            scriptCheck pkgs "pr-policy"
               {
-                nativeCheckInputs = [
+                tools = [
                   pkgs.git
                   pkgs.committed
                 ];
@@ -455,9 +424,9 @@
           # The workflows: actionlint (with shellcheck over each `run:`) and
           # zizmor offline, with .github/zizmor.yml (every `uses:` SHA-pinned).
           workflows =
-            mkCheck pkgs "workflows"
+            scriptCheck pkgs "workflows"
               {
-                nativeCheckInputs = with pkgs; [
+                tools = with pkgs; [
                   git
                   actionlint
                   shellcheck
@@ -479,9 +448,9 @@
           # real): every flag and branch, its exit codes, and what it writes
           # (tests/odoo-init.sh).
           scaffold =
-            mkCheck pkgs "scaffold"
+            scriptCheck pkgs "scaffold"
               {
-                nativeCheckInputs = with pkgs; [
+                tools = with pkgs; [
                   git
                   jq
                   gawk
@@ -500,7 +469,7 @@
           # catalog (odoo_nix_cli.oca), mode and series detection, and the
           # prompts (rich faked). On odoo-init's interpreter and on every one
           # a preset runs the `odoo` CLI on, which imports odoo_nix_cli.oca.
-          odoo-init-unit = mkCheck pkgs "odoo-init-unit" { nativeCheckInputs = [ pkgs.git ]; } (
+          odoo-init-unit = scriptCheck pkgs "odoo-init-unit" { tools = [ pkgs.git ]; } (
             lib.concatMapStrings
               (py: ''
                 ODOO_PRESETS=${./lib/odoo-presets.json} ${py.interpreter} -I ${./tests/test_odoo_init.py} \
@@ -517,7 +486,7 @@
           # `odoo module add`, `add-bundle` and `remove`, offline: the `odoo`
           # CLI with the workspace scripts and no Odoo, odoo-nix-sources stood
           # in, git real, uv real and offline (tests/module.sh).
-          module-cli =
+          odoo-module-cli =
             let
               python = pkgs.${presets."18.0".python};
               cli = import ./lib/cli.nix {
@@ -543,10 +512,10 @@
                 };
               };
             in
-            mkCheck pkgs "module-cli"
+            scriptCheck pkgs "odoo-module-cli"
               {
                 # python3: uv's interpreter, as the dev shell has one on PATH.
-                nativeCheckInputs = with pkgs; [
+                tools = with pkgs; [
                   git
                   gnused
                   gnugrep
@@ -561,7 +530,7 @@
           # Their pieces (lib/odoo_nix_cli/workspace): the config schema, what a
           # removal takes, and the in-use check against databases with Odoo
           # stood in. On each interpreter a preset runs the CLI on, with click.
-          module-unit = mkCheck pkgs "module-unit" { nativeCheckInputs = [ pkgs.git ]; } (
+          odoo-module-unit = scriptCheck pkgs "odoo-module-unit" { tools = [ pkgs.git ]; } (
             lib.concatMapStrings (py: ''
               ${
                 base.python.rich {
@@ -576,9 +545,9 @@
           # tree dirty, gets its submodules from the pinned odoo-nix-sources
           # before `use flake`; `nix` is a stub (tests/bootstrap.sh).
           bootstrap =
-            mkCheck pkgs "bootstrap"
+            scriptCheck pkgs "bootstrap"
               {
-                nativeCheckInputs = [
+                tools = [
                   pkgs.git
                   pkgs.gawk
                 ];
@@ -591,9 +560,9 @@
           # odoo-nix-sources (python-devops-nix's lib.sources, configured in
           # lib/shell-tools.nix): odoo-nix's acceptance test of it.
           sources =
-            mkCheck pkgs "sources"
+            scriptCheck pkgs "sources"
               {
-                nativeCheckInputs = [
+                tools = [
                   pkgs.git
                   pkgs.findutils
                   pkgs.gawk
@@ -613,9 +582,9 @@
           # the no-op path everywhere else (TMPDIR=<btrfs dir> to run the
           # former by hand).
           db-nocow =
-            mkCheck pkgs "db-nocow"
+            scriptCheck pkgs "db-nocow"
               {
-                nativeCheckInputs = [
+                tools = [
                   pkgs.e2fsprogs
                   pkgs.procps
                 ];
@@ -740,11 +709,13 @@
         )
         // lib.optionalAttrs isLinux {
           # The nginx/socket contract test, against a stub Odoo (see the file
-          # header). Real-Odoo module tests are module-odoo-<major>.
-          module-nginx = import ./tests/module-nginx.nix {
-            inherit pkgs;
-            odooModule = nixosModule;
-          };
+          # header). Real-Odoo module tests are odoo-service-<major>.
+          nginx = (checksFor pkgs).nixosTest "nginx" (
+            import ./tests/nginx.nix {
+              inherit pkgs;
+              odooModule = nixosModule;
+            }
+          );
         }
       );
 
@@ -841,7 +812,7 @@
           shellHook = ''
             echo "odoo-nix dev shell: ocb-18 -> $OCB_18"
             echo "                    ocb-19 -> $OCB_19"
-            echo "  nix flake check -L        run everything (needs KVM for module-*)"
+            echo "  nix flake check -L        run everything (needs KVM for the VM tests)"
             echo "  nix fmt                   format the Nix files (checks.nix-lint enforces it)"
             echo "  odoo-nix-relock           re-lock tests/fixtures/*/uv.lock"
           '';

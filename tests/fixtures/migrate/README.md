@@ -2,7 +2,7 @@
 
 Later versions of `tests/fixtures/<series>/custom/odoo_nix_fixture` (1.0.0),
 for the checks that migrate a database from one build to the next
-(`cli-migrate-<major>` in tests/series.nix, `module-odoo-<major>`). Each
+(`cli-migrate-<major>` in tests/series.nix, `service-<major>`). Each
 directory is a workspace root holding only `custom/`: OCB comes from the
 series' `ocb-*` input and the Python env from that series' fixture, so the
 addon is the only thing that differs between builds. Version numbers carry no

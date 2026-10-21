@@ -34,7 +34,7 @@
   # odoo-nix-sources (lib/shell-tools.nix, python-devops-nix's lib.sources):
   # `module add` clones a new repo with it, and projectUpdate checks out a
   # submodule this clone has never had the way shell entry does, as a partial
-  # clone. A bare name is looked up on PATH (the module-cli check's stand-in).
+  # clone. A bare name is looked up on PATH (the odoo-module-cli check's stand-in).
   sourcesBin,
   # lib/build-deps.nix: odoo-nix-build-deps, which keeps pyproject.toml's
   # sdist build dependencies in step with uv.lock after each `uv lock`.

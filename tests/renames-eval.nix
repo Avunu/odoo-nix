@@ -4,7 +4,7 @@
 # baked devguard settings), and is announced on
 # `odoo-nix.deprecations` (what the module lib.warn's). A consumer's flake is
 # evaluated through lib.mkFlake and nothing is built. Same `pairs` shape as
-# eval.nix; flake.nix turns each into a named mkEvalCheck.
+# eval.nix; flake.nix turns each into a named check (lib.checks.mk's `eval`).
 {
   pkgs,
   lib,

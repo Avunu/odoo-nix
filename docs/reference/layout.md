@@ -69,20 +69,20 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 
 | Checks | What they cover |
 | --- | --- |
-| `eval-addons-*`, `eval-odoo-conf-*`, `odoo-conf-render` | `lib/addons.nix` on synthetic trees and `lib/odoo-conf.nix`'s rendering. |
-| `eval-*-<18\|19>`, `lock-fresh-<18\|19>`, `build-deps-<18\|19>` | Per series, without running Odoo: the fixture's `requires-python`, `builtOdoo`'s passthru, the fixture lock against the pinned OCB, the managed build-dependency block. |
-| `eval-lock-audit-*` | The stale-lock audit. |
-| `builtOdoo-<18\|19>`, `odoo-init-<18\|19>`, `odoo-test-<18\|19>` | The assembled package, `-i base` against an in-sandbox PostgreSQL with no guard rails in production, and the fixture addon's Odoo tests including the guard rails. |
+| `addons-*`, `odoo-conf-*`, `odoo-conf-render` | `lib/addons.nix` on synthetic trees and `lib/odoo-conf.nix`'s rendering. |
+| `fixture-requires-python-<18\|19>`, `built-odoo-addons-path-<18\|19>`, `built-odoo-version-<18\|19>`, `lock-audit-<18\|19>`, `lock-fresh-<18\|19>`, `build-deps-<18\|19>` | Per series, without running Odoo: the fixture's `requires-python`, `builtOdoo`'s passthru, the fixture lock against the pinned OCB, the managed build-dependency block. |
+| `lock-audit-*` | The stale-lock audit. |
+| `built-odoo-<18\|19>`, `odoo-init-<18\|19>`, `odoo-test-<18\|19>` | The assembled package, `-i base` against an in-sandbox PostgreSQL with no guard rails in production, and the fixture addon's Odoo tests including the guard rails. |
 | `cli-lifecycle-<18\|19>`, `cli-migrate-<18\|19>`, `cli-project-backup-<18\|19>`, `cli-remote-restore-<18\|19>` | The `odoo` command end to end: provision, backup, drop and restore; migrations from build to build, including rollback; project backups; restores from a directory store. |
 | `devguard-core`, `devguard`, `devguard-baked` | The guard rails, the shared core and odoo-nix's side, without Odoo or a network. |
 | `backups`, `backup-layout` | The backup fetch layer and odoo-nix's naming. |
 | `journald-formatter` | The `odoo_journald` graft. |
 | `scaffold`, `odoo-init-unit` | `odoo-init` offline: every flag and exit code, and its pieces. |
-| `module-cli`, `module-unit` | `odoo module add`, `add-bundle` and `remove` offline, and their pieces. |
-| `sources`, `bootstrap`, `eval-bootstrap-lock-*` | Shell entry's submodule checkout and the fresh-clone bootstrap. |
+| `odoo-module-cli`, `odoo-module-unit` | `odoo module add`, `add-bundle` and `remove` offline, and their pieces. |
+| `sources`, `bootstrap`, `bootstrap-lock-*` | Shell entry's submodule checkout and the fresh-clone bootstrap. |
 | `db-nocow` | The btrfs NOCOW handling (Linux). |
-| `eval-secrets-*`, `eval-restore-*`, `eval-rename-*`, `eval-identity-*`, `eval-ports-*`, `eval-mailpit-*`, `eval-watch-*`, `eval-ci-mode`, `eval-tree`, `eval-python-default-*`, `eval-container-name*` | The flake-parts module's options, evaluated. |
-| `eval-module-*`, `module-nginx`, `module-odoo-<18\|19>` | `services.odoo-nix`, evaluated, and in NixOS VMs (KVM) with a stub and with the real Odoo: migrations on deploy, rollback leaving Odoo down, nginx, X-Sendfile, the journal, hardening. |
+| `secrets-*`, `restore-*`, `rename-*`, `identity-*`, `ports-*`, `mailpit-*`, `watch-*`, `ci-mode`, `tree`, `python-default-*`, `container-name*` | The flake-parts module's options, evaluated. |
+| `service-*`, `nginx`, `service-<18\|19>` | `services.odoo-nix`, evaluated, and in NixOS VMs (KVM) with a stub and with the real Odoo: migrations on deploy, rollback leaving Odoo down, nginx, X-Sendfile, the journal, hardening. |
 | `nix-lint`, `shared-config`, `pr-policy`, `workflows` | `nixfmt-rs`, statix and deadnix; the shared editor and lint configuration; the pull-request policy; actionlint and zizmor. |
 
 Everything that runs Odoo or a VM is Linux-only. `nix develop` gives a shell for working on odoo-nix itself, with `uv`, `nixfmt-rs` and `odoo-nix-relock`; `nix fmt` formats the Nix files.

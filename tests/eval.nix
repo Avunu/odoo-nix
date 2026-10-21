@@ -1,7 +1,7 @@
 # Pure evaluation assertions over lib/addons.nix and lib/odoo-conf.nix.
 #
 # `pairs` is { name = { expected; actual; }; }; flake.nix turns each into its
-# own derivation (mkEvalCheck) that compares the two as JSON, so a failing
+# own derivation (lib.checks.mk's `eval`) that compares the two as JSON, so a failing
 # assertion is reported by name instead of aborting the whole evaluation.
 # `rendered` is a real odoo.conf for a grep-level check of the INI output.
 #
