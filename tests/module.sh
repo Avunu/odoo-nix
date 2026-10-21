@@ -329,6 +329,33 @@ run module remove --force bare
 expect_rc 0
 check "--force discards them with the repo" gone modules/bare
 
+# ── project update ───────────────────────────────────────────────────────────
+# --no-migrate: the CLI has no Odoo here. OCB's remote is GitHub, which the
+# sandbox cannot reach: its fetch fails, and the update carries on.
+project update
+run module add "file://$T/remotes/multi.git"
+commit added
+before=$(git -C modules/multi rev-parse HEAD)
+git -C "$T/work/multi" checkout -q 18.0
+mkdir -p "$T/work/multi/mod_three"
+echo "{'name': 'mod_three', 'version': '18.0.1.0.0'}" > "$T/work/multi/mod_three/__manifest__.py"
+git -C "$T/work/multi" add -A
+git -C "$T/work/multi" commit -q -m three
+git -C "$T/work/multi" push -q "$T/remotes/multi.git" 18.0
+tip=$(git -C "$T/remotes/multi.git" rev-parse 18.0)
+sed -i '/odoo = { path = "odoo" }/d' pyproject.toml
+run project update --no-migrate
+expect_rc 0
+check "new submodules are checked out as shell entry does" hasF "enter --treeless odoo $PWD" "$STUB_LOG/sources"
+check "it says it updates the submodules" hasF '==> Updating git submodules…' out
+check "a submodule moves to the tip of its pinned branch" eval \
+  '[ "$(git -C modules/multi rev-parse HEAD)" = "$tip" ] && [ "$tip" != "$before" ]'
+check "...detached, not on a local branch" eval '[ "$(git -C modules/multi rev-parse --abbrev-ref HEAD)" = HEAD ]'
+check "the path sources are regenerated" hasF 'odoo = { path = "odoo" }' pyproject.toml
+check "...and said" hasF '==> Regenerating uv path-sources' out
+check "the lock is attempted, and its failure reported" hasF 'uv lock failed' err
+check "it says the code is updated" hasF '✅ Code updated.' out
+
 if [ "$fails" -gt 0 ]; then
   echo "module: $fails failure(s)" >&2
   exit 1
