@@ -1,6 +1,6 @@
 """``odoo-init``'s entry point: the arguments, the mode, and dispatch.
 
-Exit codes (README, "Scaffolder reference"; frappe-nix's table, where it
+Exit codes (docs/reference/scaffolder.md; frappe-nix's table, where it
 applies): 0 done or a finished --dry-run; 1 a forced --migrate on an empty or
 missing directory, a usage error, or any error without a more specific code; 2
 --init into a directory that is not empty; 4 a flake.nix or pyproject.toml that

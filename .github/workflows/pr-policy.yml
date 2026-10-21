@@ -1,6 +1,6 @@
 name: pr-policy
 
-# odoo-nix's pr-policy check (lib/pr_policy.py; README "Versioning"): the base is
+# odoo-nix's pr-policy check (lib/pr_policy.py; docs/reference/layout.md, "What CI runs"): the base is
 # main, and the title and every commit pass `committed` (committed.toml) and
 # refuse `!` and BREAKING CHANGE, because an odoo-nix major release is a
 # deliberate `Release-As: <N>.0.0` footer.

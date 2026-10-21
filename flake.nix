@@ -50,10 +50,11 @@
     # odoo-nix is a library: consumers assemble the real Odoo. Its own        #
     # checks do the same, from these pins, with the same library code the     #
     # flake-parts module calls (tests/series.nix). `flake = false` -- a       #
-    # source tree, in the shape the README's "OCB as a flake input" section   #
-    # prescribes for consumers. flake.lock records the revision; dependabot   #
-    # moves it weekly. tests/fixtures/<series>/uv.lock was locked against a   #
-    # revision of this tree; checks.lock-fresh-<major> says when they drift.  #
+    # source tree, in the shape docs/scaffolding/write-the-flake.md ("A       #
+    # repository of modules") prescribes for consumers. flake.lock records    #
+    # the revision; dependabot moves it weekly. tests/fixtures/<series>/     #
+    # uv.lock was locked against a revision of this tree;                     #
+    # checks.lock-fresh-<major> says when they drift.                         #
     # ---------------------------------------------------------------------- #
     ocb-18 = {
       url = "github:OCA/OCB/18.0";

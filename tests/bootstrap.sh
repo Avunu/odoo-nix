@@ -10,7 +10,7 @@
 # whether that revision has `sources`) and runs `nix run …#bootstrap` as the
 # bootstrap under test. What the stub cannot show -- `nix eval` of a project
 # that reads its submodules, on a fresh clone with a dirty tree -- is the
-# manual check in the README's "A fresh clone". lib/bootstrap-lock.nix, the
+# manual check in docs/reference/troubleshooting.md. lib/bootstrap-lock.nix, the
 # lock reading, is checks.eval-bootstrap-lock-*.
 #
 # Usage: bootstrap.sh <path-to-odoo-nix-bootstrap> <templates/project/.envrc> <label>

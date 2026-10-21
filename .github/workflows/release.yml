@@ -1,6 +1,6 @@
 name: release
 
-# odoo-nix's releases (README "Versioning"), on GITHUB_TOKEN alone:
+# odoo-nix's releases (docs/development/upgrading.md, "Releases"), on GITHUB_TOKEN alone:
 #
 #   release-please  opens or updates the release pull request on main, and on
 #                   its merge tags vX.Y.Z (version.txt, CHANGELOG.md,

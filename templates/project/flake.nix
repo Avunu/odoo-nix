@@ -34,7 +34,7 @@
 
         # Backup credentials (S3) for `odoo db restore`, encrypted with agenix.
         # Declare who may read them, then run `setup-backup-access` in the dev
-        # shell. See "Backups & restore" in the odoo-nix README.
+        # shell. See "Restore a production backup" in the odoo-nix docs.
         # odoo-nix.secrets = {
         #   dir = ./secrets;
         #   recipients.you = "ssh-ed25519 AAAA… you@host";

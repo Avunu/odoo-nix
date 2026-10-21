@@ -1,7 +1,7 @@
 """``odoo-init``'s command line.
 
 Parsed by hand, as frappe-nix's frappe-init parses its own, because the rules
-are the documented ones (README, "Scaffolder reference") and neither click nor
+are the documented ones (docs/reference/scaffolder.md) and neither click nor
 argparse says them: ``--commit`` takes its message only as ``--commit=<msg>``,
 so ``--commit <dir>`` is the flag and a target; ``--version`` takes a value; a
 usage error is exit 1.

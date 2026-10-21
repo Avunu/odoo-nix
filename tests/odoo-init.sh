@@ -190,7 +190,7 @@ check "next steps: direnv allow" hasF 'direnv allow' out
 check "next steps: devenv up" hasF 'devenv up' out
 check "next steps: odoo db provision" hasF 'odoo db provision' out
 check "next steps: review what is staged" hasF 'git diff --cached --stat' out
-check "next steps: where restoring from backups is described" hasF 'Backups & restore' out
+check "next steps: where restoring from backups is described" hasF 'Restore a production backup' out
 check "secrets/README.md is seeded" hasF 'odoo-nix.secrets' acme/secrets/README.md
 check "staged: secrets/README.md" eval 'git -C acme ls-files --error-unmatch -- secrets/README.md > /dev/null 2>&1'
 check "no warnings: no warnings summary" refute hasF 'warning(s):' out
