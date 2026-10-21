@@ -11,7 +11,7 @@ Reusable Nix infrastructure for [Odoo](https://www.odoo.com/) projects built on 
 -   a `builtOdoo` package — the assembled, deployable Odoo tree
 -   a single-instance **NixOS module** (`services.odoo-nix`) with secret-safe config synthesis
 -   an **OCI container** image (`dockerTools`)
--   a single **`odoo` CLI** — database lifecycle (`db provision`/`migrate`/`upgrade`/`backup`/`restore`/…, with live progress, not just raw log output), OCA/git module management (`module add`, `module add-bundle`), workspace updates (`project update`), and everything else (`shell`, `scaffold`, `populate`, …) passed straight through to the real `odoo-bin` — the same binary in the dev shell, `services.odoo-nix`, and containers
+-   a single **`odoo` CLI** — database lifecycle (`db provision`/`migrate`/`upgrade`/`backup`/`restore`/…, with live progress, not just raw log output), OCA/git module management (`module add`, `module add-bundle`, `module remove`), workspace updates (`project update`), and everything else (`shell`, `scaffold`, `populate`, …) passed straight through to the real `odoo-bin` — the same binary in the dev shell, `services.odoo-nix`, and containers
 
 It is consumed as a [flake-parts](https://flake.parts/) module.
 
@@ -432,13 +432,14 @@ Everything — dev shell, `services.odoo-nix`, and containers — shares one `od
 | `odoo module add [module …]` | pick more OCA modules → resolve + add repos → record in modules.txt → re-lock |
 | `odoo module add <git-url\|owner/repo> [branch] [path]` | add any third-party git repo as a submodule → record its module(s) → re-lock |
 | `odoo module add-bundle [name …]` | add a curated bundle of OCA modules (from data/oca-bundles.json) |
+| `odoo module remove [--force] [--keep-repos] <module\|repo> …` | the inverse: take modules out of modules.txt and the repos nothing left needs out of the workspace → re-lock — see [Removing modules](#removing-modules) |
 | `odoo project update [--no-migrate]` | pull submodules, re-aggregate OCA Python deps, uv lock — then migrate every database, unless `--no-migrate` |
 | `odoo project backup [--format zip\|dump] [--path DIR] [--keep-days N]` | back up *every* database matching `dbfilter` in one call — no db argument needed, unlike `db backup` |
 | `odoo project restore [--restore DB PATH …] [--no-force] [--neutralize] [--no-migrate]` | restore one or more explicit database=backup pairs in a single batch; with no `--restore`, restore the project database (`settings.dbName`) from the remote store — see [Backups & restore](#backups--restore) |
 | `odoo shell [db]` | Odoo Python REPL |
 | `odoo test <m[,m2]> [db]` | run module tests; refuses to run if a skipped browser tour would silently read as a pass |
 
-After `odoo module add` / `odoo module add-bundle`, run `direnv reload` so the Nix engine re-derives `addons_path` and rebuilds the Python env.
+After `odoo module add` / `odoo module add-bundle` / `odoo module remove`, run `direnv reload` so the Nix engine re-derives `addons_path` and rebuilds the Python env.
 
 `db upgrade`/`db migrate`/`db provision`'s progress comes from Odoo's own module-loading log records (read directly, not reimplemented) rendered as a live `rich` progress bar on a terminal, or narrated lines under a non-interactive stream (journald, CI) — either way ending in a summary table of what was touched, how long each module took, and which migration scripts ran. Odoo commits each module's upgrade as it completes, so a mid-migration failure is reported as "N modules already committed, module X failed" rather than implying an all-or-nothing rollback Odoo itself does not have.
 
@@ -457,7 +458,7 @@ Production builds also record which build migrated the database (`odoo_nix.migra
 
 The safety net: an advisory lock (a manual migration and a deploy cannot run at once); a snapshot verified readable before anything relies on it (`pg_restore --list` for `dump`, every member's CRC and its `dump.sql` for `zip`; one that does not verify is removed and nothing is migrated), as `premigrate-<db>-YYYYmmdd-HHMMSS.dump[.zip]` in `<data_dir>/backups/<db>/premigrate/` so `--keep N` never prunes a backup somebody took on purpose (and never prunes after a failure); and `--rollback`, which drops and recreates the database with the same encoding and collation and loads the snapshot. The filestore is left alone — attachments are content-addressed and only ever added — which is also why rollback does not use Odoo's own `exp_drop` (it deletes the filestore) or `restore_db` (it loads the new code against the restored old schema). An uninitialised database is skipped with exit 0, or provisioned with `--provision-if-empty`. The snapshot steps are python-devops-nix's migrate flow (`lib.nixos.migrate`, the same one frappe-nix runs): the file 0600 from its first byte in a 0700 directory, on disk before the migration starts, its messages as `odoo-migrate(<db>): …` (at their syslog priority under systemd, so a failed migration is at `journalctl -p err`). Snapshots named the old way (`YYYY_MM_DD_HH_MM_SS.dump`) are removed once `--keep` new ones exist.
 
-Production (`services.odoo-nix`) and the container image get the same binary and the same `db` subcommands, plus `project backup`/`project restore` (pure `odoo.service.db` wrappers, no workspace needed) — `docker exec`/`ssh` in and run `odoo db backup mydb`, `odoo project backup`, `odoo db migrate mydb`, etc. `module add[-bundle]`/`project update` are dev-shell only (no git checkout, no modules.txt, in an assembled `/nix/store` deployment) and fail with a clear message rather than a bare traceback if invoked there.
+Production (`services.odoo-nix`) and the container image get the same binary and the same `db` subcommands, plus `project backup`/`project restore` (pure `odoo.service.db` wrappers, no workspace needed) — `docker exec`/`ssh` in and run `odoo db backup mydb`, `odoo project backup`, `odoo db migrate mydb`, etc. `module add[-bundle]`/`module remove`/`project update` are dev-shell only (no git checkout, no modules.txt, in an assembled `/nix/store` deployment) and fail with a clear message rather than a bare traceback if invoked there.
 
 ### Backups & restore
 
@@ -538,7 +539,21 @@ odoo module add-bundle base sales         # by name; modules are unioned across 
 
 Add or edit a bundle by editing `oca-bundles.json` — no code changes needed.
 
-The same picker and expansion are available at scaffold time (`--bundles`, or the first interactive prompt) — both callers share the `oca_pick_bundles` / `oca_expand_bundles` helpers in `lib/oca-lib.sh`. Bundles are series-blind lists, so expansion is scoped to the project's series: a member with no in-series catalog record is reported and dropped rather than recorded in `modules.txt` and left to fail at `odoo db provision`.
+The same picker and expansion are available at scaffold time (`--bundles`, or the first interactive prompt) — both callers share `lib/odoo_nix_cli/oca.py`. Bundles are series-blind lists, so expansion is scoped to the project's series: a member with no in-series catalog record is reported and dropped rather than recorded in `modules.txt` and left to fail at `odoo db provision`.
+
+### Removing modules
+
+`odoo module remove` is the inverse of `odoo module add`. It takes each named module out of `modules.txt`, then removes every repo under `modules/` that held one of them, or that their dependencies reached, and that no module left in `modules.txt` needs any more. What a module needs is read from the manifests on disk, and from the OCA catalog for a module that is not cloned. Name a repo instead (`server-ux` or `modules/server-ux`) to remove it together with the modules of it that `modules.txt` lists. A repo that a listed module still needs is refused. Then the path sources are regenerated and the workspace re-locked.
+
+```sh
+odoo module remove account_tax_balance        # the module, and the repos only it needed
+odoo module remove modules/my-vendor          # a repo, with its listed modules
+odoo module remove --keep-repos sale_foo      # modules.txt only
+```
+
+The removal uses git plumbing, not `git rm`, which refuses while `.gitmodules` has any unstaged edit. The submodule is deinitialised, and its gitlink and `.gitmodules` section are removed and staged. Any other `.gitmodules` edit stays as it was. The clone under `.git/modules/` is deleted too, so the repo can be added again later. `modules.txt`, `pyproject.toml` and `uv.lock` are left for you to review and commit.
+
+Like `add`, it never touches a database, and uninstalling a module is done in Odoo itself (Apps). It refuses to remove a module's code while a database matching `dbfilter` still has that module installed, and while it cannot read the databases (is PostgreSQL up?). It also refuses while a repo to remove has uncommitted changes. `--force` skips both checks.
 
 ## Python environment
 
@@ -740,6 +755,8 @@ The `addons_path` synthesis used internally; importable for `nix eval` testing �
 | `eval-rename-*`, `eval-identity-*` | each [renamed option](#renamed-options) reaching its new name (and the shell's env, the packages' names), announced with a deprecation warning; the identity as devenv's `name` |
 | `eval-ports-*`, `eval-mailpit-*`, `eval-watch-*`, `eval-ci-mode`, `eval-tree` | the dev shell's option tree: every port from `ports.offset` (hashed from `name`, salted in a linked worktree) and read by odoo.conf, PostgreSQL, Mailpit and the env; `ports.base` and `lib.mkForce` pins; Mailpit on and started before the server, mail guard or not; `watch.python` on; CI mode's exports first, the submodule checkout skipped in it, and its one-line banner; no visible `dev` tree, no ports in `settings` |
 | `scaffold` | `odoo-init` offline (`tests/odoo-init.sh`, uv and `odoo-nix-sources` stood in, git real): every flag and its exit code; the template, the dependency closure as submodules, `modules.txt`, bundles, the install set, the seeds, the warnings summary and the next steps; `--dry-run`, `--skip-lock`, `--commit`; migrating a tree (detection, kept files, a foreign `flake.nix` or `pyproject.toml`, a nested repository) and repairing an odoo-nix project |
+| `module-cli` | `odoo module add`, `add-bundle` and `remove` (`tests/module.sh`) through the `odoo` CLI with the workspace configuration and no Odoo, `odoo-nix-sources` stood in, git real, uv offline: OCA modules and their closure, bundles, third-party repos (default branch, explicit branch and path, a path taken, one module, several, none, `owner/repo`); removing a module, its repos and only those, by module or repo, a repo still needed, an unrelated `.gitmodules` edit kept unstaged, the in-use refusal without a database, `--force`, `--keep-repos`, uncommitted changes, adding a removed repo again |
+| `module-unit` | their pieces (`tests/test_workspace.py`), on each preset's interpreter: the configuration schema, `remove`'s command line, what a removal takes (catalog closure, manifests' depends on disk, `custom/`), and the in-use check against databases with Odoo stood in |
 | `odoo-init-unit` | its pieces (`tests/test_odoo_init.py`), on its own interpreter and each preset's: the command line, the config and presets schemas (`series` as `branch`'s old name), template rendering and installing, the OCA catalog (`lib/odoo_nix_cli/oca.py`), mode and series detection and their exit codes, and the prompts with rich faked |
 | `sources` | `odoo-nix-sources enter` (`tests/sources.sh`) against `file://` remotes: a fresh clone's submodules checked out once, as partial clones of their paired branch (OCB commits only) and recursively; one removed or deinitialized later reported, not brought back, in path order; a directory in the way, a failed checkout, shallow clones given history in place, the pin prefetch and pack merge; every message on stderr. The command itself is tested in python-devops-nix |
 | `bootstrap` | `odoo-nix-bootstrap` and `templates/project/.envrc` (`tests/bootstrap.sh`, `nix` stubbed): a fresh clone with a dirty tree gets its submodules from the pinned `odoo-nix-sources` (OCB commits only) before `use flake`; a lock from before `sources`, or none, uses the bootstrap's own; the next load runs no `nix`; a failing `nix run`, a directory that is not a git checkout and no `git` on `PATH` still load quietly. `nix eval` of a real project is the manual check in [A fresh clone](#a-fresh-clone) |
@@ -811,9 +828,9 @@ lib/
   python.nix                 # uv2nix Python env
   odoo.nix                   # builtOdoo assembly
   cli.nix                    # wraps builtOdoo (or the live dev checkout) with the odoo CLI
-  cli-package.nix            # the odoo_nix_cli package, with python-devops-nix's _backups.py and migrate flow (_migrate/) vendored
-  cli-scripts.nix            # bash helpers `odoo module add[-bundle]`/`project update` delegate to
-  odoo_nix_cli/               # the odoo CLI itself (Python: click + rich); backup_layout.py is its backup naming
+  cli-package.nix            # the odoo_nix_cli package, with python-devops-nix's _hook.py, _backups.py and migrate flow (_migrate/) vendored
+  cli-scripts.nix            # the workspace config `odoo module …` reads, the re-lock script, and the bash `project update` runs
+  odoo_nix_cli/               # the odoo CLI itself (Python: click + rich); backup_layout.py is its backup naming, workspace/ its `module` commands, oca.py the OCA catalog
   devguard/odoo_devguard/    # _product.py + Odoo guards (mail, jobs, objectstore, backups, webhooks, iap) over python-devops-nix's core; dev virtualenv only
   devguard.nix               # builds that package with a project's settings baked in (_baked.json)
   journald/odoo_journald/    # journald-native log lines for Odoo: the tenant, perf_info, the init_logger patch
@@ -823,7 +840,6 @@ lib/
   overrides.nix              # lib.overrides: python-devops-nix's shared package fixes, and libsass
   build-deps.nix             # odoo-nix-build-deps: python-devops-nix's sdist build-dep sync
   core-shadow.sh             # writable lock-time shadow of a store-resident OCB (coreSource)
-  oca-lib.sh                 # OCA repo resolver + module picker, for `odoo module add` (shell)
   oca_sources.py             # generate uv path-sources (deps + sources blocks)
   init.nix                   # the scaffolder's glue; the scaffolder is odoo_nix_cli/init (Python), the OCA catalog odoo_nix_cli/oca.py
   odoo-presets.json          # series → python / branch (python-devops-nix's shared presets schema)

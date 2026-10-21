@@ -268,6 +268,7 @@
       #   sources                                             shell entry's submodule checkout (all systems)
       #   bootstrap, eval-bootstrap-lock-*                    the fresh-clone checkout before `use flake` (all systems)
       #   scaffold, odoo-init-unit                            odoo-init: its projects, offline; its pieces (all systems)
+      #   module-cli, module-unit                             `odoo module add|add-bundle|remove`, offline; their pieces (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
@@ -510,6 +511,64 @@
                   ++ map (py: pkgs.${py}) (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
                 )
               )
+          );
+
+          # `odoo module add`, `add-bundle` and `remove`, offline: the `odoo`
+          # CLI with the workspace scripts and no Odoo, odoo-nix-sources stood
+          # in, git real, uv real and offline (tests/module.sh).
+          module-cli =
+            let
+              python = pkgs.${presets."18.0".python};
+              cli = import ./lib/cli.nix {
+                inherit pkgs lib python;
+                name = "odoo-nix-module-cli";
+                rawOdooBin = "${pkgs.coreutils}/bin/false";
+                targetPythonEnv = python;
+                inherit base;
+                cliScripts = import ./lib/cli-scripts.nix {
+                  inherit lib pkgs;
+                  odooSeries = "18.0";
+                  ocaDataset = ./data/oca-modules.json;
+                  bundlesFile = ./data/oca-bundles.json;
+                  layout = {
+                    coreSrc = "odoo";
+                    externalDir = "modules";
+                    customDir = "custom";
+                  };
+                  python = "${pkgs.python3}/bin/python";
+                  # The stand-in on PATH (tests/module.sh).
+                  sourcesBin = "odoo-nix-sources";
+                  buildDeps = import ./lib/build-deps.nix { inherit pkgs base; };
+                };
+              };
+            in
+            mkCheck pkgs "module-cli"
+              {
+                # python3: uv's interpreter, as the dev shell has one on PATH.
+                nativeCheckInputs = with pkgs; [
+                  git
+                  gnused
+                  gnugrep
+                  coreutils
+                  python3
+                ];
+              }
+              ''
+                bash ${./tests/module.sh} ${cli}/bin/odoo ${./templates/project/pyproject.toml}
+              '';
+
+          # Their pieces (lib/odoo_nix_cli/workspace): the config schema, what a
+          # removal takes, and the in-use check against databases with Odoo
+          # stood in. On each interpreter a preset runs the CLI on, with click.
+          module-unit = mkCheck pkgs "module-unit" { nativeCheckInputs = [ pkgs.git ]; } (
+            lib.concatMapStrings (py: ''
+              ${
+                base.python.rich {
+                  python = pkgs.${py};
+                  extraPackages = ps: [ ps.click ];
+                }
+              }/bin/python3 -I ${./tests/test_workspace.py} ${cliPackage pkgs} ${./data}
+            '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
           );
 
           # odoo-nix-bootstrap and the template's .envrc: a fresh clone, its
