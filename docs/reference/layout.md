@@ -91,7 +91,7 @@ The fixtures are the smallest project-shaped workspace: a hand-written `pyprojec
 
 ## What CI runs
 
-The `check` workflow runs `nix flake check -L` and builds the scaffolder (`nix build .#default`) on every pull request and every push to `main`. `pr-policy` checks that the title and every commit are [conventional commits](https://www.conventionalcommits.org/) under `committed.toml`'s types and scopes, and refuses `!` and `BREAKING CHANGE`: a major release is a deliberate `Release-As: <N>.0.0` footer. Dependabot's pull requests skip only the 100-character subject limit. `release` runs release-please and moves the `release-N` branch. Dependabot's pull requests merge automatically once the required checks pass, except action updates and the OCB pins, which a person reviews.
+The `check` workflow runs two jobs on every pull request and every push to `main`. `lint` runs every hook in `.pre-commit-config.yaml` over the whole tree with [prek](https://prek.j178.dev), with no Nix involved: the same command a developer's commit runs, so a hook that would rewrite a file fails the job. `flake` runs `nix flake check -L` and builds the scaffolder (`nix build .#default`). `pr-policy` checks that the title and every commit are [conventional commits](https://www.conventionalcommits.org/) under `committed.toml`'s types and scopes, and refuses `!` and `BREAKING CHANGE`: a major release is a deliberate `Release-As: <N>.0.0` footer. Dependabot's pull requests skip only the 100-character subject limit. `release` runs release-please and moves the `release-N` branch. Dependabot's pull requests merge automatically once the required checks pass, except action updates and the OCB pins, which a person reviews.
 
 ## Re-locking
 
