@@ -5,6 +5,7 @@ This is the "hook a migrate step into the update flow" the CLI exists to add:
 the old odoo-update script only ever touched code, leaving every database to
 a separate, manual `odoo-migrate` call.
 """
+
 from __future__ import annotations
 
 import os
@@ -105,7 +106,9 @@ def project_backup(ctx, fmt, out_dir, keep_days):
     # does this correctly (None passed straight through, per database).
     _run_multi(
         targets,
-        lambda name: _backup_one(name, f"{out_dir}/{name}" if out_dir else None, fmt, keep_days),
+        lambda name: _backup_one(
+            name, f"{out_dir}/{name}" if out_dir else None, fmt, keep_days
+        ),
     )
 
 
@@ -119,7 +122,11 @@ def project_backup(ctx, fmt, out_dir, keep_days):
     help="A database name and the backup file to restore into it. Repeatable. "
     "Omit to restore the project database from the remote backup store.",
 )
-@click.option("--neutralize", is_flag=True, help="Disable outgoing mail/cron on each restored copy (default in the dev shell: restore.neutralize).")
+@click.option(
+    "--neutralize",
+    is_flag=True,
+    help="Disable outgoing mail/cron on each restored copy (default in the dev shell: restore.neutralize).",
+)
 @click.option(
     "--at",
     default=None,
@@ -127,7 +134,9 @@ def project_backup(ctx, fmt, out_dir, keep_days):
 )
 @_restore_options
 @click.pass_context
-def project_restore(ctx, pairs, neutralize, at, no_force, force, migrate, files, attachments):
+def project_restore(
+    ctx, pairs, neutralize, at, no_force, force, migrate, files, attachments
+):
     """Restore explicit DB PATH pairs in one batch (see `odoo db restore` for
     a single database) -- or, with no --restore, the project database
     (`settings.dbName`) from the remote backup store. Existing databases are
@@ -140,7 +149,9 @@ def project_restore(ctx, pairs, neutralize, at, no_force, force, migrate, files,
     if not pairs:
         db_name = odooenv.resolve_database(ctx.obj.get("database"), odoo_config)
         if not db_name:
-            raise click.UsageError("no database: pass -d/--database or set settings.dbName.")
+            raise click.UsageError(
+                "no database: pass -d/--database or set settings.dbName."
+            )
         _restore_remote(
             db_name,
             os.environ.get("ODOO_NIX_RESTORE_SOURCE_DB") or db_name,
@@ -157,6 +168,8 @@ def project_restore(ctx, pairs, neutralize, at, no_force, force, migrate, files,
         neutralize = _env_flag("ODOO_NIX_RESTORE_NEUTRALIZE", False)
     _run_multi(
         list(pairs),
-        lambda pair: _restore_one(pair[0], pair[1], overwrite, neutralize, migrate=migrate),
+        lambda pair: _restore_one(
+            pair[0], pair[1], overwrite, neutralize, migrate=migrate
+        ),
         label=lambda pair: pair[0],
     )

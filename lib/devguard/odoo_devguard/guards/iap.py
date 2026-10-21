@@ -30,7 +30,9 @@ def _patch(module):
         if not enabled():
             return original(*args, **kwargs)
         announce(NAME, "IAP calls are blocked")
-        user_error(NAME, "IAP services are not reachable from a development environment.")
+        user_error(
+            NAME, "IAP services are not reachable from a development environment."
+        )
 
     module.iap_jsonrpc = iap_jsonrpc
 

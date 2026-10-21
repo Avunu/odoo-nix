@@ -11,6 +11,7 @@ module` and `odoo project` commands are pure git/OCA operations and should not
 pay Odoo's own import cost, and even within `odoo db`, `list`/`create` don't
 need the same things `migrate` does.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -34,7 +35,10 @@ def getenv(name: str, legacy: str) -> str | None:
         return value
     value = os.environ.get(legacy)
     if value is not None:
-        click.echo(f"odoo-nix: ${legacy} is deprecated, set ${name} instead (the old name is kept through 1.x, removed in 2.0.0).", err=True)
+        click.echo(
+            f"odoo-nix: ${legacy} is deprecated, set ${name} instead (the old name is kept through 1.x, removed in 2.0.0).",
+            err=True,
+        )
     return value
 
 
@@ -90,8 +94,12 @@ def load_config(conf_path: Path, extra_args: list[str] | None = None):
     import odoo.tools
 
     if not conf_path.is_file():
-        raise click.ClickException(f"no odoo.conf at {conf_path} (pass -c, or run from the workspace root)")
-    odoo.tools.config.parse_config(["-c", str(conf_path), *(extra_args or [])], setup_logging=False)
+        raise click.ClickException(
+            f"no odoo.conf at {conf_path} (pass -c, or run from the workspace root)"
+        )
+    odoo.tools.config.parse_config(
+        ["-c", str(conf_path), *(extra_args or [])], setup_logging=False
+    )
 
     # odoo.service.db's mutating functions (dump_db, restore_db, exp_drop,
     # exp_create_database, ...) are gated by config['list_db'] via
@@ -164,7 +172,9 @@ def list_all_databases(odoo_config) -> list[str]:
     return sorted(odoo_db.list_dbs(force=True))
 
 
-def list_target_databases(explicit: str | None, all_flag: bool, odoo_config) -> list[str]:
+def list_target_databases(
+    explicit: str | None, all_flag: bool, odoo_config
+) -> list[str]:
     """Resolve one or more target database names for a multi-db-aware command:
     --all (matching dbfilter when it's a plain regex), an explicit comma list,
     or the single configured default."""
@@ -224,7 +234,9 @@ def _quiet_module_descriptions():
         ir_module.publish_string = orig_publish_string
 
 
-def run_module_update(db_name: str, *, update: list[str] | None = None, install: list[str] | None = None) -> None:
+def run_module_update(
+    db_name: str, *, update: list[str] | None = None, install: list[str] | None = None
+) -> None:
     """Trigger Odoo's own module load/upgrade loop for one database -- the
     same call odoo-bin's own -u/-i/--stop-after-init makes (Registry.new),
     just invoked in-process instead of as a subprocess.
@@ -252,7 +264,12 @@ def run_module_update(db_name: str, *, update: list[str] | None = None, install:
     with _quiet_module_descriptions():
         if "upgrade_modules" in inspect.signature(Registry.new).parameters:
             upgrade = {"base"} if "all" in update else set(update)
-            Registry.new(db_name, update_module=update_module, install_modules=install, upgrade_modules=upgrade)
+            Registry.new(
+                db_name,
+                update_module=update_module,
+                install_modules=install,
+                upgrade_modules=upgrade,
+            )
         else:
             odoo.tools.config["init"] = dict.fromkeys(install, 1)
             odoo.tools.config["update"] = dict.fromkeys(update, 1)

@@ -79,8 +79,17 @@ def _patch(module):
     ):
         if not enabled():
             return orig_connect(
-                self, host, port, user, password, encryption, smtp_from,
-                ssl_certificate, ssl_private_key, smtp_debug, mail_server_id,
+                self,
+                host,
+                port,
+                user,
+                password,
+                encryption,
+                smtp_from,
+                ssl_certificate,
+                ssl_private_key,
+                smtp_debug,
+                mail_server_id,
                 allow_archived,
             )
         st = settings()
@@ -132,7 +141,8 @@ def _patch(module):
             _logger.debug(
                 "odoo_devguard: discarding non-SMTP session %s (mail_server_id=%s), "
                 "reconnecting to the catcher",
-                type(session).__name__, bound.arguments.get("mail_server_id"),
+                type(session).__name__,
+                bound.arguments.get("mail_server_id"),
             )
             bound.arguments["smtp_session"] = None
             bound.arguments["mail_server_id"] = None

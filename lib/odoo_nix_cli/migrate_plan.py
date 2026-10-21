@@ -30,6 +30,7 @@ Everything here reads and writes with plain SQL on a raw cursor, never the
 ORM: the fast path must not pay for a registry load, and after a failed
 update the registry cannot be trusted anyway.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -81,7 +82,8 @@ def _walk(top: str, exclude_patterns: list[str], keep_langs: list[str]):
 def addon_hash(top: str, exclude_patterns: list[str], keep_langs: list[str]) -> str:
     """sha1 over every kept file's relative path and content, in sorted walk
     order -- byte-for-byte module_auto_update's addon_hash()."""
-    digest = hashlib.sha1()  # noqa: S324 -- a change detector, not a security boundary; must match module_auto_update
+    # A change detector, not a security boundary: it must match module_auto_update's.
+    digest = hashlib.sha1()
     for filepath in _walk(top, exclude_patterns, keep_langs):
         # The name is hashed too, so adding or removing an empty file counts.
         digest.update(filepath.encode("utf-8"))
@@ -213,7 +215,9 @@ def build_plan(cr, *, full: bool = False, also: list[str] | None = None) -> Plan
         if disk_version and db_version and disk_version != db_version:
             plan.reasons[name] = f"{db_version} → {disk_version}"
         elif stored.get(name) != addon_hash(path, exclude, keep_langs):
-            plan.reasons[name] = "code changed" if name in stored else "no checksum recorded"
+            plan.reasons[name] = (
+                "code changed" if name in stored else "no checksum recorded"
+            )
 
     for name in also:
         if name in installed:
@@ -228,6 +232,8 @@ def record_success(cr, build: str | None) -> None:
     the build that did it. Recomputed from disk rather than carried over from
     the plan, because an update can install new auto_install modules and
     changes nothing about modules outside the plan."""
-    set_param(cr, PARAM_INSTALLED_CHECKSUMS, json.dumps(current_checksums(cr), sort_keys=True))
+    set_param(
+        cr, PARAM_INSTALLED_CHECKSUMS, json.dumps(current_checksums(cr), sort_keys=True)
+    )
     if build:
         set_param(cr, PARAM_MIGRATED_BUILD, build)

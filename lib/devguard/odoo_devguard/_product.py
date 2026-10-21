@@ -109,7 +109,7 @@ def alias_old_env(environ=os.environ):
     Warns once per process for each old variable, naming the new one.
     """
     for old in sorted(name for name in environ if name.startswith(_OLD_ENV)):
-        key = old[len(_OLD_ENV):]
+        key = old[len(_OLD_ENV) :]
         new = _NEW_ENV + _OLD_KEYS.get(key, key)
         if old not in _WARNED_ENV:
             _WARNED_ENV.add(old)

@@ -4,3 +4,9 @@
 # typing.override. Raise this in the pull request that retires the oldest
 # preset (PLAN.md, Python versions).
 target-version = "py311"
+
+# Odoo's own idioms: a manifest is a bare dict literal, and an addon's
+# __init__.py imports its submodules so that Odoo loads them.
+[lint.per-file-ignores]
+"__manifest__.py" = ["B018"]
+"tests/fixtures/**/__init__.py" = ["F401"]

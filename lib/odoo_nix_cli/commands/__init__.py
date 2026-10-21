@@ -3,6 +3,7 @@
 Everything else is passthrough, handled in __main__.py before this module is
 even imported (see there for why).
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -17,7 +18,12 @@ from .db import db_group
 from .module import module_group
 from .project import project_group
 
-_TEST_BROWSERS = ("google-chrome", "chromium", "chromium-browser", "google-chrome-stable")
+_TEST_BROWSERS = (
+    "google-chrome",
+    "chromium",
+    "chromium-browser",
+    "google-chrome-stable",
+)
 
 
 @click.group()
@@ -35,10 +41,30 @@ _TEST_BROWSERS = ("google-chrome", "chromium", "chromium-browser", "google-chrom
     default=None,
     help="Default database name for subcommands that take one.",
 )
-@click.option("--db-host", "db_host", default=None, help="Override odoo.conf's db_host for this run.")
-@click.option("--db-port", "db_port", default=None, help="Override odoo.conf's db_port for this run.")
-@click.option("--db-user", "db_user", default=None, help="Override odoo.conf's db_user for this run.")
-@click.option("--db-password", "db_password", default=None, help="Override odoo.conf's db_password for this run.")
+@click.option(
+    "--db-host",
+    "db_host",
+    default=None,
+    help="Override odoo.conf's db_host for this run.",
+)
+@click.option(
+    "--db-port",
+    "db_port",
+    default=None,
+    help="Override odoo.conf's db_port for this run.",
+)
+@click.option(
+    "--db-user",
+    "db_user",
+    default=None,
+    help="Override odoo.conf's db_user for this run.",
+)
+@click.option(
+    "--db-password",
+    "db_password",
+    default=None,
+    help="Override odoo.conf's db_password for this run.",
+)
 @click.pass_context
 def cli(ctx, config_path, database, db_host, db_port, db_user, db_password):
     """odoo-nix's site-maintenance CLI: database lifecycle, module/OCA
@@ -69,7 +95,9 @@ def shell_cmd(ctx, database):
     odoo_config = odooenv.load_config(conf_path, db_args)
     target = odooenv.resolve_database(database or ctx.obj.get("database"), odoo_config)
     if not target:
-        raise click.UsageError("no database given, and none configured (db_name / $ODOO_NIX_DB).")
+        raise click.UsageError(
+            "no database given, and none configured (db_name / $ODOO_NIX_DB)."
+        )
     raw = odooenv.require_env("ODOO_NIX_RAW_ODOO")
     # A REPL serves nothing: no workers and no HTTP. Under a server conf with
     # workers > 0, `odoo-bin shell` otherwise starts the prefork server, which
@@ -77,7 +105,17 @@ def shell_cmd(ctx, database):
     # "Address already in use".
     os.execv(
         raw,
-        [raw, "shell", "-c", str(conf_path), "-d", target, "--workers=0", "--no-http", *db_args],
+        [
+            raw,
+            "shell",
+            "-c",
+            str(conf_path),
+            "-d",
+            target,
+            "--workers=0",
+            "--no-http",
+            *db_args,
+        ],
     )
 
 
@@ -100,17 +138,26 @@ def test_cmd(ctx, modules, database):
     odoo_config = odooenv.load_config(conf_path, db_args)
     target = odooenv.resolve_database(database or ctx.obj.get("database"), odoo_config)
     if not target:
-        raise click.UsageError("no database given, and none configured (db_name / $ODOO_NIX_DB).")
+        raise click.UsageError(
+            "no database given, and none configured (db_name / $ODOO_NIX_DB)."
+        )
 
     missing = []
     if importlib.util.find_spec("websocket") is None:
-        missing.append("the 'websocket-client' package (add it to [dependency-groups].dev, then re-lock)")
+        missing.append(
+            "the 'websocket-client' package (add it to [dependency-groups].dev, then re-lock)"
+        )
     browser = next((b for b in _TEST_BROWSERS if shutil.which(b)), None)
     if browser is None:
-        missing.append("a headless browser (set odoo-nix's testBrowser, or put one on PATH)")
+        missing.append(
+            "a headless browser (set odoo-nix's testBrowser, or put one on PATH)"
+        )
 
     if missing:
-        click.echo("✗ Browser tours cannot run here, and Odoo would skip them silently:", err=True)
+        click.echo(
+            "✗ Browser tours cannot run here, and Odoo would skip them silently:",
+            err=True,
+        )
         for m in missing:
             click.echo(f"  - {m}", err=True)
         click.echo(

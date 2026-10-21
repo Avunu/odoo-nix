@@ -15,6 +15,7 @@ all-or-nothing rollback to report if one fails partway through -- the summary
 is explicit about what already committed versus what did not, rather than
 implying atomicity Odoo does not have.
 """
+
 from __future__ import annotations
 
 import logging
@@ -145,7 +146,9 @@ class MigrationProgress:
                 transient=False,
             )
             self._progress.start()
-            self._task = self._progress.add_task("starting…", db=self.db_name, total=None)
+            self._task = self._progress.add_task(
+                "starting…", db=self.db_name, total=None
+            )
             self.recorder.on_module_start = self._on_start
             self.recorder.on_script = self._on_script
         else:
@@ -155,7 +158,9 @@ class MigrationProgress:
         return self
 
     def _on_start(self, name, index, total) -> None:
-        self._progress.update(self._task, completed=index - 1, total=total, description=name)
+        self._progress.update(
+            self._task, completed=index - 1, total=total, description=name
+        )
 
     def _on_script(self, addon, name, fmt_version) -> None:
         self._progress.update(self._task, description=f"{addon} → {name} {fmt_version}")
@@ -178,7 +183,9 @@ class MigrationProgress:
         elapsed = time.monotonic() - self._start
         self._print_summary(elapsed, failed=exc is not None, error=exc)
 
-    def _print_summary(self, elapsed: float, failed: bool, error: BaseException | None) -> None:
+    def _print_summary(
+        self, elapsed: float, failed: bool, error: BaseException | None
+    ) -> None:
         table = Table(title=f"{self.db_name} — migration summary")
         table.add_column("Module")
         table.add_column("Time", justify="right")
@@ -188,7 +195,9 @@ class MigrationProgress:
             r = self.recorder.results[name]
             table.add_row(
                 name,
-                f"{r.duration:.2f}s" if r.duration is not None else "[yellow](interrupted)[/]",
+                f"{r.duration:.2f}s"
+                if r.duration is not None
+                else "[yellow](interrupted)[/]",
                 str(r.queries) if r.queries is not None else "-",
                 ", ".join(r.scripts) if r.scripts else "",
             )
@@ -205,4 +214,6 @@ class MigrationProgress:
                     "above already committed; only the failing module (and anything after it) did not.[/]"
                 )
         else:
-            self.console.print(f"[bold green]✓ {self.db_name}: {done} module(s) migrated in {elapsed:.1f}s[/]")
+            self.console.print(
+                f"[bold green]✓ {self.db_name}: {done} module(s) migrated in {elapsed:.1f}s[/]"
+            )

@@ -34,5 +34,9 @@ repos:
       - id: ruff-check
         name: ruff linter
         args: [--fix]
+      # It formats Markdown's code blocks too, and resolves the nearest pyproject.toml
+      # for each file: templates/project's is a scaffolding template whose
+      # requires-python is an @PLACEHOLDER@, which ruff refuses to parse.
       - id: ruff-format
         name: ruff formatter
+        exclude: ^templates/
