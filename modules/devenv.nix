@@ -198,7 +198,8 @@ let
       default = false;
       description = ''
         Skip loading demo data for every installed module
-        (`without_demo = all`). Default `false` loads demo data,
+        (`without_demo = True`: 18.0 only tests the value's
+        truthiness, 19.0 reads a boolean). Default `false` loads demo data,
         matching Odoo's own default.
       '';
     };
@@ -1141,7 +1142,7 @@ in
                 ]
                 [
                   "odoo db migrate"
-                  "upgrade all modules, with progress"
+                  "update changed modules, with progress"
                 ]
                 [
                   "odoo module add"

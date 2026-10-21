@@ -30,7 +30,11 @@ them checked out first; `.envrc` does that with odoo-nix's own tool, as partial
 clones. Without direnv, run `nix run github:Avunu/odoo-nix#bootstrap` before
 `nix develop --no-pure-eval`.
 
-Open <http://localhost:8069>. Mailpit UI is at <http://localhost:8025>.
+Open the server address the shell banner prints; Mailpit's web UI is there too.
+Every port is a base plus an offset hashed from the project's name (Odoo HTTP
+10000, websockets 11000, PostgreSQL 12000, Mailpit SMTP 13000 and web UI 14000,
+each plus the offset), so several projects run at once. Set `odoo-nix.ports.offset`,
+or `ODOO_NIX_PORT_OFFSET=<0..899>` for one shell, to pick another offset.
 
 ## Live code reload
 
@@ -55,7 +59,7 @@ odoo module add                       # interactive picker, resolves dep repos
 odoo module add account_financial_report   # or by module name
 odoo module add https://example.com/owner/repo.git   # any third-party repo, any git host
 odoo module add owner/repo 17.0 my-repo              # GitHub shorthand, explicit branch + path
-odoo module add-bundle                # add a curated bundle (base, accounting, …)
+odoo module add-bundle                # add a curated bundle (base, oca-accounting, …)
 odoo module add-bundle base sales     # or by bundle name
 ```
 
@@ -72,7 +76,7 @@ sensibly when run non-interactively.
 | Command                     | Action                                          |
 | ---------------------------- | ------------------------------------------------ |
 | `odoo db provision [db]`     | Create DB + install all `modules.txt`, or migrate it if it already exists |
-| `odoo db migrate [db]`       | Upgrade every installed module, with progress + a summary table |
+| `odoo db migrate [db]`       | Update the modules whose code or version changed, with progress + a summary table |
 | `odoo db upgrade <m> [db]`   | Upgrade specific module(s)                      |
 | `odoo db backup [db]`        | Back up a database (schema + filestore)         |
 | `odoo db restore <db> <zip>` | Restore a database from a backup                |
