@@ -1,8 +1,8 @@
 name: check
 
-# Everything this repo asserts about itself, run through the flake so that CI and a
-# laptop measure the same tree. This is what you mark required on `main`: auto-merge
-# (Dependabot PRs) is only as safe as what runs here.
+# Everything this repo asserts about itself: `flake` through the flake, so that CI and
+# a laptop measure the same tree, and `lint`, every prek hook with no nix. This is what
+# you mark required on `main`: auto-merge (Dependabot PRs) is only as safe as what runs here.
 #
 #   eval-*, odoo-conf-render     pure tests of lib/addons.nix + lib/odoo-conf.nix
 #   lock-fresh-<18|19>           tests/fixtures/<series>/uv.lock matches the pinned OCB
@@ -27,6 +27,30 @@ on:
 permissions: {}
 
 jobs:
+  # Every hook in .pre-commit-config.yaml over the whole tree, run by prek: the command
+  # a developer's commit runs, with no nix involved.
+  lint:
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
+    permissions:
+      contents: read # the checkout
+    steps:
+      # A self-hosted runner reuses $RUNNER_TEMP, and its own cleanup leaves what an earlier
+      # job made read-only (copies out of the Nix store): clear it, keeping the runner's _* files.
+      - if: runner.environment != 'github-hosted'
+        name: Clear what an earlier job left in the runner's temp dir
+        working-directory: ${{ runner.temp }}
+        run: |
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # `prek run --all-files --show-diff-on-failure`: a hook that rewrites a file fails the
+      # job, so what merges is what the hooks would have left.
+      - uses: j178/prek-action@1382ad72dea72f9d53832f2bcb65b3e87a947204 # v3.0.1
+
   flake:
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     permissions:
