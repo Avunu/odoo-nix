@@ -1,8 +1,9 @@
 """`odoo db ...` -- database lifecycle: list/create/provision/upgrade/migrate/
 duplicate/rename/drop/backup/restore.
 
-Every mutating command here is a thin wrapper around odoo.service.db (the
-same functions odoo-bin's own `db` command and the /web/database/* Database
+Every mutating command here is a thin wrapper around Odoo's database
+management (odoo_db: odoo.service.db through 19.0, odoo.modules.db from 20.0 --
+the same functions odoo-bin's own `db` command and the /web/database/* Database
 Manager use) or odoo.modules.registry.Registry.new (the same call odoo-bin's
 own -u/-i/--stop-after-init makes) -- nothing here reimplements Odoo's module
 loading or database management, it only adds progress feedback and CLI
@@ -28,7 +29,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from .. import migrate_plan, odooenv
+from .. import migrate_plan, odoo_db, odooenv
 from .._migrate import migrate as flow
 from ..backups import BackupError, backups
 from ..progress import MigrationProgress
@@ -58,10 +59,8 @@ def db_group():
 def db_list(ctx):
     """List databases visible to this server, with version compatibility."""
     odoo_config = _load(ctx)
-    from odoo.service import db as odoo_db
-
     names = odooenv.list_all_databases(odoo_config)
-    incompatible = set(odoo_db.list_db_incompatible(names))
+    incompatible = set(odoo_db.list_incompatible(names))
     table = Table()
     table.add_column("Database")
     table.add_column("Status")
@@ -80,9 +79,7 @@ def db_list(ctx):
 def db_create(ctx, db_name, demo, lang):
     """Create an empty database (base not installed -- see `provision`)."""
     _load(ctx)
-    from odoo.service import db as odoo_db
-
-    odoo_db.exp_create_database(db_name, demo, lang)
+    odoo_db.create(db_name, demo=demo, lang=lang)
     console.print(f"[green]✓[/] created database '{db_name}'")
 
 
@@ -117,9 +114,7 @@ def db_provision(ctx, db_name, modules_file, no_backup):
             "no database name given, and none configured (db_name / $ODOO_NIX_DB)."
         )
 
-    from odoo.service import db as odoo_db
-
-    if odoo_db.exp_db_exist(target) and _has_odoo_schema(target):
+    if odoo_db.exists(target) and _has_odoo_schema(target):
         console.print(
             f"==> '{target}' already exists — migrating instead of installing."
         )
@@ -129,9 +124,7 @@ def db_provision(ctx, db_name, modules_file, no_backup):
 
 
 def _provision_one(target: str, modules_file: Path) -> None:
-    from odoo.service import db as odoo_db
-
-    exists = odoo_db.exp_db_exist(target)
+    exists = odoo_db.exists(target)
     modules = _read_modules_file(modules_file)
     say(
         f"==> Provisioning '{target}' with: base,{','.join(modules)}"
@@ -147,7 +140,7 @@ def _provision_one(target: str, modules_file: Path) -> None:
         # bare `CREATE DATABASE`, or Postgres's own pre-created default
         # database) skips straight to run_module_update below instead --
         # _create_empty_database() raises DatabaseExists if called on it.
-        odoo_db._create_empty_database(target)
+        odoo_db.create_empty(target)
     with MigrationProgress(target, console):
         odooenv.run_module_update(target, install=["base"] + modules)
     # A fresh install is the checksum baseline: without it, the first
@@ -159,7 +152,7 @@ def _provision_one(target: str, modules_file: Path) -> None:
 def _has_odoo_schema(db_name: str) -> bool:
     """A database can exist in Postgres without ever having been Odoo-
     initialized (a bare CREATE DATABASE, or the default database Postgres
-    itself pre-creates) -- exp_db_exist only confirms a connection succeeds,
+    itself pre-creates) -- odoo_db.exists only confirms a connection succeeds,
     not that -i base has ever run. Same check load_modules() itself makes
     (odoo.modules.db.is_initialized) before deciding whether it can proceed
     without -i/-u."""
@@ -304,9 +297,7 @@ def _current_build() -> str | None:
 
 def _migrate_one(db_name: str, options: MigrateOptions | None = None) -> None:
     options = options or MigrateOptions()
-    from odoo.service import db as odoo_db
-
-    if not (odoo_db.exp_db_exist(db_name) and _has_odoo_schema(db_name)):
+    if not (odoo_db.exists(db_name) and _has_odoo_schema(db_name)):
         if options.provision_if_empty:
             _provision_one(db_name, options.modules_file)
             return
@@ -436,7 +427,7 @@ class _SnapshotRunner(flow.Runner):
 
     The flow names its dump, verify and restore steps as executables; here
     they are Python callables, run in this process, because each needs what
-    only this process has: Odoo's dump_db (the zip format carries the
+    only this process has: Odoo's own dump (the zip format carries the
     filestore) with this run's connection settings (--db-host, ...), and,
     before a rollback drops the database, this process's own registry and
     pooled connections closed. `call` runs a callable in place and passes
@@ -512,14 +503,12 @@ class _SnapshotSteps:
     fmt: str
 
     def dump(self, stdout: int) -> int:
-        """Odoo's own dump into the file the flow opened. dump_db() streams
+        """Odoo's own dump into the file the flow opened. It streams
         the custom format straight from a pg_dump pipe and never checks its
         exit status, which is why verify() follows."""
-        from odoo.service import db as odoo_db
-
         try:
             with os.fdopen(os.dup(stdout), "wb") as stream:
-                odoo_db.dump_db(self.db_name, stream, backup_format=self.fmt)
+                odoo_db.dump(self.db_name, stream, backup_format=self.fmt)
         except Exception as exc:  # noqa: BLE001 -- reported as the step's status, as an executable's would be
             say(f"[red]dump of '{self.db_name}' failed:[/] {exc}")
             return 1
@@ -557,10 +546,10 @@ class _SnapshotSteps:
     def restore(self, snapshot: str) -> int:
         """Put the database back exactly as the snapshot has it.
 
-        Not odoo.service.db.exp_drop + restore_db: exp_drop also deletes the
+        Not odoo_db.drop + restore: drop also deletes the
         filestore, which a schema-only snapshot cannot bring back (and the
         filestore needs no rollback -- attachments are content-addressed and
-        only ever added), and restore_db loads a registry of the NEW code
+        only ever added), and restore loads a registry of the NEW code
         against the restored OLD schema before returning, which is the very
         mismatch a failed migration leaves behind. So: drop the database only,
         recreate it with the same encoding and collation, load the snapshot,
@@ -677,9 +666,7 @@ def _run_multi(
 def db_duplicate(ctx, source, dest, neutralize):
     """Duplicate SOURCE to DEST (schema + filestore)."""
     _load(ctx)
-    from odoo.service import db as odoo_db
-
-    odoo_db.exp_duplicate_database(source, dest, neutralize_database=neutralize)
+    odoo_db.duplicate(source, dest, neutralize=neutralize)
     console.print(f"[green]✓[/] duplicated '{source}' → '{dest}'")
 
 
@@ -690,9 +677,7 @@ def db_duplicate(ctx, source, dest, neutralize):
 def db_rename(ctx, old_name, new_name):
     """Rename a database (and its filestore)."""
     _load(ctx)
-    from odoo.service import db as odoo_db
-
-    odoo_db.exp_rename(old_name, new_name)
+    odoo_db.rename(old_name, new_name)
     console.print(f"[green]✓[/] renamed '{old_name}' → '{new_name}'")
 
 
@@ -707,9 +692,7 @@ def db_drop(ctx, db_name, yes):
         click.confirm(
             f"Drop '{db_name}' and its filestore? This cannot be undone.", abort=True
         )
-    from odoo.service import db as odoo_db
-
-    if not odoo_db.exp_drop(db_name):
+    if not odoo_db.drop(db_name):
         raise click.ClickException(f"'{db_name}' does not exist -- nothing to drop.")
     console.print(f"[green]✓[/] dropped '{db_name}'")
 
@@ -725,7 +708,7 @@ def _human_size(n: int) -> str:
 
 #: OCA auto_backup's own extension convention (models/db_backup.py:261-271
 #: in the OCA server-tools auto_backup source): a zip-format dump
-#: (dump.sql + filestore/ + manifest.json -- the same odoo.service.db.dump_db
+#: (dump.sql + filestore/ + manifest.json -- the same Odoo dump function
 #: output either producer writes) is named "*.dump.zip"; the plain
 #: `pg_dump -Fc` custom format (no filestore) is named "*.dump". Adopted
 #: verbatim, including dropping the db name from the filename (the per-db
@@ -792,8 +775,6 @@ def _prune_backups_by_age(directory: Path, fmt: str, keep_days: int) -> None:
 def _backup_one(
     db_name: str, out_dir: str | None, fmt: str = "zip", keep_days: int = 0
 ) -> Path:
-    from odoo.service import db as odoo_db
-
     dest = _backup_path(db_name, out_dir, fmt)
     start = time.monotonic()
     # 0600 from the first byte, whatever the umask, and also when a file of
@@ -801,7 +782,7 @@ def _backup_one(
     fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.fchmod(fd, 0o600)
     with os.fdopen(fd, "wb") as stream:
-        odoo_db.dump_db(db_name, stream, backup_format=fmt)
+        odoo_db.dump(db_name, stream, backup_format=fmt)
     elapsed = time.monotonic() - start
     say(
         f"[green]✓[/] {db_name} → {dest}  ({_human_size(dest.stat().st_size)}, {elapsed:.1f}s)"
@@ -889,24 +870,22 @@ def _restore_one(
     localize: bool = True,
     migrate: bool = False,
 ) -> None:
-    from odoo.service import db as odoo_db
-
     _require_devguard()
     path = Path(backup_path)
     console.print("[cyan][1/3][/] located backup file")
     console.print(f"      {path}  ({_human_size(path.stat().st_size)})")
 
-    if odoo_db.exp_db_exist(db_name):
+    if odoo_db.exists(db_name):
         if not overwrite:
             raise click.ClickException(
                 f"database '{db_name}' already exists, and --no-force refuses to overwrite it. "
                 "Drop it first, or leave out --no-force."
             )
         console.print(f"==> dropping existing '{db_name}' (--no-force to refuse)")
-        odoo_db.exp_drop(db_name)
+        odoo_db.drop(db_name)
 
     console.print("[cyan][2/3][/] restoring database + filestore")
-    odoo_db.restore_db(db_name, str(path), neutralize_database=neutralize)
+    odoo_db.restore(db_name, str(path), neutralize=neutralize)
     console.print("[cyan][3/3][/] done")
     console.print(f"[green]✓[/] restored '{db_name}' from {path}")
     if localize and _dev_shell():

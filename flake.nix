@@ -241,6 +241,7 @@
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
+      #   odoo-db-compat                                      the CLI's one API over Odoo's two database-management APIs (all systems)
       #   secrets-*                                           odoo-nix's secrets module (all systems)
       #   lock-audit-*                                        the stale-lock audit on a stale fixture (all systems)
       #   restore-*                                           the dev shell's restore options (Linux only)
@@ -387,6 +388,16 @@
           backup-layout = scriptCheck pkgs "backup-layout" { } (
             lib.concatMapStrings (py: ''
               ${pkgs.${py}.interpreter} -I ${./tests/test_backups.py} ${cliPackage pkgs}
+            '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
+          );
+
+          # lib/odoo_nix_cli/odoo_db.py: one set of names over Odoo's two
+          # database-management APIs (odoo.service.db through 19.0,
+          # odoo.modules.db from 20.0), against stand-ins shaped like each,
+          # on the interpreters the CLI runs on.
+          odoo-db-compat = scriptCheck pkgs "odoo-db-compat" { } (
+            lib.concatMapStrings (py: ''
+              ${pkgs.${py}.interpreter} -I ${./tests/test_odoo_db.py} ${cliPackage pkgs}
             '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
           );
 
