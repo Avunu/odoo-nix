@@ -33,7 +33,7 @@ Mode:
   -y, --yes           Assume yes (required to migrate without a terminal)
 
 Common:
-  --version <v>       Odoo series: 18.0 | 19.0  (overrides detection)
+  --version <v>       Odoo series: 18.0 | 19.0 | 20.0  (overrides detection)
   --bundles <a,b>     Comma-separated curated OCA bundles to install
   --modules <a,b,c>   Comma-separated OCA module names to install (alias: --apps)
   --name <name>       Project name (default: existing / target dir basename)

@@ -59,7 +59,7 @@ docs/                        # these pages
 
 ## Checks
 
-`nix flake check -L` runs everything. odoo-nix is a library, so its checks do what a project does: they build a real Odoo from a pinned OCB tree (`ocb-18` and `ocb-19`, `flake = false` inputs in the shape of [A repository of modules](../scaffolding/write-the-flake.md#a-repository-of-modules)) through `coreSource`, with the same library calls the flake-parts module makes. Checks are one derivation per assertion, so a failure names itself.
+`nix flake check -L` runs everything. odoo-nix is a library, so its checks do what a project does: they build a real Odoo from a pinned OCB tree (`ocb-18`, `ocb-19` and `ocb-20`, `flake = false` inputs in the shape of [A repository of modules](../scaffolding/write-the-flake.md#a-repository-of-modules)) through `coreSource`, with the same library calls the flake-parts module makes. Checks are one derivation per assertion, so a failure names itself.
 
 ```bash
 nix flake check -L                               # everything
@@ -69,10 +69,10 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | Checks | What they cover |
 | --- | --- |
 | `addons-*`, `odoo-conf-*`, `odoo-conf-render` | `lib/addons.nix` on synthetic trees and `lib/odoo-conf.nix`'s rendering. |
-| `fixture-requires-python-<18\|19>`, `built-odoo-addons-path-<18\|19>`, `built-odoo-version-<18\|19>`, `lock-audit-<18\|19>`, `lock-fresh-<18\|19>`, `build-deps-<18\|19>` | Per series, without running Odoo: the fixture's `requires-python`, `builtOdoo`'s passthru, the fixture lock against the pinned OCB, the managed build-dependency block. |
+| `fixture-requires-python-<18\|19\|20>`, `built-odoo-addons-path-<18\|19\|20>`, `built-odoo-version-<18\|19\|20>`, `lock-audit-<18\|19\|20>`, `lock-fresh-<18\|19\|20>`, `build-deps-<18\|19\|20>` | Per series, without running Odoo: the fixture's `requires-python`, `builtOdoo`'s passthru, the fixture lock against the pinned OCB, the managed build-dependency block. |
 | `lock-audit-*` | The stale-lock audit. |
-| `built-odoo-<18\|19>`, `odoo-init-<18\|19>`, `odoo-test-<18\|19>` | The assembled package, `-i base` against an in-sandbox PostgreSQL with no guard rails in production, and the fixture addon's Odoo tests including the guard rails. |
-| `cli-lifecycle-<18\|19>`, `cli-migrate-<18\|19>`, `cli-project-backup-<18\|19>`, `cli-remote-restore-<18\|19>` | The `odoo` command end to end: provision, backup, drop and restore; migrations from build to build, including rollback; project backups; restores from a directory store. |
+| `built-odoo-<18\|19\|20>`, `odoo-init-<18\|19\|20>`, `odoo-test-<18\|19\|20>` | The assembled package, `-i base` against an in-sandbox PostgreSQL with no guard rails in production, and the fixture addon's Odoo tests including the guard rails. |
+| `cli-lifecycle-<18\|19\|20>`, `cli-migrate-<18\|19\|20>`, `cli-project-backup-<18\|19\|20>`, `cli-remote-restore-<18\|19\|20>` | The `odoo` command end to end: provision, backup, drop and restore; migrations from build to build, including rollback; project backups; restores from a directory store. |
 | `devguard-core`, `devguard`, `devguard-baked` | The guard rails, the shared core and odoo-nix's side, without Odoo or a network. |
 | `backups`, `backup-layout` | The backup fetch layer and odoo-nix's naming. |
 | `journald-formatter` | The `odoo_journald` graft. |
@@ -81,7 +81,7 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | `sources`, `bootstrap`, `bootstrap-lock-*` | Shell entry's submodule checkout and the fresh-clone bootstrap. |
 | `db-nocow` | The btrfs NOCOW handling (Linux). |
 | `secrets-*`, `restore-*`, `rename-*`, `identity-*`, `ports-*`, `mailpit-*`, `watch-*`, `ci-mode`, `tree`, `python-default-*`, `container-name*` | The flake-parts module's options, evaluated. |
-| `service-*`, `nginx`, `service-<18\|19>` | `services.odoo-nix`, evaluated, and in NixOS VMs (KVM) with a stub and with the real Odoo: migrations on deploy, rollback leaving Odoo down, nginx, X-Sendfile, the journal, hardening. |
+| `service-*`, `nginx`, `service-<18\|19\|20>` | `services.odoo-nix`, evaluated, and in NixOS VMs (KVM) with a stub and with the real Odoo: migrations on deploy, rollback leaving Odoo down, nginx, X-Sendfile, the journal, hardening. |
 | `nix-lint`, `shared-config`, `pr-policy`, `workflows` | `nixfmt-rs`, statix and deadnix; the shared editor and lint configuration; the pull-request policy; actionlint and zizmor. |
 
 Everything that runs Odoo or a VM is Linux-only. `nix develop` gives a shell for working on odoo-nix itself, with `uv`, `nixfmt-rs` and `odoo-nix-relock`; `nix fmt` formats the Nix files.
@@ -94,7 +94,7 @@ The `check` workflow runs two jobs on every pull request and every push to `main
 
 ## Re-locking
 
-The weekly Dependabot pull request bumps `ocb-18` and `ocb-19`. `uv.lock` does not record OCB's revision, only what uv derived from it, so a bump is stale only when OCB's `install_requires` or its series changed. Then `lock-fresh-<MAJOR>` fails and prints the fix:
+The weekly Dependabot pull request bumps `ocb-18`, `ocb-19` and `ocb-20`. `uv.lock` does not record OCB's revision, only what uv derived from it, so a bump is stale only when OCB's `install_requires` or its series changed. Then `lock-fresh-<MAJOR>` fails and prints the fix:
 
 ```bash
 nix run .#relock            # or: nix run .#relock -- --upgrade

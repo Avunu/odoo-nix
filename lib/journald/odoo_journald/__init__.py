@@ -61,7 +61,9 @@ class OdooFormatter(JournaldFormatter):
 
     def message(self, record: logging.LogRecord) -> str:
         # perf_info: set by Odoo's record factory ("" by default), filled in
-        # by the PerfFilter on werkzeug's logger for request lines.
+        # by the PerfFilter on werkzeug's logger for request lines (through
+        # 19.0; 20.0's own odoo.http.server puts the numbers in the message
+        # itself).
         text = super().message(record)
         perf_info = getattr(record, "perf_info", "")
         if not perf_info:
@@ -89,7 +91,7 @@ def patch_netsvc(netsvc) -> None:
     has built it. Everything else init_logger does (the LogRecord factory,
     log_handler levels, log_db, the werkzeug PerfFilter, warnings capture) is
     left as Odoo sets it up. Callers reach it as ``odoo.netsvc.init_logger``
-    (tools/config.py, 18.0 and 19.0), so replacing the attribute is enough."""
+    (tools/config.py, 18.0 through 20.0), so replacing the attribute is enough."""
     original = netsvc.init_logger
     if getattr(original, "_odoo_journald", False):
         return

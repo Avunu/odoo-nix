@@ -6,7 +6,7 @@ for the checks that migrate a database from one build to the next
 directory is a workspace root holding only `custom/`: OCB comes from the
 series' `ocb-*` input and the Python env from that series' fixture, so the
 addon is the only thing that differs between builds. Version numbers carry no
-series prefix, so the same trees serve 18.0 and 19.0.
+series prefix, so the same trees serve every series.
 
 - `v2` (1.0.1): adds a field on `res.partner` (a column only an update
   creates) and a post-migrate script that records it ran and writes a

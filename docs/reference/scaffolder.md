@@ -21,7 +21,7 @@ nix run github:Avunu/odoo-nix -- [FLAGS] [TARGET_DIR]
 | `--force` | Relax the mode guard. It never overwrites an existing file. |
 | `--dry-run` | Print the plan, including the files it would write, and exit without changing anything. |
 | `-y`, `--yes` | Assume yes. Required to migrate without a terminal. |
-| `--version <V>` | The Odoo series, `18.0` or `19.0`; overrides detection. |
+| `--version <V>` | The Odoo series, `18.0`, `19.0` or `20.0`; overrides detection. |
 | `--bundles <A,B>` | Curated OCA bundles to install (`data/oca-bundles.json`). |
 | `--modules <A,B,C>` | OCA modules to install. `--apps` is an alias. |
 | `--name <NAME>` | The project name (`odoo-nix.name`). Defaults to the existing one, or the target directory's name. |
