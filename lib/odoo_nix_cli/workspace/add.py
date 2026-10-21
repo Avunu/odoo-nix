@@ -19,11 +19,11 @@ from odoo_nix_cli.init.proc import attempt, git, probe, run
 from odoo_nix_cli.init.select import pick_bundles, pick_modules
 from odoo_nix_cli.workspace.common import (
     add_modules_txt,
-    regenerate,
     register,
     submodules,
 )
 from odoo_nix_cli.workspace.config import WorkspaceConfig
+from odoo_nix_cli.workspace.update import regenerate
 
 #: odoo-nix-sources' status for a remote without the branch asked for.
 NO_BRANCH = 3

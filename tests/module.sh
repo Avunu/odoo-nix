@@ -28,6 +28,7 @@ cat > "$stubs/odoo-nix-sources" <<SH
 #!$BASH
 set -eu
 echo "\$*" >> "\$STUB_LOG/sources"
+if [ "\$1" = enter ] && [ -n "\${STUB_ENTER_FAIL:-}" ]; then echo "odoo-nix: cannot check out" >&2; exit 5; fi
 [ "\$1" = clone ] || exit 0
 shift
 branch=
@@ -355,6 +356,34 @@ check "the path sources are regenerated" hasF 'odoo = { path = "odoo" }' pyproje
 check "...and said" hasF '==> Regenerating uv path-sources' out
 check "the lock is attempted, and its failure reported" hasF 'uv lock failed' err
 check "it says the code is updated" hasF '✅ Code updated.' out
+STUB_ENTER_FAIL=1 run project update --no-migrate
+expect_rc 5
+check "a failed checkout stops it with its status, and says why" hasF 'odoo-nix: cannot check out' err
+check "...without a traceback" refute hasF 'Traceback' err
+check "...and nothing after it runs" refute hasF '==> Regenerating' out
+
+# ── project relock ───────────────────────────────────────────────────────────
+# uv is offline, so the lock itself fails: what is checked is the regenerated
+# pyproject.toml, what reaches uv, and the status.
+project relock
+run module add "file://$T/remotes/multi.git"
+commit added
+before=$(git -C modules/multi rev-parse HEAD)
+sed -i '/odoo = { path = "odoo" }/d' pyproject.toml
+run project relock
+check "a failed lock fails it" eval '[ "$rc" != 0 ]'
+check "the path sources are regenerated" hasF 'odoo = { path = "odoo" }' pyproject.toml
+check "...and said, then the lock" eval \
+  'hasF "==> Regenerating uv path-sources" out && hasF "==> Re-locking Python environment (uv lock)" out'
+check "the failed lock is said" hasF 'uv lock failed' err
+check "no source is pulled" eval \
+  '[ ! -s "$STUB_LOG/sources" ] && [ "$(git -C modules/multi rev-parse HEAD)" = "$before" ]'
+check "...and nothing says it is done" refute hasF '✅' out
+run project relock --no-such-uv-flag
+check "arguments go to uv lock" hasF 'no-such-uv-flag' err
+run project relock --help
+expect_rc 0
+check "--help is the command's own, not uv's" hasF 'project relock [OPTIONS] [UV_ARGS]...' out
 
 if [ "$fails" -gt 0 ]; then
   echo "module: $fails failure(s)" >&2

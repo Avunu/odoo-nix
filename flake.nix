@@ -188,6 +188,7 @@
         import ./tests/relock.nix {
           inherit pkgs ocbInputs presets;
           buildDeps = import ./lib/build-deps.nix { inherit pkgs base; };
+          cliPackage = cliPackage pkgs;
         };
 
       # services.odoo-nix, with python-devops-nix's library as the module
@@ -769,6 +770,7 @@
           };
           # `nix run .#relock [-- --upgrade]`: regenerate tests/fixtures/*/uv.lock
           # against the pinned OCB inputs (needs network; never runs in a check).
+          # odoo-nix's own fixtures; a project re-locks with `odoo project relock`.
           relock = {
             type = "app";
             program = "${relock pkgs}/bin/odoo-nix-relock";

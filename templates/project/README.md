@@ -83,3 +83,4 @@ sensibly when run non-interactively.
 | `odoo module add-bundle [n]` | Add a curated OCA module bundle                 |
 | `odoo shell [db]`            | Odoo Python REPL                                |
 | `odoo project update`        | Pull submodules + refresh deps + re-lock, then migrate |
+| `odoo project relock`        | Refresh deps + re-lock, pulling nothing (after editing `modules.txt` or `pyproject.toml`) |

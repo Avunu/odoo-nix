@@ -34,9 +34,16 @@ class WorkspaceConfig:
     layout: Layout
     # odoo-nix-sources (python-devops-nix's lib.sources): a repository's first clone.
     sources: str
-    # The script that rewrites pyproject.toml's managed blocks from what is on
-    # disk and re-locks (lib/cli-scripts.nix, regenerateAndLock).
-    regenerate: str
+    # The re-lock (odoo_nix_cli.workspace.update): the interpreter that runs
+    # lib/oca_sources.py, which rewrites pyproject.toml's managed blocks from
+    # what is on disk; uv; odoo-nix-build-deps (lib/build-deps.nix).
+    python: str
+    oca_sources: str
+    uv: str
+    build_deps: str
+    # OCB's store path when it is a flake input (coreSource), else None:
+    # <coreSrc> is then a symlink to it, shadowed for the lock.
+    core_source: str | None
 
 
 KEYS = {
@@ -45,8 +52,14 @@ KEYS = {
     "ocaBundles": "oca_bundles",
     "layout": "layout",
     "sources": "sources",
-    "regenerate": "regenerate",
+    "python": "python",
+    "ocaSources": "oca_sources",
+    "uv": "uv",
+    "buildDeps": "build_deps",
+    "coreSource": "core_source",
 }
+#: Keys whose value may be null.
+NULLABLE = {"core_source"}
 LAYOUT_KEYS = {
     "coreSrc": "core_src",
     "externalDir": "external_dir",
@@ -72,7 +85,9 @@ def parse(data: Any) -> WorkspaceConfig:
         **_strings(values["layout"], LAYOUT_KEYS, "config.layout")
     )
     for k, v in values.items():
-        if k != "layout" and not (isinstance(v, str) and v):
+        if k == "layout" or (k in NULLABLE and v is None):
+            continue
+        if not (isinstance(v, str) and v):
             raise ConfigError(f"config.{k}: expected a non-empty string, got {v!r}")
     for k, v in vars(values["layout"]).items():
         if not (isinstance(v, str) and v):

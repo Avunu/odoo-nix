@@ -15,7 +15,7 @@ The project's `pyproject.toml` and `uv.lock` are its single Python manifest, bui
 
 ## The managed blocks
 
-`lib/oca_sources.py` writes two blocks of `pyproject.toml`, between `# >>> odoo-nix: … >>>` markers. `odoo module add`, `add-bundle`, `remove` and `odoo project update` regenerate them; do not edit them by hand.
+`lib/oca_sources.py` writes two blocks of `pyproject.toml`, between `# >>> odoo-nix: … >>>` markers. `odoo project relock` regenerates them, and so do `odoo module add`, `add-bundle`, `remove` and `odoo project update`, which re-lock the same way; do not edit them by hand.
 
 - `[project].dependencies`: `odoo` and every module in `modules.txt` as `odoo-addon-<NAME>`, the install roots.
 - `[tool.uv.sources]`: `odoo` (the OCB submodule) and every local module, as editable path sources.
@@ -38,7 +38,18 @@ The package set is uv2nix's, then python-devops-nix's shared package fixes (`lib
 
 ## Build dependencies of old sdists
 
-Some legacy packages that only ship an sdist do not declare `setuptools` as a build dependency. A managed `[tool.uv.extra-build-dependencies]` block grants it to them. `odoo-nix-build-deps update` (python-devops-nix's `lib.python.buildDeps`) derives the block from `uv.lock` after each lock, and `odoo-nix-build-deps check` fails when it is out of date. `odoo project update` and `odoo module …` run it for you.
+Some legacy packages that only ship an sdist do not declare `setuptools` as a build dependency. A managed `[tool.uv.extra-build-dependencies]` block grants it to them. `odoo-nix-build-deps update` (python-devops-nix's `lib.python.buildDeps`) derives the block from `uv.lock` after each lock, and `odoo-nix-build-deps check` fails when it is out of date. `odoo project relock`, `odoo project update` and `odoo module …` run it for you.
+
+## Re-locking a project
+
+```bash
+odoo project relock                            # after editing modules.txt or pyproject.toml by hand
+odoo project relock --upgrade-package lxml     # arguments go to uv lock
+```
+
+`odoo project relock` is the project's one re-lock command. It rewrites the managed blocks from `modules.txt` and what is on disk, runs `uv lock`, syncs the build-dependency block and locks again. It pulls nothing and moves no submodule. `odoo project update` runs the same code after pulling, and `odoo module add`, `add-bundle` and `remove` after changing the workspace. Commit `pyproject.toml` and `uv.lock` afterwards, then `direnv reload`.
+
+A failed `uv lock` exits with uv's status here. `odoo module …` and `odoo project update` report the failed lock and carry on: fix `pyproject.toml`, then run `odoo project relock`. `nix run .#relock` is a different command: it re-locks odoo-nix's own test fixtures (see [Re-locking](../reference/layout.md#re-locking)).
 
 ## A stale lock is an evaluation error
 
@@ -49,7 +60,7 @@ odoo-nix: uv.lock does not cover every declared dependency, so the Python
 environment cannot be resolved.
 ```
 
-uv2nix alone would build the environment without it, and Odoo would fail later on a missing import. Re-lock from the project root with `uv lock`, then re-enter the shell. For a genuine version conflict, use `[tool.uv] override-dependencies`.
+uv2nix alone would build the environment without it, and Odoo would fail later on a missing import. The `odoo` command is not available until the shell starts, so re-lock from the project root with `uv lock`, re-enter the shell, and run `odoo project relock` to put the build-dependency block in step. For a genuine version conflict, use `[tool.uv] override-dependencies`.
 
 ## C extensions that need a library
 

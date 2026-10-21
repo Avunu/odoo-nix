@@ -25,11 +25,11 @@ from odoo_nix_cli.init.proc import git, probe, probe_ok, run
 from odoo_nix_cli.workspace.add import Stop
 from odoo_nix_cli.workspace.common import (
     read_modules,
-    regenerate,
     submodules,
     write_modules,
 )
 from odoo_nix_cli.workspace.config import WorkspaceConfig
+from odoo_nix_cli.workspace.update import regenerate
 
 USAGE = """\
 Usage: odoo module remove [--force] [--keep-repos] <module | repo> …

@@ -104,7 +104,7 @@ An application project keeps OCB as the `odoo/` submodule: it is the thing being
 
 With `coreSource` set:
 
-- The dev shell keeps `odoo/` (`layout.coreSrc`) as a symlink to the store path, so add `/odoo` to `.gitignore`. `odoo-bin`, the scripts and the editor mirror find OCB where the submodule layout has it, and `pyproject.toml` and `uv.lock` are unchanged (`odoo` stays the path source `odoo/`). For the length of a `uv lock` (from `odoo project update` or `odoo module add`), the scripts point it at a writable shadow of the tree, because setuptools writes `odoo.egg-info` next to it and the store is read-only.
+- The dev shell keeps `odoo/` (`layout.coreSrc`) as a symlink to the store path, so add `/odoo` to `.gitignore`. `odoo-bin`, the scripts and the editor mirror find OCB where the submodule layout has it, and `pyproject.toml` and `uv.lock` are unchanged (`odoo` stays the path source `odoo/`). For the length of a `uv lock` (from `odoo project relock`, `odoo project update` or `odoo module add`), the `odoo` command points it at a writable shadow of the tree, because setuptools writes `odoo.egg-info` next to it and the store is read-only.
 - The Python environment builds the `odoo` wheel from the store path.
 - `addons_path`, in the dev `odoo.conf`, in `builtOdoo` and in the checks, carries the two core roots as absolute store paths, and `builtOdoo` links the tree instead of copying it.
 

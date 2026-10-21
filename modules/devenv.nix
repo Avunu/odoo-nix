@@ -1568,7 +1568,7 @@ in
                 # OCB comes from a flake input: keep <coreSrc> a symlink to it so
                 # odoo-bin, the scripts and the IDE mirror all find it where the
                 # submodule layout would have it (`uv lock` goes through a
-                # writable shadow of it, see lib/core-shadow.sh). A real directory
+                # writable shadow of it, see lib/odoo_nix_cli/workspace/lock.py). A real directory
                 # there is a leftover submodule checkout — never clobber it silently.
                 if [ "$(readlink "${cfg.layout.coreSrc}" 2>/dev/null)" != "${toString cfg.coreSource}" ]; then
                   if [ -e "${cfg.layout.coreSrc}" ] && [ ! -L "${cfg.layout.coreSrc}" ]; then
