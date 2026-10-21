@@ -1,42 +1,33 @@
 name: Dependabot auto-merge
 
-# Enables auto-merge on every Dependabot PR. GitHub then merges it once the branch is
-# mergeable and all *required* status checks pass — so protect `main` and mark the
-# checks you trust as required, otherwise this merges on nothing.
+# Dependabot pull requests, through python-devops-nix's reusable workflow (its
+# CONVENTIONS.md, CI) with its default policy: every update type auto-merges, and
+# github-actions bumps, which change what CI runs, are reviewed by a person. GitHub
+# merges once the branch is mergeable and every *required* status check passes, so
+# auto-merge is only as safe as the checks marked required on `main` (check.yml's
+# jobs and pr-policy). Dependabot's github-actions entry moves the pin below.
+#
+# The OCB pins (the `ocb` group, dependabot/nix/ocb-*) are reviewed by a person too:
+# a bump can legitimately go red and need `nix run .#relock` (.github/dependabot.yml),
+# and the one in #63 pinned odoo/odoo commits without OCB's pyproject.toml. With
+# nothing required on `main`, auto-merge merged it before its `flake` check failed.
+# The reusable workflow decides by ecosystem and update type, not by group, so that
+# exception is this job's `if`.
 #
 # Requires (one-time, in repo settings):
 #   • Settings → General → Pull Requests → "Allow auto-merge"
-#   • Settings → Branches → protect `main`, require the "flake" and "pr-policy" status checks
+#   • Settings → Branches → protect `main`, require the checks a merge must wait for
 on: pull_request
 
 permissions: {}
 
 jobs:
   auto-merge:
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
-    permissions:
-      contents: write # gh pr merge --auto
-      pull-requests: write # gh pr merge --auto
-    # Updates of the actions pinned in the workflows (github-actions pull requests), the shared
-    # documentation check of Avunu/site-docs included, are reviewed by a person.
-    # So are the OCB pins (the `ocb` group, dependabot/nix/ocb-*): a bump can legitimately go
-    # red and need `nix run .#relock` (.github/dependabot.yml), and the one in #63 pinned
-    # odoo/odoo commits without OCB's pyproject.toml. With nothing required on `main`,
-    # auto-merge merged it before its `flake` check failed.
     # The PR's author, not github.actor (which a re-run by a person changes).
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]'
-      && !startsWith(github.head_ref, 'dependabot/github_actions/')
       && !startsWith(github.head_ref, 'dependabot/nix/ocb-')
-    steps:
-      - name: Fetch Dependabot metadata
-        id: metadata
-        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Enable auto-merge
-        run: gh pr merge --auto --squash "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: write # gh pr merge --auto
+      pull-requests: write # gh pr merge --auto
+    uses: Avunu/python-devops-nix/.github/workflows/dependabot-auto-merge.yml@ef72bb9958c320def2f6a6658db587635e113c0a # main (no release yet)
