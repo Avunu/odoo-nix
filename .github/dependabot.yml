@@ -1,6 +1,6 @@
 version: 2
 
-# Commit prefixes (README "Versioning"): `fix(deps)`, so each bump ships as an
+# Commit prefixes (docs/development/upgrading.md, "Releases"): `fix(deps)`, so each bump ships as an
 # odoo-nix patch release. The flake inputs are what a project builds Odoo from,
 # and frappe-nix gives its own nix, pre-commit and github-actions bumps the same
 # prefix.

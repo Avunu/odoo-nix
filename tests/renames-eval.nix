@@ -1,5 +1,5 @@
 # Evaluation-level assertions over the dev shell's renamed options
-# (modules/devenv.nix, README "Renamed options"): an old name evaluates,
+# (modules/devenv.nix, docs/development/upgrading.md): an old name evaluates,
 # reaches its replacement (and the shell's env, the packages' names or the
 # baked devguard settings), and is announced on
 # `odoo-nix.deprecations` (what the module lib.warn's). A consumer's flake is

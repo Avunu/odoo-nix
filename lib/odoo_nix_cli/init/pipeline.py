@@ -196,7 +196,7 @@ def report(st: Run) -> None:
         )
         ui.out(
             "\nTo restore this project from production backups, declare its secrets —\n"
-            'see "Backups & restore" in the odoo-nix README, or the commented block in flake.nix.'
+            'see "Restore a production backup" in the odoo-nix docs, or the commented block in flake.nix.'
         )
 
 

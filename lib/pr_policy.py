@@ -1,4 +1,4 @@
-"""odoo-nix's pr-policy check (.github/workflows/pr-policy.yml; README "Versioning").
+"""odoo-nix's pr-policy check (.github/workflows/pr-policy.yml; docs/reference/layout.md).
 
 A pull request passes when:
 

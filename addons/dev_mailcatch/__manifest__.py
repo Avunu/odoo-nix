@@ -3,8 +3,8 @@
     "summary": "Deprecated stub: the mail catch-all is odoo-nix's devguard now.",
     "description": """
 Deprecated. Outgoing-mail redirection moved into odoo-nix's dev guard rails
-(``odoo_devguard``, installed into the dev virtualenv; see the README's "Dev
-guard-rails"), configured with ``odoo-nix.devguard.mail.*`` and overridable with
+(``odoo_devguard``, installed into the dev virtualenv; see odoo-nix's
+docs/development/guard-rails.md), configured with ``odoo-nix.devguard.mail.*`` and overridable with
 ``ODOO_DEVGUARD_MAIL_HOST`` / ``ODOO_DEVGUARD_MAIL_PORT``.
 
 This module remains through odoo-nix 1.x (removed in 2.0.0) as a no-op that logs a warning, so a

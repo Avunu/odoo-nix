@@ -516,7 +516,7 @@ in
               environment (server, `odoo shell`, `odoo db ...`, scripts) refuses
               to reach beyond this machine, sends all mail to Mailpit, skips
               denylisted crons, and refuses to open remote `fs.storage` records.
-              See the README's "Dev guard-rails".
+              See odoo-nix's docs/development/guard-rails.md.
 
               Turning it off is a persistent decision about the whole project, not
               a per-command one (`ODOO_DEVGUARD_ENABLED=0` is that): `odoo db

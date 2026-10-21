@@ -1,5 +1,5 @@
 # odoo-nix's commit rules, checked by `committed` in the pr-policy workflow
-# (.github/workflows/pr-policy.yml, lib/pr_policy.py; README "Versioning").
+# (.github/workflows/pr-policy.yml, lib/pr_policy.py; docs/reference/layout.md, "What CI runs").
 # Conventional commits: `fix:` makes a patch release, `feat:` a minor one. The
 # pr-policy check refuses `!` and BREAKING CHANGE: a major release is a
 # deliberate `Release-As: <N>.0.0` footer.
