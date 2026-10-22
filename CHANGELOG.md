@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.0](https://github.com/Avunu/odoo-nix/compare/v1.0.0...v1.1.0) (2026-10-22)
+
+
+### Features
+
+* **cli:** manage databases through odoo.modules.db as well as odoo.service.db ([ecd3c9b](https://github.com/Avunu/odoo-nix/commit/ecd3c9b7cfbe2258c327c1e4651404898971097d))
+* **cli:** odoo project relock, and project update's relock and pull in Python ([06b155a](https://github.com/Avunu/odoo-nix/commit/06b155a4e182e4678896ad68cb0b934bd05ae868))
+* **containers:** OCI labels and a healthcheck, opt-in &lt;name&gt;/odoo name and non-root user ([#81](https://github.com/Avunu/odoo-nix/issues/81)) ([4a9ae6a](https://github.com/Avunu/odoo-nix/commit/4a9ae6ab40358418a9e1521e41f86dd83db7a2aa))
+* **init:** odoo-init in Python, with the shared scaffolder conventions ([5e6ae7a](https://github.com/Avunu/odoo-nix/commit/5e6ae7a6a8263ae4ddd3a166e1734b6ca9160013))
+* **module:** odoo module remove, and module add and add-bundle in Python ([732aed3](https://github.com/Avunu/odoo-nix/commit/732aed351d0cabdef85926ef7b06b22e5f669d76))
+* **nixos:** adopt python-devops-nix's production pieces (Phase 6) ([#73](https://github.com/Avunu/odoo-nix/issues/73)) ([4ecde4e](https://github.com/Avunu/odoo-nix/commit/4ecde4ef8e14bae38e9f2c59f1881cf26054ba20))
+* support Odoo 20.0 ([aafa4ac](https://github.com/Avunu/odoo-nix/commit/aafa4acf58e720a7abb5cce44cd850d2ccfdafa9))
+
+
+### Bug Fixes
+
+* correct stale ports, bundle, migrate and without_demo texts ([80da220](https://github.com/Avunu/odoo-nix/commit/80da220710ea125036362afaa69e07b98cfc2a34))
+* **deps:** bump devenv ([#86](https://github.com/Avunu/odoo-nix/issues/86)) ([29aa1e8](https://github.com/Avunu/odoo-nix/commit/29aa1e87415c13711bd43cbcab5865909016a4a8))
+
 ## 1.0.0 (2026-10-17)
 
 
