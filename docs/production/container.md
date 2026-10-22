@@ -13,7 +13,7 @@ nix build .#container-odoo
 docker load < result
 ```
 
-The image is named `<name>-odoo:latest`, or `<REGISTRY>/<name>-odoo:latest` with `containers.registry` set (`"ghcr.io/avunu"` gives `ghcr.io/avunu/acme-odoo`; a trailing slash is dropped). It exposes 8069 and 8072, and its `odoo` is the full command, so `docker exec <CONTAINER> odoo db backup acme` works as it does on a server.
+The image is named `<name>-odoo:latest`, or `<REGISTRY>/<name>-odoo:latest` with `containers.registry` set (`"ghcr.io/avunu"` gives `ghcr.io/avunu/acme-odoo`; a trailing slash is dropped). With `containers.roleImageNames` it is `<name>/odoo` instead; see [The image name](#the-image-name). It exposes 8069 and 8072, and its `odoo` is the full command, so `docker exec <CONTAINER> odoo db backup acme` works as it does on a server.
 
 ## Configuration
 
@@ -47,3 +47,42 @@ The entrypoint writes `/etc/odoo/odoo.conf` at start from environment variables,
 - PostgreSQL is external.
 
 The finished configuration is mode 0600.
+
+## Healthcheck
+
+The image has a `HEALTHCHECK`: `GET /web/health` on the HTTP port (`ODOO_NIX_HTTP_PORT`, default 8069) must answer 200. Odoo serves that route without a database. The probe uses Bash's `/dev/tcp`, since the image has no `curl`. Docker and Podman run it every 30 seconds after a 120-second start period, and three failures in a row mark the container unhealthy.
+
+## Labels
+
+The image carries the `org.opencontainers.image.*` labels: `title` (the image name), `source` (`https://github.com/Avunu/odoo-nix`), `version` (the odoo-nix version that built it), `licenses` (`MIT`), and `revision`, odoo-nix's commit, when your flake has odoo-nix as the `odoo-nix` input. They describe odoo-nix. `containers.labels` goes over them, so you can describe your project instead:
+
+```nix
+odoo-nix.containers.labels = {
+  "org.opencontainers.image.source" = "https://github.com/acme/odoo";
+  "org.opencontainers.image.revision" = self.rev or "dirty";
+};
+```
+
+## The image name
+
+python-devops-nix names images `<REGISTRY>/<name>/<role>`. odoo-nix 1.0 named this one `<name>-odoo`, and that stays the default through 1.x. A host that pulls or runs the image by name has to change with it; otherwise it keeps running the last image it had under the old name. Opt in when you update the host:
+
+```nix
+odoo-nix.containers.roleImageNames = true; # <name>/odoo, or <REGISTRY>/<name>/odoo
+```
+
+Until you do, building `container-odoo` prints a warning that suggests the option. The new name is the default in 2.0.0.
+
+## Running as non-root
+
+The image runs as root by default in 1.x, as it always has. Set `containers.nonRoot = true` and it runs as `odoo`, uid 1000 and gid 1000, with home `/var/lib/odoo`. That becomes the default in 2.0.0.
+
+With it on, the image owns `/etc/odoo`, where the entrypoint writes `odoo.conf`, and `/var/lib/odoo`, so a new named volume at `/var/lib/odoo/data` takes that ownership. A bind mount must be writable by uid 1000 (`chown -R 1000:1000 <DIR>` on the host), and the files in `/secrets` must be readable by it.
+
+> [!IMPORTANT]
+> A filestore volume that a root image wrote is owned by root, and a non-root image cannot write to it. Before you turn `nonRoot` on for an existing deployment, change its owner once:
+>
+> ```bash
+> docker run --rm --user 0 --entrypoint chown \
+>   -v <VOLUME>:/var/lib/odoo/data <IMAGE> -R 1000:1000 /var/lib/odoo/data
+> ```

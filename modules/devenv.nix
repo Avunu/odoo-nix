@@ -871,7 +871,28 @@ in
             type = types.str;
             default = "";
             example = "ghcr.io/avunu";
-            description = "Registry prefix for the image name: \"ghcr.io/avunu\" names the image ghcr.io/avunu/<name>-odoo. A trailing slash is dropped; empty leaves the name bare.";
+            description = "Registry prefix for the image name: \"ghcr.io/avunu\" names the image ghcr.io/avunu/<name>-odoo (ghcr.io/avunu/<name>/odoo with roleImageNames). A trailing slash is dropped; empty leaves the name bare.";
+          };
+          roleImageNames = mkOption {
+            type = types.bool;
+            default = false;
+            description = "Name the image <name>/odoo (python-devops-nix's <registry>/<name>/<role>) instead of 1.0's <name>-odoo. Opt-in through 1.x, because whatever pulls or runs the image has to change with it; building the image under the old name warns. The default becomes true in 2.0.0.";
+          };
+          nonRoot = mkOption {
+            type = types.bool;
+            default = false;
+            description = "Run the image as odoo (uid/gid 1000) instead of root, with /etc/odoo and /var/lib/odoo owned by it. Opt-in through 1.x; the default becomes true in 2.0.0. A filestore volume a root image wrote is owned by root and needs a one-time chown first: see the README's Production — OCI containers section.";
+          };
+          labels = mkOption {
+            type = types.attrsOf types.str;
+            default = { };
+            example = lib.literalExpression ''
+              {
+                "org.opencontainers.image.source" = "https://github.com/acme/odoo";
+                "org.opencontainers.image.revision" = self.rev or "dirty";
+              }
+            '';
+            description = "Image labels, over the org.opencontainers.image.* ones the image gets (title, source, version, licenses, and revision when the project's flake has odoo-nix as the `odoo-nix` input). Those describe odoo-nix; set source, version and revision here to describe the project instead.";
           };
         };
       };
