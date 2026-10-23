@@ -90,23 +90,18 @@ in
     actual = map (x: x.var) cfg.declared;
   };
 
-  # flake.lib.secrets, and flake.lib.odooSecrets through 1.x (removed in 2.0.0).
+  # flake.lib.secrets alone: flake.lib.odooSecrets went in 2.0.0.
   secrets-flake-lib = {
     expected = {
-      names = [
-        "odooSecrets"
-        "secrets"
-      ];
+      names = [ "secrets" ];
       files = [
         "odoo_backup_access"
         "odoo_s3_writer"
       ];
-      alias = true;
     };
     actual = {
       names = lib.attrNames declared.lib;
       files = lib.attrNames declared.lib.secrets.files;
-      alias = declared.lib.odooSecrets == declared.lib.secrets;
     };
   };
 

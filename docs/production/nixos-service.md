@@ -56,7 +56,7 @@ services.odoo-nix.settings = {
 
 Bools render as `True`/`False`, lists comma-separated, and `null` leaves a key out. Every computed key is a `mkDefault` except `addons_path` and `db_user`, which follow `package` and `database.user` (see [settings](../reference/nixos-options.md#settings)). Keep secrets out: `settings` is written to the Nix store.
 
-1.0's flat `settings.<key> = value` still works through 1.x, as `settings.options.<key>`, with a warning that names each key to rename.
+1.0's flat `settings.<key> = value` was accepted through 1.x; since 2.0.0 it fails an assertion that names each key to rename to `settings.options.<key>`.
 
 ## Secrets
 

@@ -266,14 +266,13 @@ check "a failed uv lock is not retried" eval '[ "$(cat "$STUB_LOG/uv")" = lock ]
 check "a failed uv lock still stages the project" eval \
   'git -C acme ls-files --error-unmatch -- flake.nix > /dev/null 2>&1'
 
-# ── renamed flags ────────────────────────────────────────────────────────────
-# --series is --version's old name (python-devops-nix CONVENTIONS.md,
-# Scaffolder: version flag): it works, and warns, through 1.x.
+# ── removed flags ────────────────────────────────────────────────────────────
+# --series was --version's name before odoo-nix 2.0.0 (python-devops-nix
+# CONVENTIONS.md, Scaffolder: version flag): a usage error that names it.
 init renamed --series 19.0 acme
-expect_rc 0
-check "--series still sets the series" has '^\s*odooSeries = "19\.0";$' acme/flake.nix
-check "--series warns" hasF '--series is now --version' err
-check "the warning is in the summary" eval 'grep -A1 -F "warning(s):" out | grep -qF -- "--series is now --version"'
+expect_rc 1
+check "--series names --version" hasF '--series is --version since odoo-nix 2.0.0' err
+check "...and scaffolds nothing" eval '[ ! -e acme/flake.nix ]'
 
 # ── --init, --dry-run, --skip-lock, --commit ─────────────────────────────────
 prep init-not-empty

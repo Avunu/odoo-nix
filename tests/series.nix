@@ -17,7 +17,6 @@
   series,
   ocb,
   python,
-  odooNixAddons,
   scriptCheck,
   nixosTest,
 }:
@@ -103,13 +102,11 @@ let
     };
   odooCli = mkCli "${projectName}-cli" builtOdoo;
 
-  # addons_path for the sandboxed runs: the assembled package's roots, plus
-  # odoo-nix's own addons -- the dev shell's shape (devenv.nix, extraAddonsAbs),
-  # re-rooted on the store copy.
+  # addons_path for the sandboxed runs: the assembled package's roots, the
+  # dev shell's shape re-rooted on the store copy.
   addons = import ../lib/addons.nix {
     inherit lib workspaceRoot layout;
     coreSource = ocb;
-    extraAddonsAbs = [ odooNixAddons ];
   };
 
   # One odoo.conf per assembled tree: addons_path points into it, so a
@@ -421,24 +418,23 @@ in
       lacks "migrating" overwrite.log
       neutralized | grep -qx 0
 
-      # --force: accepted through 1.x (removed in 2.0.0), with a warning, and does nothing
-      odoo db restore "$DSTDB" --from "$SRCDB" --force 2>&1 | tee force.log
-      grep -q -- '--force is deprecated' force.log
-      grep -q "restored '$DSTDB'" force.log
-      fails both.log odoo db restore "$DSTDB" --from "$SRCDB" --force --no-force
+      # --force: a no-op through 1.x, a usage error that says so since 2.0.0
+      fails force.log odoo db restore "$DSTDB" --from "$SRCDB" --force
+      grep -q -- '--force was removed in odoo-nix 2.0.0' force.log
+      lacks "dropping existing" force.log
 
       # restore.migrate = false reaches the CLI as ODOO_NIX_RESTORE_MIGRATE=0
       ODOO_NIX_RESTORE_MIGRATE=0 odoo db restore "$DSTDB" --from "$SRCDB" 2>&1 | tee nomigrate.log
       lacks "migrating" nomigrate.log
 
-      # --files, and --attachments as its deprecated name. A directory store
-      # has nothing to mirror from, so either only reaches the storages step.
+      # --files; --attachments, its name through 1.x, is a usage error that
+      # names it. A directory store has nothing to mirror from, so --files
+      # only reaches the storages step.
       odoo db restore "$DSTDB" --from "$SRCDB" --files 2>&1 | tee files.log
       grep -q "restored '$DSTDB'" files.log
-      lacks 'deprecated' files.log
-      odoo db restore "$DSTDB" --from "$SRCDB" --attachments 2>&1 | tee attachments.log
-      grep -q -- '--attachments/--no-attachments is deprecated' attachments.log
-      grep -q "restored '$DSTDB'" attachments.log
+      fails attachments.log odoo db restore "$DSTDB" --from "$SRCDB" --attachments
+      grep -q -- '--attachments/--no-attachments is --files/--no-files since odoo-nix 2.0.0' attachments.log
+      lacks "dropping existing" attachments.log
 
       # devguard.enable = false in a dev shell (ODOO_NIX_DEVGUARD=0) refuses to
       # restore a production database, unless explicitly overridden, or

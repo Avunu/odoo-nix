@@ -54,7 +54,7 @@ What the module sets, and how a host changes it:
 
 `db_password` and `admin_passwd` are never in `settings`: `odoo-init` appends them from `database.passwordFile` and `adminPasswordFile`.
 
-The flat form of 1.0, `settings.<key> = value`, is an alias for `settings.options.<key>` through 1.x: it lands in `[options]`, wins over a computed key as it always did, and one warning names each key to rename. It is removed in 2.0.0.
+The flat form of 1.0, `settings.<key> = value`, was an alias for `settings.options.<key>` through 1.x. Since 2.0.0 it fails an assertion that names each key to rename.
 
 ## Database
 
@@ -67,7 +67,7 @@ The flat form of 1.0, `settings.<key> = value`, is an alias for `settings.option
 | `database.passwordFile` | null or path | `null` | A file with `db_password`, read through `LoadCredential`. |
 | `database.extensions` | function to list of packages | `_: [ ]` | Extensions built into the local server, e.g. `ps: [ ps.postgis ]`. |
 | `database.ensureExtensions` | list of strings | `[ ]` | Extensions created in `dbName` as the superuser. Needs `createLocally` and `dbName`. |
-| `database.slowQueryMs` | null or unsigned int | `null` | `log_min_duration_statement`. Was `logging.slowQueryMs`. Local server only. |
+| `database.slowQueryMs` | null or unsigned int | `null` | `log_min_duration_statement`. Was `logging.slowQueryMs`, which is refused since 2.0.0. Local server only. |
 
 ## Migrations and first start
 
@@ -105,6 +105,5 @@ See [Migrations on deploy](../production/operations.md#migrations-on-deploy).
 | `logging.accessLog` | bool | `true` | nginx's JSON access log in the journal. |
 | `logging.file` | null or path | `null` | `logfile`. Leave it null under systemd. |
 | `logging.rotate` | bool | `false` | Rotate `logging.file` with logrotate. Needs `logging.file`. |
-| `logging.journald` | null or bool | `null` | Deprecated and without effect. |
 
 See [Logging](../production/logging.md).

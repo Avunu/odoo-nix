@@ -908,30 +908,23 @@ def _migrate_restored(db_name: str) -> None:
 
 def _overwrite(force: bool, no_force: bool) -> bool:
     """Restore overwrites an existing database unless --no-force (python-devops-nix
-    CONVENTIONS.md, Restore: overwrite). --force was the old opt-in; it is
-    accepted, and does nothing, through 1.x (removed in 2.0.0)."""
-    if force and no_force:
-        raise click.UsageError("--force and --no-force contradict each other.")
+    CONVENTIONS.md, Restore: overwrite). --force was the old opt-in, a no-op
+    through 1.x; since 2.0.0 it is a usage error that says so."""
     if force:
-        click.echo(
-            "odoo-nix: --force is deprecated and does nothing: restore overwrites by default now. "
-            "Pass --no-force to refuse instead. It is kept through 1.x, removed in 2.0.0.",
-            err=True,
+        raise click.UsageError(
+            "--force was removed in odoo-nix 2.0.0: restore overwrites an existing "
+            "database by default, and --no-force refuses instead."
         )
     return not no_force
 
 
 def _with_files(files: bool | None, attachments: bool | None) -> bool:
-    """--files (restore.files), with the old --attachments read as it, with a
-    warning, through 1.x (removed in 2.0.0)."""
+    """--files (restore.files). The old --attachments, read as it through 1.x,
+    is a usage error that names it since 2.0.0."""
     if attachments is not None:
-        click.echo(
-            "odoo-nix: --attachments/--no-attachments is deprecated: use --files/--no-files. "
-            "It is kept through 1.x, removed in 2.0.0.",
-            err=True,
+        raise click.UsageError(
+            "--attachments/--no-attachments is --files/--no-files since odoo-nix 2.0.0."
         )
-        if files is None:
-            files = attachments
     return _env_flag("ODOO_NIX_RESTORE_FILES", False) if files is None else files
 
 
@@ -948,7 +941,7 @@ def _restore_options(func):
                 "--force",
                 is_flag=True,
                 hidden=True,
-                help="Deprecated: overwriting is the default.",
+                help="Removed in 2.0.0: overwriting is the default.",
             ),
             click.option(
                 "--migrate/--no-migrate",
@@ -964,7 +957,7 @@ def _restore_options(func):
                 "--attachments/--no-attachments",
                 default=None,
                 hidden=True,
-                help="Deprecated: --files.",
+                help="Removed in 2.0.0: --files.",
             ),
         )
     ):

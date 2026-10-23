@@ -57,7 +57,7 @@ let
         "base"
         "rpc"
         "web"
-        "dev_mailcatch"
+        "queue_job"
       ];
       log_handler = [ "werkzeug:WARNING" ];
       without_demo = true;
@@ -65,7 +65,7 @@ let
       limit_time_real = 1200;
       list_db = false;
     };
-    dev_mailcatch = {
+    queue_job = {
       enabled = true;
       host = "127.0.0.1";
       port = 2525;
@@ -152,7 +152,7 @@ in
         "True"
         "False"
         "1200"
-        "base,rpc,web,dev_mailcatch"
+        "base,rpc,web,queue_job"
         "x"
       ];
       actual = map odooIni.toIniValue [

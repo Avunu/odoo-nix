@@ -73,14 +73,6 @@ def _setup_journald() -> None:
     if odoo_journald is not None:
         odoo_journald.install()
         odoo_journald.install_root_handler()
-    if "ODOO_NIX_JOURNALD" in os.environ:
-        # Accepted, and ignored, through 1.x; removed in 2.0.0.
-        import logging
-
-        logging.getLogger("odoo_nix").warning(
-            "$ODOO_NIX_JOURNALD is no longer read: Odoo logs to the journal natively whenever "
-            "stderr is the journal stream. Remove it: it is ignored through odoo-nix 1.x."
-        )
 
 
 def _install_devguard() -> None:

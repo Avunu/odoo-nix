@@ -165,7 +165,7 @@ def test_cmd(ctx, modules, database):
             "Set ODOO_NIX_TEST_ALLOW_SKIP=1 to run anyway.",
             err=True,
         )
-        if odooenv.getenv("ODOO_NIX_TEST_ALLOW_SKIP", "ODOO_TEST_ALLOW_SKIP") != "1":
+        if os.environ.get("ODOO_NIX_TEST_ALLOW_SKIP") != "1":
             sys.exit(1)
     else:
         click.echo(f"==> tours enabled (browser: {browser})")

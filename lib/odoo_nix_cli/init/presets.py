@@ -16,7 +16,7 @@ One object per Odoo series, keyed by the name ``--version`` takes::
 ``nodejs`` and ``overrideDependencies`` are optional in the shared schema, and
 odoo-nix uses neither. ``branch`` is the git branch of OCB and of every OCA
 repository. It was ``series`` before the products shared one schema; a file
-that still says ``series`` is read the same through 1.x, until odoo-nix 2.0.0.
+that still says ``series`` is refused, naming ``branch``, since odoo-nix 2.0.0.
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ from typing import Any
 
 REQUIRED = ("label", "branch", "python", "requiresPython")
 OPTIONAL = ("nodejs", "overrideDependencies")
-#: The old name of a key → its name now.
-RENAMED = {"series": "branch"}
+#: A key's name before odoo-nix 2.0.0 → its name now, for the error.
+REMOVED = {"series": "branch"}
 
 
 class PresetError(Exception):
@@ -71,13 +71,9 @@ def parse(data: Any) -> dict[str, Preset]:
         if not isinstance(raw, dict):
             raise PresetError(f"{where}: expected an object, got {type(raw).__name__}")
         entry = dict(raw)
-        for old, new in RENAMED.items():
+        for old, new in REMOVED.items():
             if old in entry:
-                if new in entry:
-                    raise PresetError(
-                        f"{where}: both {old} and {new}; {old} is {new}'s old name"
-                    )
-                entry[new] = entry.pop(old)
+                raise PresetError(f"{where}.{old} is {new} since odoo-nix 2.0.0")
         unknown = sorted(set(entry) - set(REQUIRED) - set(OPTIONAL))
         missing = [k for k in REQUIRED if k not in entry]
         if unknown:

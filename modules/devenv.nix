@@ -14,64 +14,11 @@ let
   # Series -> interpreter, the same file odoo-init scaffolds from.
   presets = builtins.fromJSON (builtins.readFile ../lib/odoo-presets.json);
 
-  # Renamed options (python-devops-nix CONVENTIONS.md): mailcatch.* became
-  # devguard.mail.*, devguard.crons.* became devguard.jobs.* (Job denylist),
-  # projectName became name (Identity options) and odooConf.* became
-  # settings.* (Framework config blocks).
-  # Not lib.mkRenamedOptionModule: it reports through a `warnings` option,
-  # which perSystem has none of, so the rename went unannounced. doRename does
-  # the aliasing (priorities kept); the warning goes on `deprecations`, which
-  # the config below emits with lib.warn. Kept through 1.x, removed in 2.0.0.
-  renamed =
-    from: to:
-    { options, ... }:
-    let
-      fromOpt = lib.getAttrFromPath from options;
-    in
-    {
-      imports = [
-        (lib.doRename {
-          inherit from to;
-          visible = false;
-          warn = false;
-          use = lib.id;
-        })
-      ];
-      config.odoo-nix.deprecations = lib.optional fromOpt.isDefined "The option `${lib.showOption from}' defined in ${lib.showFiles fromOpt.files} has been renamed to `${lib.showOption to}' (the old name is kept through 1.x, removed in 2.0.0).";
-    };
-  renamedMailcatch =
-    name:
-    renamed
-      [
-        "odoo-nix"
-        "mailcatch"
-        name
-      ]
-      [
-        "odoo-nix"
-        "devguard"
-        "mail"
-        name
-      ];
-  renamedCrons =
-    name:
-    renamed
-      [
-        "odoo-nix"
-        "devguard"
-        "crons"
-        name
-      ]
-      [
-        "odoo-nix"
-        "devguard"
-        "jobs"
-        name
-      ];
-
   # A removed option (mkRemovedOptionModule reports through `assertions`,
   # which perSystem has none of): defining it fails the shell's evaluation
-  # with the message, through `removals`, below.
+  # with the message, through `removals`, below. The names 1.x renamed and
+  # kept as aliases went in 2.0.0; each is refused naming its replacement
+  # (docs/development/upgrading.md, "1.x to 2.0").
   removed =
     path: instead:
     { options, ... }:
@@ -116,50 +63,36 @@ in
     { pkgs, config, ... }:
     {
       imports = [
-        (renamedMailcatch "enable")
-        # dev.autoReload became watch.python (The development shell option
-        # tree); the `dev` tree is gone.
-        (renamed [ "odoo-nix" "dev" "autoReload" ] [ "odoo-nix" "watch" "python" ])
-      ]
-      # The catcher is a service, not a guard: its settings left devguard.mail
-      # for the mailpit tree (and mailcatch.*, before that, goes straight there).
-      ++
-        lib.concatMap
-          (name: [
-            (renamed [ "odoo-nix" "mailcatch" name ] [ "odoo-nix" "mailpit" name ])
-            (renamed [ "odoo-nix" "devguard" "mail" name ] [ "odoo-nix" "mailpit" name ])
-          ])
-          [
-            "host"
-            "port"
-            "httpPort"
-          ]
-      ++ map renamedCrons [
-        "enable"
-        "extraBlocked"
-      ]
-      # python-devops-nix CONVENTIONS.md, Identity options.
-      ++ [
-        (renamed [ "odoo-nix" "projectName" ] [ "odoo-nix" "name" ])
-      ]
-      # The 1.x `odooConf` block, whose options became the camelCase
-      # `settings` tree, which is odoo.conf by section now (see
-      # removedSettings).
-      ++ [
+        (removed [ "odoo-nix" "mailcatch" ]
+          "The mail guard is devguard.mail.enable, and the catcher's host and ports are mailpit.{host,port,httpPort}."
+        )
+        (removed [ "odoo-nix" "devguard" "crons" ]
+          "The job denylist is devguard.jobs.{enable,extraBlocked} (python-devops-nix CONVENTIONS.md, Job denylist)."
+        )
+        (removed [ "odoo-nix" "dev" ] "dev.autoReload is watch.python.")
+        (removed [ "odoo-nix" "projectName" ] "The project's identity is `name`.")
+        (removed [
+          "odoo-nix"
+          "restore"
+          "attachments"
+        ] "It is restore.files: \"mirror\" is true, \"none\" false.")
+        # The 1.x `odooConf` block, whose options became the camelCase
+        # `settings` tree, which is odoo.conf by section now (see
+        # removedSettings).
         (removed [ "odoo-nix" "odooConf" ]
           "Set odoo.conf's keys in settings.options.<key>, as Odoo spells them, the database in dbName and the ports in ports.*."
         )
+      ]
+      # The catcher is a service, not a guard: its settings left devguard.mail
+      # for the mailpit tree.
+      ++ map (name: removed [ "odoo-nix" "devguard" "mail" name ] "It is mailpit.${name}.") [
+        "host"
+        "port"
+        "httpPort"
       ];
 
       options.odoo-nix = {
         enable = mkEnableOption "Odoo + OCA devenv shell";
-
-        deprecations = mkOption {
-          type = types.listOf types.str;
-          default = [ ];
-          internal = true;
-          description = "Deprecated options in use, each warned about (lib.warn) when the shell's config is evaluated.";
-        };
 
         removals = mkOption {
           type = types.listOf types.str;
@@ -731,33 +664,9 @@ in
             '';
           };
 
-          # restore.attachments ("none" | "mirror") became restore.files, the
-          # name both products use (python-devops-nix CONVENTIONS.md, Restore:
-          # files). Not lib.mkChangedOptionModule: the type changed, and its
-          # warning needs a `warnings` option, which perSystem has none of.
-          # Kept through 1.x, removed in 2.0.0.
-          attachments = mkOption {
-            type = types.nullOr (
-              types.enum [
-                "none"
-                "mirror"
-              ]
-            );
-            default = null;
-            visible = false;
-            description = "Deprecated: `restore.files` (`\"mirror\"` is `true`).";
-          };
-
           files = mkOption {
             type = types.bool;
-            default =
-              if config.odoo-nix.restore.attachments == null then
-                false
-              else
-                lib.warn
-                  "odoo-nix.restore.attachments is deprecated: use odoo-nix.restore.files (\"mirror\" is true; the old name is kept through 1.x, removed in 2.0.0)."
-                  (config.odoo-nix.restore.attachments == "mirror");
-            defaultText = lib.literalExpression "false";
+            default = false;
             description = ''
               Also download the attachments held in an object store
               (`fs_attachment`) when restoring from the remote store
@@ -858,16 +767,15 @@ in
         ...
       }:
       let
-        # Every read of cfg goes through the removed options' error and the
-        # deprecation warnings first (perSystem has no `assertions` or
-        # `warnings` option to collect them).
+        # Every read of cfg goes through the removed options' error first
+        # (perSystem has no `assertions` option to collect them).
         cfg =
           if config.odoo-nix.removals != [ ] then
             throw ''
               odoo-nix: ${lib.concatStringsSep "\n" config.odoo-nix.removals}
               See odoo-nix's docs/development/upgrading.md, "1.x to 2.0".''
           else
-            lib.foldr lib.warn config.odoo-nix config.odoo-nix.deprecations;
+            config.odoo-nix;
 
         # The 1.x camelCase tree's keys in a `settings` definition
         # (removedSettings), with where they are written.
@@ -944,19 +852,6 @@ in
           extraOverrides = cfg.pythonOverrides;
         };
 
-        # odoo-nix's own addons, served straight from the store — never copied
-        # or symlinked into the consumer's workspace. The addons_path entry is
-        # the parent directory, so future odoo-nix addons come along for free.
-        #
-        # builtins.path (rather than a bare `../addons`) gives this its own
-        # store path, hashed over the addons alone. A bare path would be a
-        # subpath of the whole flake source, so every unrelated odoo-nix edit
-        # would change addons_path, rewrite odoo.conf and force a restart.
-        odooNixAddons = builtins.path {
-          path = ../addons;
-          name = "odoo-nix-addons";
-        };
-
         # Pure-Python, no propagated dependencies -- safe to drop on PYTHONPATH
         # of the uv2nix-built venv without dragging in a conflicting transitive.
         watchdogFallback = "${cfg.python.pkgs.watchdog}/${cfg.python.sitePackages}";
@@ -964,7 +859,6 @@ in
         addons = import ../lib/addons.nix {
           inherit lib;
           inherit (cfg) workspaceRoot layout coreSource;
-          extraAddonsAbs = lib.optional cfg.devguard.enable odooNixAddons;
         };
 
         # The dev odoo.conf: `settings` as the config below fills it in. The
@@ -1473,10 +1367,6 @@ in
 
                 ODOO_NIX_HTTP_PORT = toString cfg.ports.http;
                 ODOO_NIX_GEVENT_PORT = toString cfg.ports.gevent;
-                # The old names (Tool-owned variables), exported through 1.x,
-                # removed in 2.0.0.
-                ODOO_HTTP_PORT = toString cfg.ports.http;
-                ODOO_GEVENT_PORT = toString cfg.ports.gevent;
                 # Single source of truth: the same values are baked into the
                 # devguard's settings (lib/devguard.nix), so Odoo and Mailpit can
                 # never drift apart.

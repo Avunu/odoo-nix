@@ -211,15 +211,11 @@ class EndToEnd(unittest.TestCase):
             lines[1], r"^\d{4}-\d\d-\d\d .* \d+ INFO acme odoo\.fake: hello $"
         )
 
-    def test_old_switch_warns_and_changes_nothing(self):
-        # $ODOO_NIX_JOURNALD is accepted, and ignored with a warning, through
-        # 1.x: "0" no longer turns the journal format off.
+    def test_old_switch_is_not_read(self):
+        # $ODOO_NIX_JOURNALD is not read, and since 2.0.0 not warned about:
+        # "0" does not turn the journal format off.
         lines = self.run_odoo(extra_env={"ODOO_NIX_JOURNALD": "0"})
-        self.assertRegex(
-            lines[0], r"^<4>odoo_nix \$ODOO_NIX_JOURNALD is no longer read"
-        )
-        self.assertEqual(lines[2], "<6>odoo.fake [acme] hello")
-        self.assertFalse(any("no longer read" in line for line in self.run_odoo()))
+        self.assertEqual(lines, self.run_odoo())
 
     def test_cli_root_handler(self):
         # The CLI's own commands, where init_logger never runs: WARNING and up

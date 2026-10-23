@@ -148,14 +148,11 @@ let
   # what the module computes is set into it (config, below), so reading
   # config.services.odoo-nix.settings shows the effective file.
   #
-  # Through 1.x, `settings` also takes 1.0's flat form, `settings.<key> =
-  # value`: the key belongs in [options]. A section's value is an attrset
-  # and a flat key's a scalar or list, so the two cannot be confused. Each
-  # flat key is moved into `options` one priority notch stronger than it was
-  # written (mkDefault's 1000 becomes 999, a plain 100 becomes 99): in 1.0 a
-  # flat key replaced the computed one outright (`//`), and that stays true
-  # even against a key the module owns. config.warnings names each one.
-  # Removed in 2.0.0.
+  # 1.0's flat form, `settings.<key> = value`, was an alias for
+  # settings.options.<key> through 1.x. Since 2.0.0 it is refused, by an
+  # assertion that names each key (the type alone would say only that a
+  # scalar is not a section). A section's value is an attrset and a flat
+  # key's a scalar or list, so the two cannot be confused.
   isSection =
     v:
     if builtins.isAttrs v && v ? _type then
@@ -173,65 +170,25 @@ let
       lib.filter (n: !isSection def.${n}) (lib.attrNames def)
     else
       [ ];
-  # mkIf/mkMerge stay outside the new mkOverride, where the module system
-  # discharges them.
-  notch =
-    prio: v:
-    let
-      t = if builtins.isAttrs v then v._type or null else null;
-    in
-    if t == "if" then
-      lib.mkIf v.condition (notch prio v.content)
-    else if t == "merge" then
-      lib.mkMerge (map (notch prio) v.contents)
-    else if t == "override" then
-      notch (v.priority - 1) v.content
-    else
-      lib.mkOverride prio v;
-  notchStronger = notch (lib.modules.defaultOverridePriority - 1);
-  liftFlat =
-    def:
-    let
-      flat = flatKeys def;
-      lifted = lib.mapAttrs (_: notchStronger) (lib.getAttrs flat def);
-    in
-    removeAttrs def flat
-    // {
-      options =
-        if def ? options then
-          lib.mkMerge [
-            def.options
-            lifted
-          ]
-        else
-          lifted;
-    };
-  flatSettings = lib.mkOptionType {
-    name = "odoo-nix-flat-settings";
-    description = "1.0's flat [options] keys";
-    check = def: flatKeys def != [ ];
-  };
 
   settingsType =
-    types.coercedTo flatSettings liftFlat (
-      types.submodule {
-        freeformType = odooIni.type;
-        options.options = mkOption {
-          type = types.attrsOf odooIni.atomType;
-          default = { };
-          description = ''
-            odoo.conf's `[options]` section, in Odoo's own key spelling. Holds
-            every key the module computes from its other options (most at
-            `mkDefault`, so a value here wins); set any other key here too.
-          '';
-        };
-      }
-    )
+    types.submodule {
+      freeformType = odooIni.type;
+      options.options = mkOption {
+        type = types.attrsOf odooIni.atomType;
+        default = { };
+        description = ''
+          odoo.conf's `[options]` section, in Odoo's own key spelling. Holds
+          every key the module computes from its other options (most at
+          `mkDefault`, so a value here wins); set any other key here too.
+        '';
+      };
+    }
     // {
       description = "attribute set of odoo.conf sections (INI)";
     };
 
-  # The flat keys, with where they are written, for the warning.
+  # The flat keys, with where they are written, for the assertion.
   flatDefs = lib.concatMap (
     d:
     map (k: {
@@ -377,13 +334,19 @@ let
   );
 in
 {
-  # logging.slowQueryMs -> database.slowQueryMs (python-devops-nix
-  # CONVENTIONS.md, Database logging; frappe-nix's name). The old path warns,
-  # through 1.x; removed in 2.0.0.
+  # Names removed in 2.0.0, each with what replaced it
+  # (docs/development/upgrading.md, "1.x to 2.0").
   imports = [
-    (lib.mkRenamedOptionModule
-      [ "services" "odoo-nix" "logging" "slowQueryMs" ]
-      [ "services" "odoo-nix" "database" "slowQueryMs" ]
+    # python-devops-nix CONVENTIONS.md, Database logging; frappe-nix's name.
+    (lib.mkRemovedOptionModule [
+      "services"
+      "odoo-nix"
+      "logging"
+      "slowQueryMs"
+    ] "Use services.odoo-nix.database.slowQueryMs (odoo-nix 2.0.0).")
+    # python-devops-nix CONVENTIONS.md, Journald enablement.
+    (lib.mkRemovedOptionModule [ "services" "odoo-nix" "logging" "journald" ]
+      "Odoo logs to the journal natively whenever stderr is the journal stream; remove the option (odoo-nix 2.0.0)."
     )
   ];
 
@@ -522,18 +485,6 @@ in
         ];
         default = "warning";
         description = "Minimum level mirrored to the database (log_db_level).";
-      };
-      journald = mkOption {
-        type = types.nullOr types.bool;
-        default = null;
-        description = ''
-          Deprecated, and without effect: Odoo logs to the journal natively
-          whenever stderr is the journal stream, as `<N>logger [db] message`
-          (the odoo_journald graft in the project's Python environment;
-          python-devops-nix CONVENTIONS.md, Journald enablement). Accepted,
-          with a warning, through 1.x. `false` still silences the warning
-          about `logging.file`.
-        '';
       };
       file = mkOption {
         type = types.nullOr types.path;
@@ -679,8 +630,8 @@ in
         `True`/`False`, a list as one comma-separated value, `null` as no
         key at all.
 
-        1.0's flat form, `settings.<key> = value`, is still accepted through
-        1.x as `settings.options.<key>`, with a warning.
+        1.0's flat form, `settings.<key> = value`, is refused since 2.0.0:
+        write `settings.options.<key>`.
       '';
       example = lib.literalExpression ''
         {
@@ -899,40 +850,20 @@ in
       ))
     ];
 
-    # Warnings, not assertions: a configuration that sets these must keep
-    # evaluating.
-    warnings =
-      # 1.0's flat settings (see settingsType): one warning for all of them.
-      lib.optional (flatDefs != [ ]) ''
-        services.odoo-nix.settings is now odoo.conf by section (NixOS RFC 42): an
-        [options] key is settings.options.<key>. Rename
-        ${
-          lib.concatStrings (
+    assertions = [
+      {
+        # 1.0's flat settings (see flatKeys): one message for all of them.
+        assertion = flatDefs == [ ];
+        message = ''
+          services.odoo-nix.settings is odoo.conf by section (NixOS RFC 42): an
+          [options] key is settings.options.<key>, and 1.0's flat form was removed
+          in odoo-nix 2.0.0. Rename
+          ${lib.concatStrings (
             lib.unique (
               map (d: "  settings.${d.k} -> settings.options.${d.k}  (${toString d.file})\n") flatDefs
             )
-          )
-        }The flat form is accepted through odoo-nix 1.x and removed in 2.0.0.
-      ''
-      ++ lib.optional (cfg.logging.journald != false && cfg.logging.file != null) ''
-        services.odoo-nix.logging.file is set, so Odoo logs to ${cfg.logging.file}:
-        `journalctl -u odoo` sees only output from before Odoo's logging starts,
-        and without per-record priorities. Leave logging.file null to log to the
-        journal, or set logging.journald = false to keep the file and silence
-        this warning.
-      ''
-      ++
-        lib.optional
-          (cfg.logging.journald == true || (cfg.logging.journald == false && cfg.logging.file == null))
-          ''
-            services.odoo-nix.logging.journald has no effect: Odoo logs to the journal
-            natively whenever stderr is the journal stream (python-devops-nix
-            CONVENTIONS.md, Journald enablement)${
-              lib.optionalString (cfg.logging.journald == false) ", and `false` no longer turns that off"
-            }. Remove it; it is accepted through odoo-nix 1.x.
-          '';
-
-    assertions = [
+          )}'';
+      }
       {
         assertion = cfg.update == [ ] || cfg.dbName != null;
         message = "services.odoo-nix.update requires a pinned dbName.";

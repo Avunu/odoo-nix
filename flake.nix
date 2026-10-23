@@ -122,13 +122,6 @@
       };
       presets = builtins.fromJSON (builtins.readFile ./lib/odoo-presets.json);
 
-      # odoo-nix's own addons (dev_mailcatch), as their own store path -- the
-      # same expression modules/devenv.nix uses, for the same reason.
-      odooNixAddons = builtins.path {
-        path = ./addons;
-        name = "odoo-nix-addons";
-      };
-
       base = inputs.python-devops-nix.lib;
 
       # The repo's own Nix files, for `nix fmt` and checks.nix-lint alike:
@@ -254,7 +247,7 @@
       #   container-*                                         the OCI image's name, user, labels, healthcheck (Linux only)
       #   python-default-*                                    the series' default interpreter (Linux only)
       #   settings-*                                          the dev shell's odoo.conf, by section (Linux only)
-      #   rename-*, identity-*                                renamed dev-shell options (Linux only)
+      #   removed-*, identity-*                               removed dev-shell options; the identity (Linux only)
       #   {ports,mailpit,watch}-*, ci-mode, tree              the dev shell's option tree and its ports (Linux only)
       #   fixture-requires-python-<major>, built-odoo-{addons-path,version}-<major>,
       #   lock-audit-<major>, lock-fresh-<major>, build-deps-<major>
@@ -282,7 +275,6 @@
                   inputs
                   series
                   ocb
-                  odooNixAddons
                   ;
                 python = pkgs.${presets.${series}.python};
                 scriptCheck = scriptCheck pkgs;
@@ -299,12 +291,12 @@
           # the contract (True/False literals, extra sections verbatim).
           odoo-ini-render = scriptCheck pkgs "odoo-ini-render" { } ''
             f=${evalTests.rendered}
-            grep -qE '^\[dev_mailcatch\]$' "$f"
+            grep -qE '^\[queue_job\]$' "$f"
             grep -qE '^enabled=True$' "$f"
             grep -qE '^port=2525$' "$f"
             grep -qE '^without_demo=True$' "$f"
             grep -qE '^list_db=False$' "$f"
-            grep -qE '^server_wide_modules=base,rpc,web,dev_mailcatch$' "$f"
+            grep -qE '^server_wide_modules=base,rpc,web,queue_job$' "$f"
             grep -qE '^log_handler=werkzeug:WARNING$' "$f"
             grep -qE '^proxy_mode=True$' "$f"
             refute grep -qE '^log_db=' "$f"
@@ -729,7 +721,7 @@
         )
         // lib.optionalAttrs isLinux (
           evalChecks "" (
-            import ./tests/renames-eval.nix {
+            import ./tests/removed-eval.nix {
               inherit pkgs lib inputs;
               inherit (self.lib) mkFlake;
             }

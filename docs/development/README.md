@@ -74,7 +74,7 @@ A project scaffolded before the bootstrap existed has a one-line `.envrc`. See [
 
 `odoo.conf` is a read-only file in the Nix store, rendered from `settings` (`lib/odoo-ini.nix`, shared with the NixOS module), and symlinked to `./odoo.conf`. `settings` is the file by section, in Odoo's spelling, and holds what the shell computes too, the derived `addons_path` and the ports among them. `--dev` stays a command-line flag (`devMode`), so the same file would work in production. Edit `settings.options.<key>`, not the file. See [odoo.conf: `settings`](../reference/dev-shell-options.md#odooconf-settings).
 
-`addons_path` is derived on every evaluation (`lib/addons.nix`): the two OCB roots (`odoo/odoo/addons` and `odoo/addons`), then each directory under `modules/` that holds at least one module (a child with a `__manifest__.py`), sorted, then `custom/`, then `layout.extraAddons`. With the guard rails on, odoo-nix's own addons directory in the Nix store comes last; it holds only the deprecated `dev_mailcatch` stub. The workspace's entries are relative to it, so the file is the same on every machine. Adding or removing a submodule changes the path by itself, after a `direnv reload`.
+`addons_path` is derived on every evaluation (`lib/addons.nix`): the two OCB roots (`odoo/odoo/addons` and `odoo/addons`), then each directory under `modules/` that holds at least one module (a child with a `__manifest__.py`), sorted, then `custom/`, then `layout.extraAddons`. The workspace's entries are relative to it, so the file is the same on every machine. Adding or removing a submodule changes the path by itself, after a `direnv reload`.
 
 ## CI mode
 
