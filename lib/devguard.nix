@@ -1,7 +1,7 @@
 # The odoo_devguard package: python-devops-nix's devguard core merged with
 # odoo-nix's own tree (lib/devguard/odoo_devguard: _product.py and the guards
 # that patch Odoo), with a project's settings baked in as
-# odoo_devguard/_baked.json. python-devops-nix CONVENTIONS.md, "The core and
+# odoo_devguard/_baked.json. python-devops-nix docs/conventions.md, "The core and
 # the product's package", has the contract.
 #
 # DEVELOPMENT ONLY. lib/python.nix grafts the result into the dev and test

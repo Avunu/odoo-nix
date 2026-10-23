@@ -372,7 +372,7 @@ in
     # the remote store -- here a directory laid out like the bucket
     # (<root>/<db>/<ts>.dump), the same code path the S3 store takes after
     # listing. The restore conventions shared with frappe-nix
-    # (python-devops-nix CONVENTIONS.md, Restore): neutralized and migrated by
+    # (python-devops-nix docs/conventions.md, Restore): neutralized and migrated by
     # default, overwriting unless --no-force, --force a warned no-op,
     # --files/--attachments, refused without the devguard unless
     # restore.requireDevguard is off, and --at in ISO 8601 or odoo-nix's

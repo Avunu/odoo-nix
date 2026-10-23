@@ -3,7 +3,7 @@ title: Create a new project
 description: Scaffold a fresh Odoo project with odoo-nix, choosing a series and, if you want them, OCA bundles and modules with the repositories they depend on.
 order: 1
 tags: [scaffolding, odoo-init, oca]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 ```bash
@@ -36,7 +36,7 @@ The presets are in `lib/odoo-presets.json`:
 | 19.0   | python312 | 19.0               |
 | 20.0   | python312 | 20.0               |
 
-18.0 is the default of `odoo-nix.odooSeries`, and the bundled OCA catalog is richest for it. 19.0 is supported and catalogued, but OCA's port to it is still in progress, so fewer modules exist there. 20.0 is supported the same way (the Python, CLI and NixOS paths are tested against OCB 20.0), but the bundled OCA catalog has no 20.0 modules yet, so the picker offers none for it: a 20.0 project starts as plain Odoo, and you add modules by hand or with `odoo module add` once OCA's 20.0 branches exist.
+18.0 is the default of `odoo-nix.odooSeries`, and the bundled OCA catalog is richest for it. 19.0 is supported and catalogued, but OCA's port to it is still in progress, so fewer modules exist there. 20.0 is supported the same way (the Python, CLI and NixOS paths are tested against OCB 20.0), but the bundled OCA catalog has no 20.0 modules yet, so the picker offers none for it ([odoo-nix#93](https://github.com/Avunu/odoo-nix/issues/93)): a 20.0 project starts as plain Odoo, and you add modules by hand or with `odoo module add` once OCA's 20.0 branches exist.
 
 ## OCA software is opt-in
 

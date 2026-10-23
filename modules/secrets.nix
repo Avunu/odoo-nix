@@ -1,8 +1,8 @@
 # Secrets for an odoo-nix project: agenix for the ciphertext, agenix-shell for
 # the dev shell, one declaration serving both, and the deployment host too.
 #
-# The module is python-devops-nix's `lib.secrets.mkModule` (PLAN.md, Phase 2),
-# shared with frappe-nix: the option tree at `odoo-nix.secrets`, agenix-shell
+# The module is python-devops-nix's `lib.secrets.mkModule` (docs/library.md,
+# Secrets and backups), shared with frappe-nix: the option tree at `odoo-nix.secrets`, agenix-shell
 # wired to it, and the secret set as `flake.lib.secrets`. modules/devenv.nix
 # builds the dev-shell side from it (`lib.secrets.tools`).
 #

@@ -7,7 +7,7 @@ so ``--commit <dir>`` is the flag and a target; ``--version`` takes a value; a
 usage error is exit 1.
 
 ``--series``, the name ``--version`` had before python-devops-nix's
-CONVENTIONS.md (Scaffolder: version flag), is refused since odoo-nix 2.0.0
+docs/conventions.md (Scaffolder: version flag), is refused since odoo-nix 2.0.0
 with a usage error naming ``--version``. ``--apps`` is ``--modules``, as it
 always was.
 """
@@ -47,7 +47,7 @@ modules are both optional and independent: skip both for a plain Odoo core
 project, or combine them -- the two selections are unioned.
 """
 
-#: A flag's name before odoo-nix 2.0.0 → its name now (CONVENTIONS.md,
+#: A flag's name before odoo-nix 2.0.0 → its name now (python-devops-nix docs/conventions.md,
 #: Scaffolder), for the usage error.
 REMOVED = {"--series": "--version"}
 

@@ -1,6 +1,6 @@
 # The odoo_nix_cli package as the `odoo` CLI ships it, $out/odoo_nix_cli/:
-# lib/odoo_nix_cli with python-devops-nix's modules put beside it (PLAN.md,
-# design rule 6):
+# lib/odoo_nix_cli with python-devops-nix's modules put beside it
+# (python-devops-nix docs/library.md, design rule 6):
 #
 #   _backups.py   the backup fetch layer (lib.backups.module), which
 #                 backups.py lists and downloads remote backups with

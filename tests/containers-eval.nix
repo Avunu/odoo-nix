@@ -1,7 +1,7 @@
 # Evaluation-level assertions over the flake-parts module's container image
 # (modules/containers.nix): the name the image is built under, with and
 # without containers.registry, and the parts of its config python-devops-nix's
-# CONVENTIONS.md (Containers) asks for: the OCI labels, a healthcheck, and the
+# docs/conventions.md (Containers) asks for: the OCI labels, a healthcheck, and the
 # User with and without containers.nonRoot. A consumer's flake is evaluated
 # through lib.mkFlake and only the image's imageName and passthru.imageConfig
 # are read, so nothing is built.

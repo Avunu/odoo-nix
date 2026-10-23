@@ -1,5 +1,5 @@
 """`odoo module add` / `add-bundle` / `remove`: the workspace's OCA modules
-and third-party git repositories (python-devops-nix CONVENTIONS.md, Source
+and third-party git repositories (python-devops-nix docs/conventions.md, Source
 management). The logic is odoo_nix_cli.workspace; lib/cli-scripts.nix bakes
 its configuration (ODOO_NIX_WORKSPACE_CONFIG) and the re-lock script.
 """

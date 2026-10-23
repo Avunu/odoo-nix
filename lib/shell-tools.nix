@@ -1,5 +1,5 @@
-# The dev shell's commands that come from python-devops-nix (PLAN.md, Phase
-# 5), configured for odoo-nix in one place: modules/devenv.nix, the scaffolder
+# The dev shell's commands that come from python-devops-nix (docs/library.md,
+# Development shell), configured for odoo-nix in one place: modules/devenv.nix, the scaffolder
 # (lib/init.nix) and the flake's checks all take them from here.
 #
 #   odoo-nix-sources    lib.sources.command: shell entry's submodule checkout
@@ -26,7 +26,8 @@
 {
   pkgs,
   base,
-  # The tools' interpreter (PLAN.md, Python versions: out-of-process tools).
+  # The tools' interpreter (python-devops-nix docs/library.md, Python
+  # versions: out-of-process tools).
   # The dev shell passes the project's, so the shell carries no second one.
   python ? pkgs.python3,
 }:

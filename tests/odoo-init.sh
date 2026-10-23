@@ -268,7 +268,7 @@ check "a failed uv lock still stages the project" eval \
 
 # ── removed flags ────────────────────────────────────────────────────────────
 # --series was --version's name before odoo-nix 2.0.0 (python-devops-nix
-# CONVENTIONS.md, Scaffolder: version flag): a usage error that names it.
+# docs/conventions.md, Scaffolder: version flag): a usage error that names it.
 init renamed --series 19.0 acme
 expect_rc 1
 check "--series names --version" hasF '--series is --version since odoo-nix 2.0.0' err

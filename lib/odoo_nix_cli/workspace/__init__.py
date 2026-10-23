@@ -1,5 +1,5 @@
 """The workspace's source repositories: `odoo module add`, `odoo module
-add-bundle` and `odoo module remove` (python-devops-nix CONVENTIONS.md,
+add-bundle` and `odoo module remove` (python-devops-nix docs/conventions.md,
 Source management). Was the bash in lib/cli-scripts.nix and lib/oca-lib.sh.
 
 config (what lib/cli-scripts.nix bakes), common (modules.txt, submodules and

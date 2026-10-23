@@ -1,7 +1,7 @@
 """`odoo project update` -- pull submodules + relock, then (by default) run
 the same migrate engine `odoo db migrate --all` uses; `odoo project relock`
 -- the relock alone, odoo-nix's one consumer-facing relock (python-devops-nix
-CONVENTIONS.md, Relock). Their workspace half is odoo_nix_cli.workspace.update.
+docs/conventions.md, Relock). Their workspace half is odoo_nix_cli.workspace.update.
 
 This is the "hook a migrate step into the update flow" the CLI exists to add:
 the old odoo-update script only ever touched code, leaving every database to

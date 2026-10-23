@@ -36,7 +36,7 @@ let
 
   # The dev shell's `settings` before 2.0.0 was a typed camelCase tree
   # (settings.dbName, settings.logging.level, ...); it is odoo.conf by section
-  # now (NixOS RFC 42, python-devops-nix CONVENTIONS.md, Framework config
+  # now (NixOS RFC 42, python-devops-nix docs/conventions.md, Framework config
   # blocks). A top-level key of the old tree is refused with where it went:
   # left alone, `settings.logging = { ... }` would quietly become a
   # [logging] section Odoo never reads.
@@ -67,7 +67,7 @@ in
           "The mail guard is devguard.mail.enable, and the catcher's host and ports are mailpit.{host,port,httpPort}."
         )
         (removed [ "odoo-nix" "devguard" "crons" ]
-          "The job denylist is devguard.jobs.{enable,extraBlocked} (python-devops-nix CONVENTIONS.md, Job denylist)."
+          "The job denylist is devguard.jobs.{enable,extraBlocked} (python-devops-nix docs/conventions.md, Job denylist)."
         )
         (removed [ "odoo-nix" "dev" ] "dev.autoReload is watch.python.")
         (removed [ "odoo-nix" "projectName" ] "The project's identity is `name`.")
@@ -364,7 +364,7 @@ in
 
         # One offset for every TCP port the shell binds, so several projects
         # (and linked worktrees of one, with worktreeSalt) run at once:
-        # python-devops-nix's lib.ports (CONVENTIONS.md, Ports). The offset is
+        # python-devops-nix's lib.ports (docs/conventions.md, Ports). The offset is
         # a hash of the project's name; ODOO_NIX_PORT_OFFSET picks one by hand
         # for a shell, over `ports.offset`. The bases are clear of
         # frappe-nix's (8000, 3306, 9000, 19000-21000 + offset), so a bench and
@@ -458,7 +458,7 @@ in
             };
           };
 
-          # The job denylist (python-devops-nix CONVENTIONS.md, Job denylist):
+          # The job denylist (python-devops-nix docs/conventions.md, Job denylist):
           # Odoo's crons. Formerly devguard.crons.*.
           jobs = {
             enable = mkOption {
@@ -840,7 +840,7 @@ in
           projectName = cfg.name;
           devguard = if dg.enable then devguardPkg else null;
           # In every environment, the production one included: inert unless
-          # stderr is the journal (python-devops-nix CONVENTIONS.md, Journald
+          # stderr is the journal (python-devops-nix docs/conventions.md, Journald
           # enablement).
           journald = import ../lib/journald.nix {
             inherit pkgs;
@@ -866,7 +866,8 @@ in
         odooConfFile = odooIni.generate "odoo.conf" (removeAttrs cfg.settings [ "_module" ]);
 
         # Secrets + remote restore (see modules/secrets.nix): the
-        # python-devops-nix toolkit (PLAN.md, Phase 2), with odoo-nix's names.
+        # python-devops-nix toolkit (docs/library.md, Secrets and backups),
+        # with odoo-nix's names.
         secretsCfg = topLevel.config.odoo-nix.secrets;
         secretsTools = inputs.python-devops-nix.lib.secrets.tools {
           inherit pkgs;
@@ -973,7 +974,8 @@ in
           base = inputs.python-devops-nix.lib;
         };
 
-        # python-devops-nix's shell pieces (PLAN.md, Phase 5), configured in
+        # python-devops-nix's shell pieces (docs/library.md, Development
+        # shell), configured in
         # lib/shell-tools.nix: odoo-nix-sources (submodule checkout on entry),
         # odoo-nix-db-nocow (the postgres.noCow option) and odoo-nix-banner,
         # on the project's interpreter so the shell carries no second one.
@@ -984,7 +986,7 @@ in
         };
         inherit (shellTools) sources dbNocow;
 
-        # CI mode (CONVENTIONS.md, CI mode): ODOO_NIX_CI set to anything but
+        # CI mode (python-devops-nix docs/conventions.md, CI mode): ODOO_NIX_CI set to anything but
         # "", 0 or false skips the interactive steps, turns process-compose's
         # TUI off and prints a one-line banner.
         ciMode = inputs.python-devops-nix.lib.ciMode {
@@ -1308,7 +1310,7 @@ in
               dotenv.enable = lib.mkDefault (!config.devenv.flakesIntegration);
 
               # devenv's "Name of the project": the shell and the product agree
-              # (python-devops-nix CONVENTIONS.md, Identity options).
+              # (python-devops-nix docs/conventions.md, Identity options).
               name = lib.mkDefault cfg.name;
 
               packages =

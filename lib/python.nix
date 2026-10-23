@@ -191,7 +191,7 @@ let
           # The package fixes both products share (psycopg2, python-ldap,
           # lxml, pycups, python-magic, pyvips, cairocffi), right after
           # uv2nix's overlay; odoo-nix's own go on top (python-devops-nix
-          # CONVENTIONS.md, Package fixes).
+          # docs/conventions.md, Package fixes).
           (pythonLib.overrides { inherit pkgs; })
           odooBackendOverlay
           pythonLibsOverlay

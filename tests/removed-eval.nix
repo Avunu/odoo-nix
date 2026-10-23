@@ -59,7 +59,7 @@ let
   };
 in
 {
-  # projectName -> name (python-devops-nix CONVENTIONS.md, Identity options).
+  # projectName -> name (python-devops-nix docs/conventions.md, Identity options).
   removed-project-name = {
     expected = isRefused 1;
     actual = refused { projectName = "legacy"; } "projectName'" "`name`";

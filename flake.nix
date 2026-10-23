@@ -139,7 +139,7 @@
 
       # One small derivation per assertion: `nix flake check` names what
       # broke, and a slow Odoo run cannot mask a fast check. Every check is
-      # registered through python-devops-nix's lib.checks.mk (CONVENTIONS.md,
+      # registered through python-devops-nix's lib.checks.mk (docs/conventions.md,
       # Tests): checks.<system>.<x>, built as odoo-nix-<x>-check, or
       # vm-test-run-odoo-nix-<x> for a VM test.
       checksFor =
@@ -227,7 +227,7 @@
         odoo-ls = import ./lib/odoo-ls.nix;
       };
 
-      # checks.<system> (names: python-devops-nix CONVENTIONS.md, Tests):
+      # checks.<system> (names: python-devops-nix docs/conventions.md, Tests):
       #   addons-*, odoo-ini-*, odoo-ini-render               pure library tests (all systems)
       #   journald-formatter                                  the CLI's journald output (all systems)
       #   devguard-core, devguard, devguard-baked             the dev guard rails: base core, odoo-nix's side (all systems)
@@ -322,8 +322,8 @@
           # The devguard core (python-devops-nix, python/devguard): its own
           # tests against its stub product -- the hook, settings precedence,
           # the egress matrix and passage(), the mail transport -- on every
-          # interpreter a preset names, since it loads into Odoo's (PLAN.md,
-          # Python versions).
+          # interpreter a preset names, since it loads into Odoo's
+          # (python-devops-nix docs/library.md, Python versions).
           devguard-core = base.devguard.check {
             inherit pkgs;
             product = "odoo-nix";
@@ -374,7 +374,8 @@
 
           # python-devops-nix's backup fetch layer, which the `odoo` CLI
           # imports in-process: the base's own tests, on every interpreter a
-          # preset runs the CLI on (PLAN.md, Python versions).
+          # preset runs the CLI on (python-devops-nix docs/library.md, Python
+          # versions).
           backups = base.backups.check {
             inherit pkgs;
             product = "odoo-nix";
@@ -411,7 +412,7 @@
           };
 
           # .editorconfig, .pre-commit-config.yaml and ruff.toml carry the
-          # base's settings (python-devops-nix CONVENTIONS.md, Repository files).
+          # base's settings (python-devops-nix docs/conventions.md, Repository files).
           shared-config = base.checks.sharedConfig {
             inherit pkgs;
             src = ./.;

@@ -8,7 +8,7 @@ leaves as
 
     <N>{logger} [{db}] {message} {perf_info}
 
-(python-devops-nix CONVENTIONS.md, Journald line format): ``<N>`` the record's
+(python-devops-nix docs/conventions.md, Journald line format): ``<N>`` the record's
 syslog priority on every line of it, tracebacks included, ``[{db}]`` the
 database the record belongs to (left out when there is none), and Odoo's
 ``perf_info`` (query count and times on a request line) after the message.

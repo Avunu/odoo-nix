@@ -6,7 +6,7 @@ version: 2
 # prefix.
 #
 # Every ecosystem waits seven days after a release before proposing it
-# (python-devops-nix CONVENTIONS.md, Dependabot), so a version that is pulled or
+# (python-devops-nix docs/conventions.md, Dependabot), so a version that is pulled or
 # patched within the week never reaches a pull request. Security updates are not
 # held back.
 #
