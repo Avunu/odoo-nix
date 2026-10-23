@@ -116,42 +116,32 @@ let
   # migration check needs a conf for each build it runs.
   mkConf =
     tree:
-    (import ../lib/odoo-conf.nix {
-      inherit pkgs lib;
-      addonsPath = addons.addonsPathFor "${tree}";
-      settings = {
-        # Empty host/password = keys left out = unix socket, no password (the
-        # run passes --db_host=$PGHOST anyway).
-        dbHost = "";
-        dbPort = 5432;
-        dbUser = "odoo";
-        dbPassword = "";
-        dbName = null;
+    (import ../lib/odoo-ini.nix { inherit pkgs lib; }).generate "odoo.conf" {
+      # No db_host/db_password: unix socket, no password (the run passes
+      # --db_host=$PGHOST anyway).
+      options = {
+        addons_path = addons.addonsPathFor "${tree}";
+        db_port = 5432;
+        db_user = "odoo";
         # Relative to CWD, which is the build directory a check runs in.
-        dataDir = "./odoo-data";
-        adminPasswd = "admin";
-        httpInterface = "127.0.0.1";
-        httpPort = 18069;
-        geventPort = 18072;
+        data_dir = "./odoo-data";
+        admin_passwd = "admin";
+        http_interface = "127.0.0.1";
+        http_port = 18069;
+        gevent_port = 18072;
         workers = 0;
-        logging = {
-          level = "test";
-          handlers = [ ];
-          db = false;
-          dbLevel = "warning";
-          file = null;
-        };
-        withoutDemo = true;
-        extra = { };
+        log_level = "test";
+        log_db_level = "warning";
+        without_demo = true;
+        # Mirrors devenv.nix: setting the key replaces Odoo's default set,
+        # and 19.0's default includes `rpc`.
+        server_wide_modules = [
+          "base"
+        ]
+        ++ lib.optional is19 "rpc"
+        ++ [ "web" ];
       };
-      # Mirrors devenv.nix: setting the key replaces Odoo's default set, and
-      # 19.0's default includes `rpc`.
-      serverWideModules = [
-        "base"
-      ]
-      ++ lib.optional is19 "rpc"
-      ++ [ "web" ];
-    }).odooConfFile;
+    };
   conf = mkConf builtOdoo;
 
   # Later builds of the same project for the migration checks: the fixture

@@ -193,7 +193,7 @@ def project_restore(
 ):
     """Restore explicit DB PATH pairs in one batch (see `odoo db restore` for
     a single database) -- or, with no --restore, the project database
-    (`settings.dbName`) from the remote backup store. Existing databases are
+    (odoo-nix's `dbName`) from the remote backup store. Existing databases are
     overwritten (--no-force refuses) and migrated afterwards (--no-migrate)."""
     overwrite = _overwrite(force, no_force)
     if migrate is None:
@@ -204,7 +204,7 @@ def project_restore(
         db_name = odooenv.resolve_database(ctx.obj.get("database"), odoo_config)
         if not db_name:
             raise click.UsageError(
-                "no database: pass -d/--database or set settings.dbName."
+                "no database: pass -d/--database or set odoo-nix.dbName."
             )
         _restore_remote(
             db_name,

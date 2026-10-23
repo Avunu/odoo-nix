@@ -296,7 +296,7 @@ in
     };
   };
   # The tree: watch, devguard, mailpit and ports; `dev` only as the hidden
-  # alias of dev.autoReload, and the ports out of settings.
+  # alias of dev.autoReload.
   tree =
     let
       o = (perSystem { }).options.odoo-nix;
@@ -310,11 +310,6 @@ in
           true
         ];
         dev = false;
-        settingsPorts = [
-          false
-          false
-          false
-        ];
       };
       actual = {
         trees = map (t: o ? ${t}) [
@@ -324,11 +319,6 @@ in
           "ports"
         ];
         dev = o.dev.autoReload.visible;
-        settingsPorts = map (p: (o.settings.${p}.visible or true) && !(o.settings.${p}.internal or false)) [
-          "httpPort"
-          "geventPort"
-          "dbPort"
-        ];
       };
     };
 }

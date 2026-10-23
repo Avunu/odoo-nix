@@ -3,7 +3,7 @@ title: Getting started
 description: Scaffold a new Odoo project with odoo-nix, start the development shell and provision your first database.
 order: 2
 tags: [quick-start, devenv, odoo]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 This page takes you from an empty directory to a running Odoo database. If you already have an Odoo tree, read [Migrate an existing tree](scaffolding/migrate.md) first and come back for the shell steps.
@@ -65,7 +65,7 @@ In a second terminal, in the same directory:
 odoo db provision
 ```
 
-It creates the database named by `settings.dbName` (the `--db` you scaffolded with) and installs `base` and every module in `modules.txt`. Run it again later and it migrates the database instead of reinstalling, so it is safe to repeat.
+It creates the database named by `dbName` (the `--db` you scaffolded with) and installs `base` and every module in `modules.txt`. Run it again later and it migrates the database instead of reinstalling, so it is safe to repeat.
 
 ## 5. Open Odoo
 

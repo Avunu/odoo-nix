@@ -106,40 +106,6 @@ in
         deprecations = warned "projectName'" "name'" config;
       };
     };
-  # odooConf.* -> settings.* (Framework config blocks), the block as a
-  # whole: every option keeps its name (and a priority set inside it), the
-  # rendered odoo.conf is the one the new name gives, and each option set is
-  # warned about.
-  rename-odoo-conf =
-    let
-      block = {
-        dbName = "legacy";
-        logging.level = "debug";
-        extra.limit_time_real = "600";
-        withoutDemo = lib.mkForce true;
-      };
-      old = perSystemConfig { odooConf = block; };
-      new = perSystemConfig { settings = block; };
-    in
-    {
-      expected = {
-        settings = {
-          dbName = "legacy";
-          level = "debug";
-          withoutDemo = true;
-        };
-        conf = new.packages.odooConf.outPath;
-        deprecations = lib.replicate 4 true;
-      };
-      actual = {
-        settings = {
-          inherit (old.odoo-nix.settings) dbName withoutDemo;
-          inherit (old.odoo-nix.settings.logging) level;
-        };
-        conf = old.packages.odooConf.outPath;
-        deprecations = warned "odooConf." "settings." old;
-      };
-    };
   # The identity is devenv's `name` too, unless the shell sets its own.
   identity-shell-name = {
     expected = "acme";
@@ -238,56 +204,6 @@ in
         inherit (config.odoo-nix.watch) python;
         watchdog = lib.hasInfix "import watchdog" config.devenv.shells.default.processes.odoo.exec;
         deprecations = warned "dev.autoReload'" "watch.python'" config;
-      };
-    };
-  # settings.{httpPort,geventPort,dbPort}, and odooConf's before them, ->
-  # ports.{http,gevent,db}: the ports a project had pinned stay pinned, in
-  # odoo.conf, PostgreSQL and the shell's env alike.
-  rename-ports =
-    let
-      fixed = {
-        http = 8169;
-        gevent = 8172;
-        db = 5442;
-      };
-      pinned = perSystemConfig { ports = lib.mapAttrs (_: lib.mkForce) fixed; };
-      shape = config: {
-        ports = { inherit (config.odoo-nix.ports) http gevent db; };
-        conf = config.packages.odooConf.outPath;
-        pg = config.devenv.shells.default.services.postgres.port;
-        env = config.devenv.shells.default.env.ODOO_NIX_HTTP_PORT;
-      };
-      viaSettings = perSystemConfig {
-        settings = {
-          httpPort = 8169;
-          geventPort = 8172;
-          dbPort = 5442;
-        };
-      };
-      viaOdooConf = perSystemConfig {
-        odooConf = {
-          httpPort = 8169;
-          geventPort = 8172;
-          dbPort = 5442;
-        };
-      };
-    in
-    {
-      expected = {
-        settings = shape pinned // {
-          deprecations = lib.replicate 3 true;
-        };
-        odooConf = shape pinned // {
-          deprecations = lib.replicate 3 true;
-        };
-      };
-      actual = {
-        settings = shape viaSettings // {
-          deprecations = warned "settings." "ports." viaSettings;
-        };
-        odooConf = shape viaOdooConf // {
-          deprecations = warned "odooConf." "ports." viaOdooConf;
-        };
       };
     };
   # Nothing old set: nothing to warn about.

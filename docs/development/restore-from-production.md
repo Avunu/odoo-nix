@@ -3,13 +3,13 @@ title: Restore a production backup
 description: Clone a production database into the dev shell with odoo db restore, fetching the newest backup from S3-compatible storage, and set up the server side that writes those backups.
 order: 6
 tags: [restore, backup, s3]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 Production pushes database backups to S3-compatible storage. Any developer whose SSH key is a declared recipient restores one locally with one command:
 
 ```bash
-odoo project restore                                  # the project database (settings.dbName), newest backup
+odoo project restore                                  # the project database (dbName), newest backup
 odoo db restore acme_dev --from acme --at 2026-10-01  # another name, a point in time
 odoo db restore acme_dev --from acme --list           # what is there
 ```
