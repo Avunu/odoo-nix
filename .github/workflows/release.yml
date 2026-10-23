@@ -11,10 +11,12 @@ name: release
 #                   check.yml (`lint`, `flake`) and pr-policy.yml (`pr-policy`) on
 #                   the release pull request's branch, each only while its check
 #                   (`flake` for check.yml) is absent on the head.
-#   fast-forward    moves release-<major> (release-1 for every v1.* tag) to the
-#                   new tag: a PATCH with force=false, so it only ever
-#                   fast-forwards, or a POST on a major's first release. It then
-#                   fails unless the branch and the tag are the same commit.
+#   fast-forward    moves release-<major> (release-1 for v1.* tags, release-2
+#                   for v2.*) to the new tag: a PATCH with force=false, so it
+#                   only ever fast-forwards, or a POST on a major's first
+#                   release, which leaves the previous major's branch where its
+#                   last release put it. It then fails unless the branch and
+#                   the tag are the same commit.
 #
 # The daily cron catches merges that raise no push (an auto-merge enabled with
 # GITHUB_TOKEN) and retries a dispatch that failed.

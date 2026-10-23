@@ -111,6 +111,13 @@ in
     expected = isRefused 1;
     actual = refused { restore.attachments = "mirror"; } "restore.attachments'" "restore.files";
   };
+  # containers.roleImageNames: the image is always <name>/odoo since 2.0.0.
+  removed-role-image-names = {
+    expected = isRefused 1;
+    actual = refused {
+      containers.roleImageNames = true;
+    } "containers.roleImageNames'" "<registry>/<name>/odoo";
+  };
   # odooConf.* -> settings.options, dbName and ports.
   removed-odoo-conf = {
     expected = isRefused 1;

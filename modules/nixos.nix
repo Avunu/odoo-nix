@@ -22,7 +22,7 @@
 # odoo_journald graft, lib/journald.nix) -- what a log shipper reading the
 # journal (Vector -> Loki, `journalctl -p warning`) filters on.
 #
-# With hardening.enable (off through 1.x, on from 2.0.0), every unit this
+# With hardening.enable (on by default since 2.0.0), every unit this
 # module defines runs under python-devops-nix's systemd sandboxing baseline
 # (lib.nixos.hardening; CONVENTIONS.md, Unit hardening), with what it
 # legitimately needs named next to it. There is no UMask: Odoo
@@ -89,8 +89,8 @@ let
   # module's install or migration hook may render a report, and a refused
   # JIT there would fail the deploy and keep Odoo down.
   #
-  # Only with hardening.enable (off through 1.x): with it off, the units get
-  # no sandboxing keys at all.
+  # Only with hardening.enable (the default since 2.0.0): with it off, the
+  # units get no sandboxing keys at all.
   harden = args: lib.optionalAttrs cfg.hardening.enable (odooNixBase.nixos.hardening args);
   odooHardening = harden {
     readWritePaths = odooWritePaths;
@@ -361,8 +361,7 @@ in
 
     hardening.enable = mkOption {
       type = types.bool;
-      # Flips to true in 2.0.0.
-      default = false;
+      default = true;
       description = ''
         Run odoo, odoo-migrate and odoo-init under python-devops-nix's
         systemd sandboxing baseline (lib.nixos.hardening): ProtectSystem=strict
@@ -372,11 +371,11 @@ in
         memory (wkhtmltopdf, rtlcss). Every key is a mkDefault, so a host can
         relax one per unit.
 
-        Off by default through 1.x, and on by default from 2.0.0. Turn it on
-        per deployment and watch one start (`journalctl -u odoo-init -u
-        odoo-migrate -u odoo`), especially inside a NixOS (nspawn) container,
-        where a unit that cannot set up its mount namespace fails with
-        `226/NAMESPACE` and, through Requires=, keeps Odoo down.
+        On by default since 2.0.0 (off through 1.x). Watch the first start
+        after upgrading (`journalctl -u odoo-init -u odoo-migrate -u odoo`),
+        especially inside a NixOS (nspawn) container, where a unit that
+        cannot set up its mount namespace fails with `226/NAMESPACE` and,
+        through Requires=, keeps Odoo down. `false` turns every key off.
       '';
     };
 

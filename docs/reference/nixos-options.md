@@ -30,7 +30,7 @@ See [Run Odoo as a NixOS service](../production/nixos-service.md) for how they f
 | `settings` | attrs of INI sections | `{ }` | `odoo.conf` itself, by section: `settings.options.<key>` is `[options]`. Shows the effective file. No secrets. See [settings](#settings). |
 | `extraEnv` | attrs of strings | `{ }` | More environment for the units and the operator's command. |
 | `environmentFiles` | list of paths | `[ ]` | systemd `EnvironmentFile=`s for `odoo` and `odoo-migrate`, such as the backup credentials. |
-| `hardening.enable` | bool | `false` | Run every unit under python-devops-nix's sandboxing baseline. On by default from 2.0.0. |
+| `hardening.enable` | bool | `true` | Run every unit under python-devops-nix's sandboxing baseline. On by default since 2.0.0 (off through 1.x). |
 
 ## settings
 

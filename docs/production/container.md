@@ -13,7 +13,7 @@ nix build .#container-odoo
 docker load < result
 ```
 
-The image is named `<name>-odoo:latest`, or `<REGISTRY>/<name>-odoo:latest` with `containers.registry` set (`"ghcr.io/avunu"` gives `ghcr.io/avunu/acme-odoo`; a trailing slash is dropped). With `containers.roleImageNames` it is `<name>/odoo` instead; see [The image name](#the-image-name). It exposes 8069 and 8072, and its `odoo` is the full command, so `docker exec <CONTAINER> odoo db backup acme` works as it does on a server.
+The image is named `<name>/odoo:latest`, or `<REGISTRY>/<name>/odoo:latest` with `containers.registry` set (`"ghcr.io/avunu"` gives `ghcr.io/avunu/acme/odoo`; a trailing slash is dropped); see [The image name](#the-image-name). It exposes 8069 and 8072, and its `odoo` is the full command, so `docker exec <CONTAINER> odoo db backup acme` works as it does on a server.
 
 ## Configuration
 
@@ -65,22 +65,16 @@ odoo-nix.containers.labels = {
 
 ## The image name
 
-python-devops-nix names images `<REGISTRY>/<name>/<role>`. odoo-nix 1.0 named this one `<name>-odoo`, and that stays the default through 1.x. A host that pulls or runs the image by name has to change with it; otherwise it keeps running the last image it had under the old name. Opt in when you update the host:
-
-```nix
-odoo-nix.containers.roleImageNames = true; # <name>/odoo, or <REGISTRY>/<name>/odoo
-```
-
-Until you do, building `container-odoo` prints a warning that suggests the option. The new name is the default in 2.0.0.
+python-devops-nix names images `<REGISTRY>/<name>/<role>`, and so does odoo-nix since 2.0.0: `<name>/odoo`. Through 1.x the default was `<name>-odoo`, with `containers.roleImageNames` to opt in to the new name. That option is gone, and setting it is an error. A host that pulls or runs the image by name has to change with it; otherwise it keeps running the last image it had under the old name.
 
 ## Running as non-root
 
-The image runs as root by default in 1.x, as it always has. Set `containers.nonRoot = true` and it runs as `odoo`, uid 1000 and gid 1000, with home `/var/lib/odoo`. That becomes the default in 2.0.0.
+The image runs as `odoo`, uid 1000 and gid 1000, with home `/var/lib/odoo`, since 2.0.0 (`containers.nonRoot`, on by default). Through 1.x it ran as root by default. `containers.nonRoot = false` still runs it as root.
 
-With it on, the image owns `/etc/odoo`, where the entrypoint writes `odoo.conf`, and `/var/lib/odoo`, so a new named volume at `/var/lib/odoo/data` takes that ownership. A bind mount must be writable by uid 1000 (`chown -R 1000:1000 <DIR>` on the host), and the files in `/secrets` must be readable by it.
+The image owns `/etc/odoo`, where the entrypoint writes `odoo.conf`, and `/var/lib/odoo`, so a new named volume at `/var/lib/odoo/data` takes that ownership. A bind mount must be writable by uid 1000 (`chown -R 1000:1000 <DIR>` on the host), and the files in `/secrets` must be readable by it.
 
 > [!IMPORTANT]
-> A filestore volume that a root image wrote is owned by root, and a non-root image cannot write to it. Before you turn `nonRoot` on for an existing deployment, change its owner once:
+> A filestore volume that a root image wrote is owned by root, and a non-root image cannot write to it. Before the first start of a 2.x image on an existing deployment, change its owner once:
 >
 > ```bash
 > docker run --rm --user 0 --entrypoint chown \

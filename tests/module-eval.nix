@@ -52,19 +52,18 @@ let
       ];
     }).config;
 
-  pinned = eval {
+  pinned = eval { services.odoo-nix.dbName = "acme"; };
+  # Hardening off: the 1.x default, a host's choice since 2.0.0.
+  plain = eval {
     services.odoo-nix = {
       dbName = "acme";
-      hardening.enable = true;
+      hardening.enable = false;
     };
   };
-  # The default: no hardening (opt-in through 1.x).
-  plain = eval { services.odoo-nix.dbName = "acme"; };
   multi = eval { services.odoo-nix.dbFilter = "^%d$"; };
   toFile = eval {
     services.odoo-nix = {
       dbName = "acme";
-      hardening.enable = true;
       logging.file = "/var/log/odoo/odoo.log";
     };
   };
@@ -325,16 +324,17 @@ in
     };
   };
 
-  # hardening.enable defaults to false through 1.x: then the units carry no
-  # sandboxing key at all, while init still runs as the service user.
+  # hardening.enable defaults to true since 2.0.0 (pinned, above, sets
+  # nothing). Turned off, the units carry no sandboxing key at all, while
+  # init still runs as the service user.
   service-hardening-default = {
     expected = {
-      enable = false;
+      default = true;
       keys = lib.genAttrs odooUnits (_: [ ]);
       initUser = "odoo";
     };
     actual = {
-      enable = plain.services.odoo-nix.hardening.enable;
+      default = pinned.services.odoo-nix.hardening.enable;
       keys = lib.genAttrs odooUnits (
         u:
         lib.filter (k: (sc plain u) ? ${k}) (
