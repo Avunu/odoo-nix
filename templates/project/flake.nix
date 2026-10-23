@@ -58,7 +58,7 @@
               odooSeries = "@SERIES@";
               python = pkgs.@PYTHON@;
 
-              settings.dbName = "@DB_NAME@";
+              dbName = "@DB_NAME@";
 
               # `odoo db restore` / `odoo project restore` from the S3 backups:
               # restore = {

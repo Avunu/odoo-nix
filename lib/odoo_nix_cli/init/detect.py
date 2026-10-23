@@ -139,8 +139,11 @@ def existing_name() -> str | None:
 
 
 def existing_db() -> str | None:
-    """The default database an odoo-nix flake.nix sets."""
-    return _flake_value(r'^\s*(?:settings\.|odooConf\.)?dbName\s*=\s*"([^"]+)"\s*;')
+    """The default database an odoo-nix flake.nix sets: odoo-nix.dbName, or
+    settings.options.db_name, or 1.x's settings.dbName and odooConf.dbName."""
+    return _flake_value(
+        r'^\s*(?:(?:settings\.|odooConf\.)?dbName|settings\.options\.db_name)\s*=\s*"([^"]+)"\s*;'
+    )
 
 
 def _series_of_manifests() -> str | None:

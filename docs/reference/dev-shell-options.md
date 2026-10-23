@@ -3,10 +3,10 @@ title: Dev shell options
 description: Every perSystem.odoo-nix option that configures the development shell, the production packages and the container image, with types and defaults.
 order: 1
 tags: [reference, options, devenv]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
-All of these are under `perSystem.odoo-nix`. Secrets are declared at the top level instead: see [Secrets options](secrets-options.md). Options renamed in 1.x are listed in [Upgrading odoo-nix](../development/upgrading.md#renamed-options).
+All of these are under `perSystem.odoo-nix`. Secrets are declared at the top level instead: see [Secrets options](secrets-options.md). Options renamed or removed are listed in [Upgrading odoo-nix](../development/upgrading.md).
 
 ## The project
 
@@ -34,28 +34,44 @@ All of these are under `perSystem.odoo-nix`. Secrets are declared at the top lev
 
 ## odoo.conf: `settings`
 
-Rendered into the dev shell's `odoo.conf` `[options]`. The production module has its own options; see [`services.odoo-nix` options](nixos-options.md).
-
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `settings.dbHost` | string | `"127.0.0.1"` | `db_host`. Empty or `"False"` leaves it out: the unix socket. |
-| `settings.dbUser` | string | `"odoo"` | `db_user`, and the dev PostgreSQL role, created as a superuser. |
-| `settings.dbPassword` | string | `"False"` | `db_password`. Empty or `"False"` leaves it out. |
-| `settings.dbName` | null or string | `"odoo_dev"` | `db_name`, the default database, created empty in the dev PostgreSQL. The scaffolder sets it from `--db`. |
-| `settings.dataDir` | string | `"./.devenv/state/odoo"` | `data_dir`, the filestore. |
-| `settings.adminPasswd` | string | `"admin"` | `admin_passwd`, the database manager's master password. Development only. |
-| `settings.httpInterface` | string | `"127.0.0.1"` | `http_interface`. `"0.0.0.0"` to reach the server from another host or container. |
-| `settings.workers` | int | `0` | `workers`. 0 is the threaded server, which live reload needs. |
-| `settings.devMode` | string | `"all"` | The dev process's `--dev` flag. Not written to `odoo.conf`. |
-| `settings.withoutDemo` | bool | `false` | `without_demo = True`: no demo data for any module. |
-| `settings.logging.level` | enum | `"info"` | `log_level`. |
-| `settings.logging.handlers` | list of `"logger:LEVEL"` | `[ ]` | `log_handler`, e.g. `[ "werkzeug:WARNING" ]`. |
-| `settings.logging.db` | bool or string | `false` | `log_db`: `true` is the request's own database (`%d`), a string that database. |
-| `settings.logging.dbLevel` | enum | `"warning"` | `log_db_level`. |
-| `settings.logging.file` | null or string | `null` | `logfile`. Odoo's file and stderr handlers are exclusive, so the console then stays quiet. |
-| `settings.extra` | attrs of string, int or bool | `{ }` | Any other `[options]` key, merged last. |
+| `dbName` | null or string | `"odoo_dev"` | The development database: `db_name` in `odoo.conf`, created empty in the dev PostgreSQL, and the `odoo` command's default. The scaffolder sets it from `--db`. `null` leaves `db_name` out and creates no database. |
+| `devMode` | string | `"all"` | The dev server's `--dev` flag. Not written to `odoo.conf`. `watch.python` needs `all` or `reload` in it. |
+| `settings` | attrs of INI sections | see below | `odoo.conf` itself, by section, in Odoo's own key spelling: `settings.options.<key>` is `[options]`, and any other attribute is a section of its own. Shows the effective file. |
 
-`odoo.conf` also gets `http_port`, `gevent_port` and `db_port` from `ports`, and `server_wide_modules` (`base,web`, and `rpc` from 19.0 on).
+`settings` follows [NixOS RFC 42](https://github.com/NixOS/rfcs/blob/master/rfcs/0042-config-option.md), the same shape as [`services.odoo-nix.settings`](nixos-options.md#settings). Values render as Odoo reads them: `true` and `false` as `True` and `False`, a list as one comma-separated value, and `null` as no key at all.
+
+```nix
+odoo-nix = {
+  dbName = "acme";
+  settings.options = {
+    log_level = "debug";
+    log_handler = [ "werkzeug:WARNING" ];
+    without_demo = true;
+    limit_time_real = 1200;
+  };
+  settings.queue_job.channels = "root:2";
+};
+```
+
+The shell sets the keys it computes into `settings.options`:
+
+| Keys | Priority | Value |
+| --- | --- | --- |
+| `admin_passwd` | `mkDefault` | `"admin"`, the database manager's master password. Development only. |
+| `data_dir` | `mkDefault` | `"./.devenv/state/odoo"`, the filestore. The shell creates it. |
+| `db_host` | `mkDefault` | `"127.0.0.1"`. `null` leaves it out: the unix socket. |
+| `db_user` | `mkDefault` | `"odoo"`, and the dev PostgreSQL role, created as a superuser. |
+| `http_interface` | `mkDefault` | `"127.0.0.1"`. `"0.0.0.0"` to reach the server from another host or container. |
+| `workers` | `mkDefault` | `0`, the threaded server, which live reload needs. |
+| `log_level`, `log_db_level` | `mkDefault` | `"info"`, `"warning"`. |
+| `server_wide_modules` | `mkDefault` | `[ "base" "web" ]`, with `"rpc"` from 19.0 on. |
+| `http_port`, `gevent_port`, `db_port` | normal | `ports.http`, `ports.gevent`, `ports.db`. Change the port there. |
+| `addons_path` | normal | The derived path (see [odoo.conf and addons_path](../development/README.md#odooconf-and-addons_path)). |
+| `db_name` | normal | `dbName`, when it is not `null`. |
+
+A plain `settings.options.<key>` wins over a `mkDefault` key. A second value for a normal-priority key is a conflict, because the shell depends on it: change `ports.*`, `layout` or `dbName` instead, or use `mkForce`. Set `db_password`, `log_db` (`"%d"` for the request's own database), `log_handler`, `logfile` or any other key in `settings.options` too.
 
 ## Ports
 

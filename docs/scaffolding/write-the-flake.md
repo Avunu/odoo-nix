@@ -3,7 +3,7 @@ title: Write the flake by hand
 description: The shape of an odoo-nix project flake and its layout, the options you will change most often, and the variant for a repository of modules that takes OCB as a flake input.
 order: 3
 tags: [flake, flake-parts, configuration]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 ## The project layout
@@ -45,7 +45,7 @@ updated: 2026-10-21
           workspaceRoot = ./.;
           odooSeries = "18.0";
           python = pkgs.python311;
-          settings.dbName = "acme";
+          dbName = "acme";
         };
       };
     });
@@ -62,7 +62,8 @@ The scaffolder writes `github:Avunu/odoo-nix`, which follows `main`. `release-1`
 | ------------------------------ | ------------------------------------------------------------------------------------- |
 | `name`                         | The project's identity: names its environments, packages, container image and ports. |
 | `odooSeries`, `python`         | The series picks the OCB and OCA branch and catalog; `python` defaults to its preset. |
-| `settings.*`                   | odoo.conf's `[options]`: `dbName`, `adminPasswd`, `workers`, `logging.*`, `extra`.   |
+| `dbName`                       | The development database (`db_name`).                                                 |
+| `settings.options.*`           | odoo.conf's `[options]`, in Odoo's spelling: `log_level`, `workers`, `without_demo`. |
 | `devguard.egress.allowHosts`   | Hosts the development guard rails let Odoo reach.                                     |
 | `postgres.extensions`          | PostgreSQL extensions built into the dev server, such as PostGIS.                     |
 | `restore.*`                    | How `odoo db restore` fetches from production.                                        |

@@ -3,14 +3,14 @@ title: Editors and live reload
 description: How the dev server restarts itself on a Python change, and how the shell exposes the environment to Pylance, pyright and the odoo-ls language server.
 order: 8
 tags: [editor, reload, language-server, odoo-ls]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 ## Live reload
 
 Edit a `.py` file anywhere on `addons_path` and the dev server restarts itself in place, through `os.execve`, so the PID, the working directory and the open HTTP socket all survive. There is nothing to run.
 
-This is Odoo's own `--dev=reload` watcher, which `settings.devMode = "all"` already asks for. Odoo only starts it if it can import a filesystem watcher, and it declares neither `inotify` nor `watchdog` as a dependency, so `--dev=all` alone logs `Code autoreload feature is disabled` once and never reloads. `watch.python` (on by default) closes that gap: a new project's `pyproject.toml` has `watchdog` in `[dependency-groups].dev`, and for an older project the dev process falls back to nixpkgs' `watchdog`. Look for this line at start-up:
+This is Odoo's own `--dev=reload` watcher, which `devMode = "all"` already asks for. Odoo only starts it if it can import a filesystem watcher, and it declares neither `inotify` nor `watchdog` as a dependency, so `--dev=all` alone logs `Code autoreload feature is disabled` once and never reloads. `watch.python` (on by default) closes that gap: a new project's `pyproject.toml` has `watchdog` in `[dependency-groups].dev`, and for an older project the dev process falls back to nixpkgs' `watchdog`. Look for this line at start-up:
 
 ```text
 AutoReload watcher running with watchdog
@@ -21,7 +21,7 @@ What it covers:
 - **Python**: every `addons_path` root is watched recursively, `odoo/odoo/addons`, `odoo/addons`, each `modules/<REPO>` and `custom/`. A change restarts the server; a syntax error is logged and the restart skipped until you fix it.
 - **XML, QWeb and assets** need no restart: `--dev=xml` re-reads views, templates and JS and SCSS bundles from disk. Reload the browser.
 - **Odoo's framework code** (`odoo/odoo/*.py`, such as `models.py` or `http.py`) is not an addons root and is not watched. Restart `devenv up` for those.
-- **`settings.workers` must be 0**, the default. The watcher only runs on the threaded server, and the shell warns if you set workers or a `devMode` without `reload` while `watch.python` is on.
+- **`settings.options.workers` must be 0**, the default. The watcher only runs on the threaded server, and the shell warns if you set workers or a `devMode` without `reload` while `watch.python` is on.
 
 ## Python analysis
 

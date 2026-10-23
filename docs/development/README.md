@@ -4,12 +4,12 @@ description: What devenv up runs, how ports are chosen per project, what shell e
 nav_title: Development
 order: 4
 tags: [devenv, development, ports]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 `direnv allow` (or `nix develop --no-pure-eval`) loads the shell. `devenv up` then starts:
 
-- **PostgreSQL** 16, its data under `.devenv/state`, listening on `127.0.0.1` on the project's database port. The role `settings.dbUser` is created as a superuser, and the database `settings.dbName` is created empty.
+- **PostgreSQL** 16, its data under `.devenv/state`, listening on `127.0.0.1` on the project's database port. The role `settings.options.db_user` is created as a superuser, and the database `dbName` is created empty.
 - **Mailpit**, the mail catcher (`mailpit.enable`, on by default), before the server and whether or not the mail guard is on.
 - **odoo**: `odoo-bin -c odoo.conf --dev=all` from the live checkout, threaded, serving HTTP and websockets in one process.
 
@@ -72,7 +72,7 @@ A project scaffolded before the bootstrap existed has a one-line `.envrc`. See [
 
 ## odoo.conf and addons_path
 
-`odoo.conf` is a read-only file in the Nix store, rendered from the `settings.*` options and the derived `addons_path` (`lib/odoo-conf.nix`), and symlinked to `./odoo.conf`. `--dev` stays a command-line flag, so the same file would work in production. Edit the options, not the file; `settings.extra` takes any other `[options]` key.
+`odoo.conf` is a read-only file in the Nix store, rendered from `settings` (`lib/odoo-ini.nix`, shared with the NixOS module), and symlinked to `./odoo.conf`. `settings` is the file by section, in Odoo's spelling, and holds what the shell computes too, the derived `addons_path` and the ports among them. `--dev` stays a command-line flag (`devMode`), so the same file would work in production. Edit `settings.options.<key>`, not the file. See [odoo.conf: `settings`](../reference/dev-shell-options.md#odooconf-settings).
 
 `addons_path` is derived on every evaluation (`lib/addons.nix`): the two OCB roots (`odoo/odoo/addons` and `odoo/addons`), then each directory under `modules/` that holds at least one module (a child with a `__manifest__.py`), sorted, then `custom/`, then `layout.extraAddons`. With the guard rails on, odoo-nix's own addons directory in the Nix store comes last; it holds only the deprecated `dev_mailcatch` stub. The workspace's entries are relative to it, so the file is the same on every machine. Adding or removing a submodule changes the path by itself, after a `direnv reload`.
 

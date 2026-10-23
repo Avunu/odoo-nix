@@ -3,7 +3,7 @@ title: The odoo command
 description: The odoo command that the dev shell, services.odoo-nix and the container share, its database, module and project subcommands, and how everything else passes through to odoo-bin.
 order: 1
 tags: [cli, database, backup]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 The dev shell, `services.odoo-nix` and the container image share one `odoo` command. `db`, `module`, `project`, `shell` and `test` are odoo-nix's own subcommands. Anything else, `server` (the default with no subcommand), `scaffold`, `populate`, `cloc`, `deploy`, `neutralize` and the rest, passes straight through to the real `odoo-bin`, so nothing from Odoo is lost.
@@ -47,7 +47,7 @@ After any of them, run `direnv reload` so Nix derives `addons_path` again and re
 | Command | What it does |
 | --- | --- |
 | `odoo project backup [--format zip\|dump] [--path <DIR>] [--keep-days <N>]` | Back up every database matching `dbfilter`. With `--path`, each one goes into its own `<DIR>/<DB>/`. |
-| `odoo project restore [--restore <DB> <PATH> …] [...]` | Restore several database and file pairs in one batch, or, with no `--restore`, the project database (`settings.dbName`) from the remote store. |
+| `odoo project restore [--restore <DB> <PATH> …] [...]` | Restore several database and file pairs in one batch, or, with no `--restore`, the project database (`dbName`) from the remote store. |
 | `odoo shell [DB]` | Odoo's Python REPL, without workers or HTTP, so it runs next to a live server. |
 | `odoo test <M[,M2]> [DB]` | Run modules' tests. It refuses to run when browser tours would be skipped, because Odoo reports a skipped tour like a pass: it needs the `websocket-client` package and a headless browser (`testBrowser`). `ODOO_NIX_TEST_ALLOW_SKIP=1` runs anyway. |
 

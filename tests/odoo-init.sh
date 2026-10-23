@@ -153,7 +153,7 @@ expect_rc 0
 flake=acme/flake.nix
 check "flake.nix: the identity is odoo-nix.name, normalised" has '^\s*name = "acme-shop";$' "$flake"
 check "flake.nix: no projectName" refute hasF projectName "$flake"
-check "flake.nix: the database, normalised" has '^\s*settings\.dbName = "acme_db";$' "$flake"
+check "flake.nix: the database, normalised" has '^\s*dbName = "acme_db";$' "$flake"
 check "flake.nix: the series" has '^\s*odooSeries = "18\.0";$' "$flake"
 check "flake.nix: the series' interpreter" has '^\s*python = pkgs\.python311;$' "$flake"
 check "pyproject.toml: [project].name" has '^name = "acme-shop"$' acme/pyproject.toml
@@ -200,7 +200,7 @@ init defaults --version 18.0
 expect_rc 0
 check "no target: ./odoo-project" test -f odoo-project/flake.nix
 check "the name defaults to the target's" has '^\s*name = "odoo-project";$' odoo-project/flake.nix
-check "the database defaults to odoo" has '^\s*settings\.dbName = "odoo";$' odoo-project/flake.nix
+check "the database defaults to odoo" has '^\s*dbName = "odoo";$' odoo-project/flake.nix
 check "no modules: an empty modules.txt" test ! -s odoo-project/modules.txt
 check "no modules: OCB alone" eval '[ "$(grep -c "^clone " "$STUB_LOG/sources")" = 1 ]'
 check "no modules: the summary says core only" hasF 'Odoo core only' out
@@ -208,7 +208,7 @@ check "no modules: the summary says core only" hasF 'Odoo core only' out
 init names --version 18.0 --name '!!!' --db '__Shop DB' acme
 expect_rc 0
 check "a name with nothing left falls back to odoo-project" has '^\s*name = "odoo-project";$' acme/flake.nix
-check "a database name loses leading underscores and odd characters" has '^\s*settings\.dbName = "shop_db";$' acme/flake.nix
+check "a database name loses leading underscores and odd characters" has '^\s*dbName = "shop_db";$' acme/flake.nix
 
 init equals --version=19.0 --name=eq --db=eqdb --modules=partner_firstname eq
 expect_rc 0
@@ -466,7 +466,7 @@ run -y
 expect_rc 0
 check "repair: detected without a flag" hasF 'repair mode' out
 check "repair: the name in flake.nix is kept" has '^\s*name = "acme-shop";$' flake.nix
-check "repair: the database in flake.nix is kept" has '^\s*settings\.dbName = "acme_db";$' flake.nix
+check "repair: the database in flake.nix is kept" has '^\s*dbName = "acme_db";$' flake.nix
 check "repair: nothing is cloned again" refute grep -q '^clone' "$STUB_LOG/sources"
 check "repair: modules.txt is kept" eval '[ "$(cat modules.txt)" = "$(printf "account_tax_balance\nnot_a_module")" ]'
 check "repair: it says so" hasF "Project 'acme-shop' repaired" out

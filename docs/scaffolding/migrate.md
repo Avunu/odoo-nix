@@ -3,7 +3,7 @@ title: Migrate an existing tree
 description: Bring an Odoo tree with OCB at odoo/ and module repositories under modules/ into odoo-nix in place, or repair a project that is already on it.
 order: 2
 tags: [scaffolding, migrate, odoo-init]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 Run the scaffolder in, or pointed at, a directory that is already an Odoo tree in odoo-nix's layout:
@@ -37,6 +37,6 @@ A tree inside another git repository is refused with exit code 8. `--force` crea
 
 ## Repair
 
-Run on an odoo-nix project, the same mode repairs it: missing template files come back, the path sources are regenerated and the project is re-locked. It keeps the `name` and `settings.dbName` that its `flake.nix` sets.
+Run on an odoo-nix project, the same mode repairs it: missing template files come back, the path sources are regenerated and the project is re-locked. It keeps the `name` and `dbName` that its `flake.nix` sets.
 
 See [Scaffolder](../reference/scaffolder.md) for every flag and exit code.

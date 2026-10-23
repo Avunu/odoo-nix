@@ -235,7 +235,7 @@
       };
 
       # checks.<system> (names: python-devops-nix CONVENTIONS.md, Tests):
-      #   addons-*, odoo-conf-*, odoo-conf-render             pure library tests (all systems)
+      #   addons-*, odoo-ini-*, odoo-ini-render               pure library tests (all systems)
       #   journald-formatter                                  the CLI's journald output (all systems)
       #   devguard-core, devguard, devguard-baked             the dev guard rails: base core, odoo-nix's side (all systems)
       #   sources                                             shell entry's submodule checkout (all systems)
@@ -253,6 +253,7 @@
       #   service-*                                           services.odoo-nix evaluation (Linux only)
       #   container-*                                         the OCI image's name, user, labels, healthcheck (Linux only)
       #   python-default-*                                    the series' default interpreter (Linux only)
+      #   settings-*                                          the dev shell's odoo.conf, by section (Linux only)
       #   rename-*, identity-*                                renamed dev-shell options (Linux only)
       #   {ports,mailpit,watch}-*, ci-mode, tree              the dev shell's option tree and its ports (Linux only)
       #   fixture-requires-python-<major>, built-odoo-{addons-path,version}-<major>,
@@ -296,18 +297,20 @@
         // {
           # The rendered INI, not just the attrset: pkgs.formats.ini is part of
           # the contract (True/False literals, extra sections verbatim).
-          odoo-conf-render = scriptCheck pkgs "odoo-conf-render" { } ''
+          odoo-ini-render = scriptCheck pkgs "odoo-ini-render" { } ''
             f=${evalTests.rendered}
             grep -qE '^\[dev_mailcatch\]$' "$f"
-            grep -qE '^enabled\s*=\s*True$' "$f"
-            grep -qE '^port\s*=\s*2525$' "$f"
-            grep -qE '^without_demo\s*=\s*True$' "$f"
-            grep -qE '^server_wide_modules\s*=\s*base,rpc,web,dev_mailcatch$' "$f"
-            grep -qE '^proxy_mode\s*=\s*True$' "$f"
-            refute grep -qE '^log_db\s*=' "$f"
-            refute grep -qE '^db_password\s*=' "$f"
-            grep -qE '^http_interface\s*=\s*127\.0\.0\.1$' "$f"
-            grep -qE '^limit_time_real\s*=\s*1200$' "$f"
+            grep -qE '^enabled=True$' "$f"
+            grep -qE '^port=2525$' "$f"
+            grep -qE '^without_demo=True$' "$f"
+            grep -qE '^list_db=False$' "$f"
+            grep -qE '^server_wide_modules=base,rpc,web,dev_mailcatch$' "$f"
+            grep -qE '^log_handler=werkzeug:WARNING$' "$f"
+            grep -qE '^proxy_mode=True$' "$f"
+            refute grep -qE '^log_db=' "$f"
+            refute grep -qE '^db_password=' "$f"
+            grep -qE '^http_interface=127\.0\.0\.1$' "$f"
+            grep -qE '^limit_time_real=1200$' "$f"
           '';
 
           # odoo_journald (lib/journald.nix) needs neither Odoo nor the CLI's
@@ -711,6 +714,14 @@
         // lib.optionalAttrs isLinux (
           evalChecks "" (
             import ./tests/shell-tree-eval.nix {
+              inherit pkgs lib inputs;
+              inherit (self.lib) mkFlake;
+            }
+          )
+        )
+        // lib.optionalAttrs isLinux (
+          evalChecks "" (
+            import ./tests/settings-eval.nix {
               inherit pkgs lib inputs;
               inherit (self.lib) mkFlake;
             }

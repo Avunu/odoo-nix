@@ -69,173 +69,47 @@ let
         name
       ];
 
-  # odoo.conf's [options], rendered by lib/odoo-conf.nix; the NixOS module's
-  # block has the same name. Was `odooConf`. Declared here, outside perSystem,
-  # so the renames below can list its options.
-  settingsOptions = {
-    dbHost = mkOption {
-      type = types.str;
-      default = "127.0.0.1";
-      description = "PostgreSQL host (empty string = unix socket).";
+  # A removed option (mkRemovedOptionModule reports through `assertions`,
+  # which perSystem has none of): defining it fails the shell's evaluation
+  # with the message, through `removals`, below.
+  removed =
+    path: instead:
+    { options, ... }:
+    let
+      opt = lib.getAttrFromPath path options;
+    in
+    {
+      options = lib.setAttrByPath path (mkOption {
+        type = types.anything;
+        visible = false;
+        description = "Removed: ${instead}";
+      });
+      config.odoo-nix.removals = lib.optional opt.isDefined "The option `${lib.showOption path}' defined in ${lib.showFiles opt.files} has been removed. ${instead}";
     };
-    dbUser = mkOption {
-      type = types.str;
-      default = "odoo";
-    };
-    dbPassword = mkOption {
-      type = types.str;
-      default = "False";
-      description = "DB password (\"False\" or \"\" = none, for dev: the key is then left out of odoo.conf).";
-    };
-    dbName = mkOption {
-      type = types.nullOr types.str;
-      default = "odoo_dev";
-      description = "Default database name (null to omit db_name from odoo.conf).";
-    };
-    dataDir = mkOption {
-      type = types.str;
-      default = "./.devenv/state/odoo";
-      description = "Odoo filestore data_dir (relative to the workspace root; gitignored under .devenv).";
-    };
-    adminPasswd = mkOption {
-      type = types.str;
-      default = "admin";
-      description = "Database manager master password (dev only).";
-    };
-    logging = {
-      level = mkOption {
-        type = types.enum [
-          "info"
-          "debug_rpc"
-          "warn"
-          "test"
-          "critical"
-          "runbot"
-          "debug_sql"
-          "error"
-          "debug"
-          "debug_rpc_answer"
-          "notset"
-        ];
-        default = "info";
-        description = "Root/default logging verbosity (log_level).";
-      };
-      handlers = mkOption {
-        type = types.listOf (types.strMatching "^[A-Za-z0-9_.]*:[A-Z]+$");
-        default = [ ];
-        example = [
-          "odoo.addons.my_module:DEBUG"
-          "werkzeug:WARNING"
-        ];
-        description = ''
-          Per-logger level overrides (log_handler), as "logger:LEVEL"
-          pairs. An empty prefix targets the root logger. The root
-          logger already defaults to INFO regardless of this list, so
-          entries here only need to cover the loggers you want to
-          override.
-        '';
-      };
-      db = mkOption {
-        type = types.either types.bool types.str;
-        default = false;
-        description = ''
-          Mirror log records into the database (log_db). `true`
-          (or "%d") logs to whichever database is active for each
-          request; a string pins logging to that database name.
-        '';
-      };
-      dbLevel = mkOption {
-        type = types.enum [
-          "debug"
-          "info"
-          "warning"
-          "error"
-          "critical"
-        ];
-        default = "warning";
-        description = "Minimum level mirrored to the database (log_db_level).";
-      };
-      file = mkOption {
-        type = types.nullOr types.str;
-        default = null;
-        description = ''
-          Write logs to this file (logfile) instead of stderr. Odoo's
-          file and stderr log handlers are mutually exclusive, so
-          setting this stops log records from reaching the dev
-          shell's console.
-        '';
-      };
-    };
-    httpInterface = mkOption {
-      type = types.str;
-      default = "127.0.0.1";
-      example = "0.0.0.0";
-      description = ''
-        Interface the dev server binds (http_interface). Loopback by
-        default -- a dev instance with `admin` as the master password
-        has no business on the LAN, and Odoo 20.0 makes this its own
-        default (19.0 warns whenever the key is absent). Set "0.0.0.0"
-        to reach the server from another host or container.
-      '';
-    };
-    workers = mkOption {
-      type = types.int;
-      default = 0;
-      description = "Worker processes (0 = threaded dev mode).";
-    };
-    devMode = mkOption {
-      type = types.str;
-      default = "all";
-      description = "Value for the dev process's --dev flag (CLI only, not in odoo.conf).";
-    };
-    extra = mkOption {
-      type = types.attrsOf (types.either types.str (types.either types.int types.bool));
-      default = { };
-      description = "Arbitrary extra [options] keys merged last into odoo.conf.";
-    };
-    withoutDemo = mkOption {
-      type = types.bool;
-      default = false;
-      description = ''
-        Skip loading demo data for every installed module
-        (`without_demo = True`: 18.0 only tests the value's
-        truthiness, 19.0 reads a boolean). Default `false` loads demo data,
-        matching Odoo's own default.
-      '';
-    };
-  };
 
-  # The ports moved out of settings (and odooConf) into the ports tree
-  # (python-devops-nix CONVENTIONS.md, The development shell option tree).
-  movedPorts = {
-    httpPort = "http";
-    geventPort = "gevent";
-    dbPort = "db";
+  # The dev shell's `settings` before 2.0.0 was a typed camelCase tree
+  # (settings.dbName, settings.logging.level, ...); it is odoo.conf by section
+  # now (NixOS RFC 42, python-devops-nix CONVENTIONS.md, Framework config
+  # blocks). A top-level key of the old tree is refused with where it went:
+  # left alone, `settings.logging = { ... }` would quietly become a
+  # [logging] section Odoo never reads.
+  removedSettings = {
+    dbHost = "settings.options.db_host";
+    dbUser = "settings.options.db_user";
+    dbPassword = "settings.options.db_password";
+    dbName = "dbName (top level, beside `name`)";
+    dataDir = "settings.options.data_dir";
+    adminPasswd = "settings.options.admin_passwd";
+    logging = "settings.options.{log_level,log_handler,log_db,log_db_level,logfile} (log_db = true is \"%d\")";
+    httpInterface = "settings.options.http_interface";
+    workers = "settings.options.workers";
+    devMode = "devMode (top level: it is odoo-bin's --dev flag, not an odoo.conf key)";
+    extra = "settings.options.<key>, each key as Odoo spells it";
+    withoutDemo = "settings.options.without_demo";
+    httpPort = "ports.http";
+    geventPort = "ports.gevent";
+    dbPort = "ports.db";
   };
-
-  # Every option under settings, as a path: odooConf.<path> is renamed to
-  # settings.<path> one option at a time. A doRename of the block as a whole
-  # would not carry a priority set inside it (odooConf.dbPort = mkForce ...).
-  settingsPaths = lib.collect lib.isList (
-    lib.mapAttrsRecursiveCond (a: !lib.isOption a) (path: _: path) settingsOptions
-  );
-  renamedSettings =
-    path:
-    renamed
-      (
-        [
-          "odoo-nix"
-          "odooConf"
-        ]
-        ++ path
-      )
-      (
-        [
-          "odoo-nix"
-          "settings"
-        ]
-        ++ path
-      );
 in
 {
   options.perSystem = mkPerSystemOption (
@@ -268,15 +142,14 @@ in
       ++ [
         (renamed [ "odoo-nix" "projectName" ] [ "odoo-nix" "name" ])
       ]
-      # Framework config blocks: each option keeps its name.
-      ++ map renamedSettings settingsPaths
-      # ...except the ports, which went on to the ports tree.
-      ++ lib.concatLists (
-        lib.mapAttrsToList (old: new: [
-          (renamed [ "odoo-nix" "odooConf" old ] [ "odoo-nix" "ports" new ])
-          (renamed [ "odoo-nix" "settings" old ] [ "odoo-nix" "ports" new ])
-        ]) movedPorts
-      );
+      # The 1.x `odooConf` block, whose options became the camelCase
+      # `settings` tree, which is odoo.conf by section now (see
+      # removedSettings).
+      ++ [
+        (removed [ "odoo-nix" "odooConf" ]
+          "Set odoo.conf's keys in settings.options.<key>, as Odoo spells them, the database in dbName and the ports in ports.*."
+        )
+      ];
 
       options.odoo-nix = {
         enable = mkEnableOption "Odoo + OCA devenv shell";
@@ -286,6 +159,13 @@ in
           default = [ ];
           internal = true;
           description = "Deprecated options in use, each warned about (lib.warn) when the shell's config is evaluated.";
+        };
+
+        removals = mkOption {
+          type = types.listOf types.str;
+          default = [ ];
+          internal = true;
+          description = "Removed options in use: evaluating the shell's config fails with all of them.";
         };
 
         name = mkOption {
@@ -374,7 +254,76 @@ in
           example = lib.literalExpression "{ python-snappy = [ pkgs.snappy ]; }";
         };
 
-        settings = settingsOptions;
+        dbName = mkOption {
+          type = types.nullOr types.str;
+          default = "odoo_dev";
+          example = "acme";
+          description = ''
+            The development database: odoo.conf's `db_name` (in
+            `settings.options`), the database the shell's PostgreSQL creates,
+            and the `odoo` command's default. `null` leaves `db_name` out of
+            odoo.conf and creates no database.
+          '';
+        };
+
+        devMode = mkOption {
+          type = types.str;
+          default = "all";
+          example = "reload,xml";
+          description = ''
+            The dev server's `--dev` flag: odoo-bin's command line only, not
+            an odoo.conf key. `watch.python` needs `all` or `reload` in it.
+          '';
+        };
+
+        settings = mkOption {
+          type =
+            let
+              odooIni = import ../lib/odoo-ini.nix { inherit pkgs lib; };
+            in
+            types.submodule {
+              freeformType = odooIni.type;
+              options.options = mkOption {
+                type = types.attrsOf odooIni.atomType;
+                default = { };
+                description = ''
+                  odoo.conf's `[options]` section, in Odoo's own key spelling.
+                  Holds every key the shell computes (most at `mkDefault`, so
+                  a value here wins); set any other key here too.
+                '';
+              };
+            };
+          default = { };
+          description = ''
+            The dev shell's odoo.conf, as Nix (NixOS RFC 42), the same shape
+            as `services.odoo-nix.settings`: one attribute per INI section, in
+            Odoo's own key spelling. `options` is `[options]`; any other
+            attribute is a section of its own, for a server-wide module that
+            reads one. Rendered by lib/odoo-ini.nix: `true`/`false` as
+            `True`/`False`, a list as one comma-separated value, `null` as no
+            key at all.
+
+            The shell sets what it computes into `options`, so this shows the
+            effective file. A plain value here wins over `admin_passwd`,
+            `data_dir`, `db_host`, `db_user`, `http_interface`, `log_level`,
+            `log_db_level`, `server_wide_modules` and `workers`. The shell's
+            own keys are set at normal priority and conflict with a second
+            value: `addons_path` (from `layout` and `coreSource`),
+            `http_port`, `gevent_port` and `db_port` (from `ports`), and
+            `db_name` (from `dbName`).
+          '';
+          example = lib.literalExpression ''
+            {
+              options = {
+                log_level = "debug";
+                log_handler = [ "werkzeug:WARNING" ];
+                without_demo = true;
+                limit_time_real = 1200;
+              };
+              queue_job.channels = "root:2";
+            }
+          '';
+        };
 
         postgres = {
           extensions = mkOption {
@@ -437,8 +386,8 @@ in
               XML views, QWeb templates and asset bundles do not need this --
               `--dev=xml` already re-reads them from disk per request.
 
-              Requires `settings.workers = 0` (the default) and a
-              `settings.devMode` with `reload` (or `all`): the shell warns
+              Requires `settings.options.workers = 0` (the default) and a
+              `devMode` with `reload` (or `all`): the shell warns
               otherwise. Was `dev.autoReload`.
             '';
           };
@@ -903,14 +852,37 @@ in
     perSystem =
       {
         config,
+        options,
         pkgs,
         lib,
         ...
       }:
       let
-        # Every read of cfg goes through the deprecation warnings first
-        # (perSystem has no `warnings` option to collect them).
-        cfg = lib.foldr lib.warn config.odoo-nix config.odoo-nix.deprecations;
+        # Every read of cfg goes through the removed options' error and the
+        # deprecation warnings first (perSystem has no `assertions` or
+        # `warnings` option to collect them).
+        cfg =
+          if config.odoo-nix.removals != [ ] then
+            throw ''
+              odoo-nix: ${lib.concatStringsSep "\n" config.odoo-nix.removals}
+              See odoo-nix's docs/development/upgrading.md, "1.x to 2.0".''
+          else
+            lib.foldr lib.warn config.odoo-nix config.odoo-nix.deprecations;
+
+        # The 1.x camelCase tree's keys in a `settings` definition
+        # (removedSettings), with where they are written.
+        settingsRemovals = lib.concatMap (
+          d:
+          lib.optionals (builtins.isAttrs d.value && !(d.value ? _type)) (
+            map (
+              k:
+              "settings.${k} (in ${toString d.file}) is the 1.x camelCase settings tree; it is ${removedSettings.${k}} now."
+            ) (lib.filter (k: removedSettings ? ${k}) (lib.attrNames d.value))
+          )
+        ) options.odoo-nix.settings.definitionsWithLocations;
+
+        # odoo.conf's INI dialect, shared with the NixOS module.
+        odooIni = import ../lib/odoo-ini.nix { inherit pkgs lib; };
 
         # python-devops-nix's Python pieces: the BLAS thread caps, rich for
         # the banner, and (in lib/python.nix) the package fixes and the
@@ -995,25 +967,9 @@ in
           extraAddonsAbs = lib.optional cfg.devguard.enable odooNixAddons;
         };
 
-        confSynth = import ../lib/odoo-conf.nix {
-          inherit pkgs lib;
-          # odoo.conf's ports come from the ports tree.
-          settings = cfg.settings // {
-            httpPort = cfg.ports.http;
-            geventPort = cfg.ports.gevent;
-            dbPort = cfg.ports.db;
-          };
-          inherit (addons) addonsPath;
-          # Setting the key at all replaces Odoo's own default, so the
-          # series' full default set has to be reproduced: 19.0 added `rpc`
-          # (DEFAULT_SERVER_WIDE_MODULES = base,rpc,web) and would otherwise
-          # lose XML-RPC/JSON-RPC entirely.
-          serverWideModules = [
-            "base"
-          ]
-          ++ lib.optional (lib.versionAtLeast cfg.odooSeries "19.0") "rpc"
-          ++ [ "web" ];
-        };
+        # The dev odoo.conf: `settings` as the config below fills it in. The
+        # name and the text alone make its store path.
+        odooConfFile = odooIni.generate "odoo.conf" (removeAttrs cfg.settings [ "_module" ]);
 
         # Secrets + remote restore (see modules/secrets.nix): the
         # python-devops-nix toolkit (PLAN.md, Phase 2), with odoo-nix's names.
@@ -1372,308 +1328,370 @@ in
           ++ cfg.extraLibraryPaths
         );
       in
-      lib.mkIf cfg.enable {
-        packages.odooPythonEnv = pythonEnvs.odooPythonEnv;
-        packages.odooDevEnv = pythonEnvs.devPythonEnv;
-        packages.odooTestEnv = pythonEnvs.testPythonEnv;
-        packages.odooConf = confSynth.odooConfFile;
-        # builtOdoo (lib/odoo.nix) is the un-wrapped assembled tree, still
-        # available directly for anything that specifically wants it (e.g.
-        # tests/series.nix asserts against it). `default`/`package` -- what
-        # services.odoo-nix and the container builder actually consume -- is
-        # the CLI-wrapped production build: `${pkg}/bin/odoo` handles
-        # db/module/project subcommands and passes anything else straight to
-        # the real odoo-bin (`passthru.builtOdoo`'s bin/odoo, which the
-        # wrapper execs via $ODOO_NIX_RAW_ODOO).
-        packages.builtOdoo = builtOdoo;
-        packages.odooCli = odooCliDev;
-        packages.default = odooCliProd;
-        packages.odoo-ls = cfg.ide.languageServer.package;
+      lib.mkMerge [
+        { odoo-nix.removals = settingsRemovals; }
 
-        devenv.shells.default =
-          { config, lib, ... }:
-          {
-            # devenv's dotenv integration is loaded by the devenv CLI and
-            # asserts against being combined with the flake integration
-            # (`nix develop`, as opposed to `devenv shell`) — enabling it
-            # unconditionally breaks every flake-based consumer of this
-            # module. `mkDefault` keeps `.env` loading for `devenv shell`
-            # while a flake-integrated shell falls back to off, and a
-            # consumer can still override either way.
-            dotenv.enable = lib.mkDefault (!config.devenv.flakesIntegration);
-
-            # devenv's "Name of the project": the shell and the product agree
-            # (python-devops-nix CONVENTIONS.md, Identity options).
-            name = lib.mkDefault cfg.name;
-
-            packages =
-              with pkgs;
-              [
-                pythonEnvs.devPythonEnv
-                # hiPrio: OCB itself ships a console-script entry point named
-                # `odoo` (installed by uv2nix into devPythonEnv), colliding
-                # with this CLI's own `bin/odoo`. devenv orders `packages` by
-                # meta.priority precisely for this -- "packages wrapped with
-                # lib.hiPrio shadow other packages that ship a program with
-                # the same name" (devenv's own top-level.nix) -- rather than
-                # relying on list order, which the two already silently
-                # collided on once (OCB's script winning, shadowing this one)
-                # before this was diagnosed.
-                (lib.hiPrio odooCliDev)
-
-                # Odoo runtime / asset tooling
-                cfg.nodejs
-                rtlcss
-                wkhtmltopdf
-
-                # DB client + native libs
-                postgresql_16
-                libsass
-                libxml2
-                libxslt
-
-                # Tooling
-                uv
-                gawk
-                mailpit
-                curl
-                file
-                git
-                gnused
-                jq
-                just
+        # odoo.conf's [options] from the shell's own options. Under
+        # config.odoo-nix.enable, not cfg.enable: settingsRemovals reads
+        # these definitions, and cfg waits for it.
+        (lib.mkIf config.odoo-nix.enable {
+          odoo-nix.settings.options = lib.mkMerge [
+            # The shell's: odoo.conf has to agree with what it runs. The
+            # ports are the ports tree's (PostgreSQL listens on ports.db, the
+            # banner and ODOO_NIX_HTTP_PORT name ports.http), the addons the
+            # layout's, and db_name dbName's. Normal priority, so a second
+            # value is a conflict, not a silent override: change `ports.*`,
+            # `layout` or `dbName`, or use mkForce.
+            (
+              {
+                addons_path = addons.addonsPath;
+                http_port = cfg.ports.http;
+                gevent_port = cfg.ports.gevent;
+                db_port = cfg.ports.db;
+              }
+              // lib.optionalAttrs (cfg.dbName != null) { db_name = cfg.dbName; }
+            )
+            # Everything else is a default a project may override.
+            (lib.mapAttrs (_: lib.mkDefault) {
+              db_host = "127.0.0.1";
+              # The role the shell's PostgreSQL creates (initialScript reads
+              # it back from here).
+              db_user = "odoo";
+              # Relative to the workspace root, gitignored under .devenv; the
+              # shell creates it.
+              data_dir = "./.devenv/state/odoo";
+              # The database manager's master password, for a dev instance.
+              admin_passwd = "admin";
+              # Loopback: a dev instance with `admin` as its master password
+              # has no business on the LAN, and 20.0 makes this its own
+              # default (19.0 warns whenever the key is absent).
+              http_interface = "127.0.0.1";
+              # Threaded: watch.python's reloader runs on that server only.
+              workers = 0;
+              log_level = "info";
+              log_db_level = "warning";
+              # Setting the key at all replaces Odoo's own default, so the
+              # series' full default set is reproduced: 19.0 added `rpc`
+              # (DEFAULT_SERVER_WIDE_MODULES = base,rpc,web) and would
+              # otherwise lose XML-RPC/JSON-RPC entirely.
+              server_wide_modules = [
+                "base"
               ]
-              ++ lib.optional (cfg.testBrowser != null) cfg.testBrowser
-              ++ lib.optional (cfg.ide.enable && cfg.ide.languageServer.enable) cfg.ide.languageServer.package
-              ++ secretsTools.packages
-              ++ lib.optional restoreEnabled pkgs.minio-client
-              # For the one-off `odoo-nix-db-nocow migrate` shell entry asks for.
-              ++ lib.optional (cfg.postgres.noCow && pkgs.stdenv.hostPlatform.isLinux) dbNocow
-              ++ cfg.extraDevPackages;
+              ++ lib.optional (lib.versionAtLeast cfg.odooSeries "19.0") "rpc"
+              ++ [ "web" ];
+            })
+          ];
+        })
 
-            env = {
-              REPO_ROOT = config.devenv.root;
-              ODOO_RC = config.devenv.root + "/odoo.conf";
-              PYTHONPATH = config.devenv.root + "/${cfg.layout.coreSrc}";
+        (lib.mkIf cfg.enable {
+          packages.odooPythonEnv = pythonEnvs.odooPythonEnv;
+          packages.odooDevEnv = pythonEnvs.devPythonEnv;
+          packages.odooTestEnv = pythonEnvs.testPythonEnv;
+          packages.odooConf = odooConfFile;
+          # builtOdoo (lib/odoo.nix) is the un-wrapped assembled tree, still
+          # available directly for anything that specifically wants it (e.g.
+          # tests/series.nix asserts against it). `default`/`package` -- what
+          # services.odoo-nix and the container builder actually consume -- is
+          # the CLI-wrapped production build: `${pkg}/bin/odoo` handles
+          # db/module/project subcommands and passes anything else straight to
+          # the real odoo-bin (`passthru.builtOdoo`'s bin/odoo, which the
+          # wrapper execs via $ODOO_NIX_RAW_ODOO).
+          packages.builtOdoo = builtOdoo;
+          packages.odooCli = odooCliDev;
+          packages.default = odooCliProd;
+          packages.odoo-ls = cfg.ide.languageServer.package;
 
-              # NOTE: PGHOST/PGPORT/PGUSER are provided by devenv's postgres
-              # service — do not set them here (it causes an option conflict).
-              # Odoo connects via odoo.conf (db_host/db_port/db_user), not PG*.
+          devenv.shells.default =
+            { config, lib, ... }:
+            {
+              # devenv's dotenv integration is loaded by the devenv CLI and
+              # asserts against being combined with the flake integration
+              # (`nix develop`, as opposed to `devenv shell`) — enabling it
+              # unconditionally breaks every flake-based consumer of this
+              # module. `mkDefault` keeps `.env` loading for `devenv shell`
+              # while a flake-integrated shell falls back to off, and a
+              # consumer can still override either way.
+              dotenv.enable = lib.mkDefault (!config.devenv.flakesIntegration);
 
-              ODOO_NIX_HTTP_PORT = toString cfg.ports.http;
-              ODOO_NIX_GEVENT_PORT = toString cfg.ports.gevent;
-              # The old names (Tool-owned variables), exported through 1.x,
-              # removed in 2.0.0.
-              ODOO_HTTP_PORT = toString cfg.ports.http;
-              ODOO_GEVENT_PORT = toString cfg.ports.gevent;
-              # Single source of truth: the same values are baked into the
-              # devguard's settings (lib/devguard.nix), so Odoo and Mailpit can
-              # never drift apart.
-              MAILPIT_SMTP_HOST = cfg.mailpit.host;
-              MAILPIT_SMTP_PORT = toString cfg.mailpit.port;
-              MAILPIT_HTTP_PORT = toString cfg.mailpit.httpPort;
+              # devenv's "Name of the project": the shell and the product agree
+              # (python-devops-nix CONVENTIONS.md, Identity options).
+              name = lib.mkDefault cfg.name;
 
-              # The Nix-time devguard switch, read by `odoo db restore`: unlike
-              # $ODOO_DEVGUARD_ENABLED (per command) this is a property of the
-              # project, and its mere presence says "this is a dev shell".
-              ODOO_NIX_DEVGUARD = if cfg.devguard.enable then "1" else "0";
+              packages =
+                with pkgs;
+                [
+                  pythonEnvs.devPythonEnv
+                  # hiPrio: OCB itself ships a console-script entry point named
+                  # `odoo` (installed by uv2nix into devPythonEnv), colliding
+                  # with this CLI's own `bin/odoo`. devenv orders `packages` by
+                  # meta.priority precisely for this -- "packages wrapped with
+                  # lib.hiPrio shadow other packages that ship a program with
+                  # the same name" (devenv's own top-level.nix) -- rather than
+                  # relying on list order, which the two already silently
+                  # collided on once (OCB's script winning, shadowing this one)
+                  # before this was diagnosed.
+                  (lib.hiPrio odooCliDev)
 
-              UV_PROJECT_ENVIRONMENT = config.env.DEVENV_STATE + "/uv-env";
-              LD_LIBRARY_PATH = libraryPath;
-            }
-            // threadCaps
-            // {
-              ODOO_NIX_RESTORE_PREFIX = cfg.restore.prefix;
-              ODOO_NIX_RESTORE_SOURCE_DB = cfg.restore.sourceDatabase;
-              ODOO_NIX_RESTORE_FILES = if cfg.restore.files then "1" else "0";
-              ODOO_NIX_RESTORE_NEUTRALIZE = if cfg.restore.neutralize then "1" else "0";
-              ODOO_NIX_RESTORE_MIGRATE = if cfg.restore.migrate then "1" else "0";
-              ODOO_NIX_RESTORE_REQUIRE_DEVGUARD = if cfg.restore.requireDevguard then "1" else "0";
-            }
-            // cfg.extraEnv;
+                  # Odoo runtime / asset tooling
+                  cfg.nodejs
+                  rtlcss
+                  wkhtmltopdf
 
-            # Both of these fail silently in Odoo -- a disabled watcher is one
-            # INFO line in a very noisy log -- which is exactly how the dev
-            # server shipped with reload requested but never running.
-            warnings =
-              let
-                devFeatures = lib.splitString "," cfg.settings.devMode;
-              in
-              lib.optional (cfg.watch.python && cfg.settings.workers != 0) ''
-                odoo-nix: watch.python is on but settings.workers = ${toString cfg.settings.workers}.
-                Odoo's reload watcher only runs on the threaded server; set workers = 0 for it to take effect.
-              ''
-              ++
-                lib.optional (cfg.watch.python && !lib.elem "all" devFeatures && !lib.elem "reload" devFeatures)
-                  ''
-                    odoo-nix: watch.python is on but settings.devMode = "${cfg.settings.devMode}" requests
-                    neither "all" nor "reload", so Odoo will not start a file watcher.
-                  ''
-              ++ lib.optional (cfg.devguard.enable && cfg.devguard.mail.enable && !cfg.mailpit.enable) ''
-                odoo-nix: the mail guard is on but mailpit.enable is false: mail is redirected to
-                ${cfg.mailpit.host}:${toString cfg.mailpit.port}, where nothing listens, so sending fails.
-              '';
+                  # DB client + native libs
+                  postgresql_16
+                  libsass
+                  libxml2
+                  libxslt
 
-            services.postgres = {
-              enable = true;
-              package = pkgs.postgresql_16;
-              # devenv wraps the server in `withPackages` whenever this is
-              # non-null, even for an empty list; keep the plain package unless
-              # something is actually requested.
-              extensions =
-                if cfg.postgres.extensions pkgs.postgresql_16.pkgs == [ ] then null else cfg.postgres.extensions;
-              listen_addresses = "127.0.0.1";
-              port = cfg.ports.db;
-              initialDatabases = lib.optional (cfg.settings.dbName != null) {
-                name = cfg.settings.dbName;
-              };
-              # Odoo's DB role needs CREATEDB to create/drop databases from the UI.
-              initialScript = ''
-                CREATE ROLE ${cfg.settings.dbUser} WITH LOGIN CREATEDB SUPERUSER;
-              '';
-            };
-            # NOTE: no services.redis — Odoo uses filesystem/DB sessions.
+                  # Tooling
+                  uv
+                  gawk
+                  mailpit
+                  curl
+                  file
+                  git
+                  gnused
+                  jq
+                  just
+                ]
+                ++ lib.optional (cfg.testBrowser != null) cfg.testBrowser
+                ++ lib.optional (cfg.ide.enable && cfg.ide.languageServer.enable) cfg.ide.languageServer.package
+                ++ secretsTools.packages
+                ++ lib.optional restoreEnabled pkgs.minio-client
+                # For the one-off `odoo-nix-db-nocow migrate` shell entry asks for.
+                ++ lib.optional (cfg.postgres.noCow && pkgs.stdenv.hostPlatform.isLinux) dbNocow
+                ++ cfg.extraDevPackages;
 
-            processes = {
-              # Single threaded dev server: serves HTTP + websocket (gevent_port)
-              # in-process when workers = 0.
-              odoo.exec = ''
-                ${lib.optionalString cfg.watch.python ''
-                  # A project that pins watchdog in [dependency-groups].dev wins;
-                  # otherwise fill it in from nixpkgs so Odoo's --dev=reload
-                  # watcher has something to import. PYTHONPATH precedes
-                  # site-packages, hence the probe rather than an unconditional
-                  # prepend. os.execve carries this across every reload.
-                  if ! ${pythonEnvs.devPythonEnv}/bin/python -c 'import watchdog' 2>/dev/null; then
-                    export PYTHONPATH="${watchdogFallback}''${PYTHONPATH:+:$PYTHONPATH}"
-                  fi
-                ''}
-                exec ${pythonEnvs.devPythonEnv}/bin/python \
-                  "$REPO_ROOT/${cfg.layout.coreSrc}/odoo-bin" \
-                  -c "$REPO_ROOT/odoo.conf" \
-                  --dev=${cfg.settings.devMode}
-              '';
+              env = {
+                REPO_ROOT = config.devenv.root;
+                ODOO_RC = config.devenv.root + "/odoo.conf";
+                PYTHONPATH = config.devenv.root + "/${cfg.layout.coreSrc}";
 
-              mailpit = lib.mkIf cfg.mailpit.enable {
-                exec = ''
-                  exec ${pkgs.mailpit}/bin/mailpit \
-                    --smtp "$MAILPIT_SMTP_HOST:$MAILPIT_SMTP_PORT" \
-                    --listen "127.0.0.1:$MAILPIT_HTTP_PORT" \
-                    --database "$DEVENV_STATE/mailpit.db"
+                # NOTE: PGHOST/PGPORT/PGUSER are provided by devenv's postgres
+                # service — do not set them here (it causes an option conflict).
+                # Odoo connects via odoo.conf (db_host/db_port/db_user), not PG*.
+
+                ODOO_NIX_HTTP_PORT = toString cfg.ports.http;
+                ODOO_NIX_GEVENT_PORT = toString cfg.ports.gevent;
+                # The old names (Tool-owned variables), exported through 1.x,
+                # removed in 2.0.0.
+                ODOO_HTTP_PORT = toString cfg.ports.http;
+                ODOO_GEVENT_PORT = toString cfg.ports.gevent;
+                # Single source of truth: the same values are baked into the
+                # devguard's settings (lib/devguard.nix), so Odoo and Mailpit can
+                # never drift apart.
+                MAILPIT_SMTP_HOST = cfg.mailpit.host;
+                MAILPIT_SMTP_PORT = toString cfg.mailpit.port;
+                MAILPIT_HTTP_PORT = toString cfg.mailpit.httpPort;
+
+                # The Nix-time devguard switch, read by `odoo db restore`: unlike
+                # $ODOO_DEVGUARD_ENABLED (per command) this is a property of the
+                # project, and its mere presence says "this is a dev shell".
+                ODOO_NIX_DEVGUARD = if cfg.devguard.enable then "1" else "0";
+
+                UV_PROJECT_ENVIRONMENT = config.env.DEVENV_STATE + "/uv-env";
+                LD_LIBRARY_PATH = libraryPath;
+              }
+              // threadCaps
+              // {
+                ODOO_NIX_RESTORE_PREFIX = cfg.restore.prefix;
+                ODOO_NIX_RESTORE_SOURCE_DB = cfg.restore.sourceDatabase;
+                ODOO_NIX_RESTORE_FILES = if cfg.restore.files then "1" else "0";
+                ODOO_NIX_RESTORE_NEUTRALIZE = if cfg.restore.neutralize then "1" else "0";
+                ODOO_NIX_RESTORE_MIGRATE = if cfg.restore.migrate then "1" else "0";
+                ODOO_NIX_RESTORE_REQUIRE_DEVGUARD = if cfg.restore.requireDevguard then "1" else "0";
+              }
+              // cfg.extraEnv;
+
+              # Both of these fail silently in Odoo -- a disabled watcher is one
+              # INFO line in a very noisy log -- which is exactly how the dev
+              # server shipped with reload requested but never running.
+              warnings =
+                let
+                  devFeatures = lib.splitString "," cfg.devMode;
+                  workers = cfg.settings.options.workers or 0;
+                in
+                lib.optional (cfg.watch.python && toString workers != "0") ''
+                  odoo-nix: watch.python is on but settings.options.workers = ${toString workers}.
+                  Odoo's reload watcher only runs on the threaded server; set workers = 0 for it to take effect.
+                ''
+                ++
+                  lib.optional (cfg.watch.python && !lib.elem "all" devFeatures && !lib.elem "reload" devFeatures)
+                    ''
+                      odoo-nix: watch.python is on but devMode = "${cfg.devMode}" requests
+                      neither "all" nor "reload", so Odoo will not start a file watcher.
+                    ''
+                ++ lib.optional (cfg.devguard.enable && cfg.devguard.mail.enable && !cfg.mailpit.enable) ''
+                  odoo-nix: the mail guard is on but mailpit.enable is false: mail is redirected to
+                  ${cfg.mailpit.host}:${toString cfg.mailpit.port}, where nothing listens, so sending fails.
+                '';
+
+              services.postgres = {
+                enable = true;
+                package = pkgs.postgresql_16;
+                # devenv wraps the server in `withPackages` whenever this is
+                # non-null, even for an empty list; keep the plain package unless
+                # something is actually requested.
+                extensions =
+                  if cfg.postgres.extensions pkgs.postgresql_16.pkgs == [ ] then null else cfg.postgres.extensions;
+                listen_addresses = "127.0.0.1";
+                port = cfg.ports.db;
+                initialDatabases = lib.optional (cfg.dbName != null) {
+                  name = cfg.dbName;
+                };
+                # Odoo's DB role needs CREATEDB to create/drop databases from the UI.
+                initialScript = ''
+                  CREATE ROLE ${cfg.settings.options.db_user} WITH LOGIN CREATEDB SUPERUSER;
                 '';
               };
-            };
+              # NOTE: no services.redis — Odoo uses filesystem/DB sessions.
 
-            # Cross-manager ordering. `process.managers.process-compose.settings`
-            # would be ignored outright: devenv 2.0+ defaults
-            # process.manager.implementation to "native", and that block only
-            # applies under process-compose. `processes.<n>.after` is honoured by
-            # the native manager and translated back into process-compose's
-            # depends_on (@started -> process_started) for older CLIs.
-            processes.odoo.after = [
-              "devenv:processes:postgres@started"
-            ]
-            # The catcher before the server, mail guard or not, so a server
-            # never sends to a catcher that is not up yet.
-            ++ lib.optional cfg.mailpit.enable "devenv:processes:mailpit@started";
+              processes = {
+                # Single threaded dev server: serves HTTP + websocket (gevent_port)
+                # in-process when workers = 0.
+                odoo.exec = ''
+                  ${lib.optionalString cfg.watch.python ''
+                    # A project that pins watchdog in [dependency-groups].dev wins;
+                    # otherwise fill it in from nixpkgs so Odoo's --dev=reload
+                    # watcher has something to import. PYTHONPATH precedes
+                    # site-packages, hence the probe rather than an unconditional
+                    # prepend. os.execve carries this across every reload.
+                    if ! ${pythonEnvs.devPythonEnv}/bin/python -c 'import watchdog' 2>/dev/null; then
+                      export PYTHONPATH="${watchdogFallback}''${PYTHONPATH:+:$PYTHONPATH}"
+                    fi
+                  ''}
+                  exec ${pythonEnvs.devPythonEnv}/bin/python \
+                    "$REPO_ROOT/${cfg.layout.coreSrc}/odoo-bin" \
+                    -c "$REPO_ROOT/odoo.conf" \
+                    --dev=${cfg.devMode}
+                '';
 
-            enterShell = ''
-              ${ciMode.exports}
-              ${lib.optionalString (cfg.postgres.noCow && pkgs.stdenv.hostPlatform.isLinux) ''
-                # Before `devenv up` runs initdb: the btrfs NOCOW attribute only
-                # reaches files created after it is set (python-devops-nix's
-                # lib.dbNocow, strategy "parent").
-                ${lib.getExe dbNocow} prepare "''${PGDATA:-$DEVENV_STATE/postgres}" || true
-              ''}
-              ${lib.optionalString (cfg.coreSource != null) ''
-                # OCB comes from a flake input: keep <coreSrc> a symlink to it so
-                # odoo-bin, the scripts and the IDE mirror all find it where the
-                # submodule layout would have it (`uv lock` goes through a
-                # writable shadow of it, see lib/odoo_nix_cli/workspace/lock.py). A real directory
-                # there is a leftover submodule checkout — never clobber it silently.
-                if [ "$(readlink "${cfg.layout.coreSrc}" 2>/dev/null)" != "${toString cfg.coreSource}" ]; then
-                  if [ -e "${cfg.layout.coreSrc}" ] && [ ! -L "${cfg.layout.coreSrc}" ]; then
-                    echo "odoo-nix: ${cfg.layout.coreSrc}/ exists but coreSource is set; remove the" >&2
-                    echo "          checkout (git submodule deinit / rm -rf) so it can become a symlink." >&2
-                  else
-                    ln -sfn "${toString cfg.coreSource}" "${cfg.layout.coreSrc}"
-                  fi
-                fi
-              ''}
-              # Check out the git submodules this clone has never had -- a
-              # fresh clone's, on its first entry -- scoped to just those
-              # paths, so an already-initialized submodule is never touched
-              # here even if its checked-out commit differs from what the
-              # superproject's index records. That divergent state is exactly
-              # what `odoo project update` leaves things in until the new
-              # pointers are committed; a blanket `git submodule update` would
-              # silently reset it back on every shell entry. Nor is one that
-              # was set up and has since been removed or deinitialized brought
-              # back: submodules should only ever move via an explicit `odoo
-              # project update`. python-devops-nix's lib.sources; skipped in CI
-              # mode, where the job checks out what it needs.
-              ${ciMode.unlessCi ''
-                ${lib.getExe sources} enter --treeless ${lib.escapeShellArg cfg.layout.coreSrc} "$DEVENV_ROOT" || true
-              ''}
-
-              # Symlink the Nix-synthesized odoo.conf into place (read-only store
-              # target; odoo-bin -c consumes it, never rewrites it).
-              if [ "$(readlink odoo.conf 2>/dev/null)" != "${confSynth.odooConfFile}" ]; then
-                ln -sfn "${confSynth.odooConfFile}" odoo.conf
-              fi
-
-              # Ensure the filestore + custom-addons dirs exist.
-              mkdir -p "${cfg.settings.dataDir}" "${cfg.layout.customDir}"
-
-              ${lib.optionalString cfg.ide.enable ideSetup}
-
-              ${lib.optionalString (cfg.ide.enable && cfg.ide.languageServer.enable) ''
-                # Symlink the Nix-synthesized odools.toml into place, same as
-                # odoo.conf above.
-                if [ "$(readlink odools.toml 2>/dev/null)" != "${odoolsTomlFile}" ]; then
-                  ln -sfn "${odoolsTomlFile}" odools.toml
-                fi
-              ''}
-
-              ${lib.optionalString (cfg.ide.enable && cfg.ide.vscodeSettings) ''
-                # Seeded once; a project's own settings are never overwritten.
-                if [ ! -e "$DEVENV_ROOT/.vscode/settings.json" ]; then
-                  mkdir -p "$DEVENV_ROOT/.vscode"
-                  install -m 644 "${vscodeSettingsFile}" "$DEVENV_ROOT/.vscode/settings.json"
-                fi
-              ''}
-
-              ${lib.optionalString (cfg.ide.enable && cfg.ide.languageServer.enable && cfg.ide.vscodeSettings) ''
-                # Prompts VS Code to offer installing Odoo.odoo (the odoo-ls
-                # client). Seeded once, same as settings.json above.
-                if [ ! -e "$DEVENV_ROOT/.vscode/extensions.json" ]; then
-                  mkdir -p "$DEVENV_ROOT/.vscode"
-                  install -m 644 "${vscodeExtensionsFile}" "$DEVENV_ROOT/.vscode/extensions.json"
-                fi
-              ''}
-
-              ${ciMode.banner {
-                inherit (cfg) name;
-                details = "Odoo ${cfg.odooSeries}, http ${toString cfg.ports.http}";
-                interactive = inputs.python-devops-nix.lib.banner.script {
-                  inherit pkgs;
-                  inherit (shellTools) banner;
-                  spec = bannerSpec;
+                mailpit = lib.mkIf cfg.mailpit.enable {
+                  exec = ''
+                    exec ${pkgs.mailpit}/bin/mailpit \
+                      --smtp "$MAILPIT_SMTP_HOST:$MAILPIT_SMTP_PORT" \
+                      --listen "127.0.0.1:$MAILPIT_HTTP_PORT" \
+                      --database "$DEVENV_STATE/mailpit.db"
+                  '';
                 };
-              }}
-            '';
+              };
 
-            # odoo-nix's own site-maintenance commands are the `odoo` CLI
-            # package above now (db/module/project subcommands), not devenv
-            # scripts -- this option remains solely for a consumer's own
-            # custom scripts.
-            scripts =
-              secretsTools.scripts {
-                # setup-backup-access only when remote restores are on.
-                fetch = if cfg.restore.enable then lib.getExe backupFetch else null;
-              }
-              // cfg.extraScripts;
-          };
-      };
+              # Cross-manager ordering. `process.managers.process-compose.settings`
+              # would be ignored outright: devenv 2.0+ defaults
+              # process.manager.implementation to "native", and that block only
+              # applies under process-compose. `processes.<n>.after` is honoured by
+              # the native manager and translated back into process-compose's
+              # depends_on (@started -> process_started) for older CLIs.
+              processes.odoo.after = [
+                "devenv:processes:postgres@started"
+              ]
+              # The catcher before the server, mail guard or not, so a server
+              # never sends to a catcher that is not up yet.
+              ++ lib.optional cfg.mailpit.enable "devenv:processes:mailpit@started";
+
+              enterShell = ''
+                ${ciMode.exports}
+                ${lib.optionalString (cfg.postgres.noCow && pkgs.stdenv.hostPlatform.isLinux) ''
+                  # Before `devenv up` runs initdb: the btrfs NOCOW attribute only
+                  # reaches files created after it is set (python-devops-nix's
+                  # lib.dbNocow, strategy "parent").
+                  ${lib.getExe dbNocow} prepare "''${PGDATA:-$DEVENV_STATE/postgres}" || true
+                ''}
+                ${lib.optionalString (cfg.coreSource != null) ''
+                  # OCB comes from a flake input: keep <coreSrc> a symlink to it so
+                  # odoo-bin, the scripts and the IDE mirror all find it where the
+                  # submodule layout would have it (`uv lock` goes through a
+                  # writable shadow of it, see lib/odoo_nix_cli/workspace/lock.py). A real directory
+                  # there is a leftover submodule checkout — never clobber it silently.
+                  if [ "$(readlink "${cfg.layout.coreSrc}" 2>/dev/null)" != "${toString cfg.coreSource}" ]; then
+                    if [ -e "${cfg.layout.coreSrc}" ] && [ ! -L "${cfg.layout.coreSrc}" ]; then
+                      echo "odoo-nix: ${cfg.layout.coreSrc}/ exists but coreSource is set; remove the" >&2
+                      echo "          checkout (git submodule deinit / rm -rf) so it can become a symlink." >&2
+                    else
+                      ln -sfn "${toString cfg.coreSource}" "${cfg.layout.coreSrc}"
+                    fi
+                  fi
+                ''}
+                # Check out the git submodules this clone has never had -- a
+                # fresh clone's, on its first entry -- scoped to just those
+                # paths, so an already-initialized submodule is never touched
+                # here even if its checked-out commit differs from what the
+                # superproject's index records. That divergent state is exactly
+                # what `odoo project update` leaves things in until the new
+                # pointers are committed; a blanket `git submodule update` would
+                # silently reset it back on every shell entry. Nor is one that
+                # was set up and has since been removed or deinitialized brought
+                # back: submodules should only ever move via an explicit `odoo
+                # project update`. python-devops-nix's lib.sources; skipped in CI
+                # mode, where the job checks out what it needs.
+                ${ciMode.unlessCi ''
+                  ${lib.getExe sources} enter --treeless ${lib.escapeShellArg cfg.layout.coreSrc} "$DEVENV_ROOT" || true
+                ''}
+
+                # Symlink the Nix-synthesized odoo.conf into place (read-only store
+                # target; odoo-bin -c consumes it, never rewrites it).
+                if [ "$(readlink odoo.conf 2>/dev/null)" != "${odooConfFile}" ]; then
+                  ln -sfn "${odooConfFile}" odoo.conf
+                fi
+
+                # Ensure the filestore + custom-addons dirs exist.
+                mkdir -p ${
+                  lib.escapeShellArgs (
+                    lib.optional (cfg.settings.options.data_dir or null != null) cfg.settings.options.data_dir
+                    ++ [ cfg.layout.customDir ]
+                  )
+                }
+
+                ${lib.optionalString cfg.ide.enable ideSetup}
+
+                ${lib.optionalString (cfg.ide.enable && cfg.ide.languageServer.enable) ''
+                  # Symlink the Nix-synthesized odools.toml into place, same as
+                  # odoo.conf above.
+                  if [ "$(readlink odools.toml 2>/dev/null)" != "${odoolsTomlFile}" ]; then
+                    ln -sfn "${odoolsTomlFile}" odools.toml
+                  fi
+                ''}
+
+                ${lib.optionalString (cfg.ide.enable && cfg.ide.vscodeSettings) ''
+                  # Seeded once; a project's own settings are never overwritten.
+                  if [ ! -e "$DEVENV_ROOT/.vscode/settings.json" ]; then
+                    mkdir -p "$DEVENV_ROOT/.vscode"
+                    install -m 644 "${vscodeSettingsFile}" "$DEVENV_ROOT/.vscode/settings.json"
+                  fi
+                ''}
+
+                ${lib.optionalString (cfg.ide.enable && cfg.ide.languageServer.enable && cfg.ide.vscodeSettings) ''
+                  # Prompts VS Code to offer installing Odoo.odoo (the odoo-ls
+                  # client). Seeded once, same as settings.json above.
+                  if [ ! -e "$DEVENV_ROOT/.vscode/extensions.json" ]; then
+                    mkdir -p "$DEVENV_ROOT/.vscode"
+                    install -m 644 "${vscodeExtensionsFile}" "$DEVENV_ROOT/.vscode/extensions.json"
+                  fi
+                ''}
+
+                ${ciMode.banner {
+                  inherit (cfg) name;
+                  details = "Odoo ${cfg.odooSeries}, http ${toString cfg.ports.http}";
+                  interactive = inputs.python-devops-nix.lib.banner.script {
+                    inherit pkgs;
+                    inherit (shellTools) banner;
+                    spec = bannerSpec;
+                  };
+                }}
+              '';
+
+              # odoo-nix's own site-maintenance commands are the `odoo` CLI
+              # package above now (db/module/project subcommands), not devenv
+              # scripts -- this option remains solely for a consumer's own
+              # custom scripts.
+              scripts =
+                secretsTools.scripts {
+                  # setup-backup-access only when remote restores are on.
+                  fetch = if cfg.restore.enable then lib.getExe backupFetch else null;
+                }
+                // cfg.extraScripts;
+            };
+        })
+      ];
   };
 }

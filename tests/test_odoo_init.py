@@ -307,7 +307,7 @@ class TemplateTest(InDir):
         self.assertIn('name = "shop";', flake)
         self.assertIn('odooSeries = "19.0";', flake)
         self.assertIn("python = pkgs.python312;", flake)
-        self.assertIn('settings.dbName = "shop_db";', flake)
+        self.assertRegex(flake, r'(?m)^\s*dbName = "shop_db";$')
         self.assertIn(
             'requires-python = ">=3.12"', (staging / "pyproject.toml").read_text()
         )
@@ -471,7 +471,7 @@ class DetectTest(InDir):
             "  imports = [ odoo-nix.flakeModules.default ];\n"
             '    # name = "nope";\n'
             '    name = "shop";\n'
-            '    settings.dbName = "shop_db";\n'
+            '    dbName = "shop_db";\n'
         )
         self.assertTrue(detect.is_odoo_nix_project())
         self.assertFalse(detect.has_foreign_flake())
@@ -482,6 +482,9 @@ class DetectTest(InDir):
             'odoo-nix.lib.mkFlake\nprojectName = "old";\nodooConf.dbName = "d";\n'
         )
         self.assertEqual((detect.existing_name(), detect.existing_db()), ("old", "d"))
+        for line in ('settings.dbName = "e";', 'settings.options.db_name = "e";'):
+            Path("flake.nix").write_text(f"odoo-nix.lib.mkFlake\n{line}\n")
+            self.assertEqual(detect.existing_db(), "e", line)
 
     def test_foreign_pyproject(self):
         self.assertFalse(detect.has_foreign_pyproject())

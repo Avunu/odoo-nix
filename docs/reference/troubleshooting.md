@@ -3,7 +3,7 @@ title: FAQ and troubleshooting
 description: The errors you are most likely to meet with odoo-nix in the dev shell, with the odoo command and on a deployed host, what they mean and how to fix them.
 order: 6
 tags: [faq, troubleshooting, errors]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 Each entry starts with what you see, then what it means and what to do.
@@ -52,7 +52,7 @@ With `coreSource`, `odoo/` must be a symlink the shell maintains, and a real dir
 
 ### The server does not reload on a Python change
 
-Look for `AutoReload watcher running with watchdog` at start-up. `Code autoreload feature is disabled` means Odoo found no watcher: keep `watch.python` on. The watcher also needs `settings.workers = 0` and a `settings.devMode` containing `all` or `reload`; the shell warns about either. Changes to `odoo/odoo/*.py` are never watched. See [Live reload](../development/editors.md#live-reload).
+Look for `AutoReload watcher running with watchdog` at start-up. `Code autoreload feature is disabled` means Odoo found no watcher: keep `watch.python` on. The watcher also needs `settings.options.workers = 0` and a `devMode` containing `all` or `reload`; the shell warns about either. Changes to `odoo/odoo/*.py` are never watched. See [Live reload](../development/editors.md#live-reload).
 
 ### Mail does not arrive, or sending fails
 

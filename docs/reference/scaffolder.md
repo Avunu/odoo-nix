@@ -3,7 +3,7 @@ title: Scaffolder
 description: The flags and exit codes of odoo-init, the program behind nix run github:Avunu/odoo-nix that creates, migrates and repairs projects.
 order: 4
 tags: [reference, odoo-init, scaffolding]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 ```bash
@@ -25,7 +25,7 @@ nix run github:Avunu/odoo-nix -- [FLAGS] [TARGET_DIR]
 | `--bundles <A,B>` | Curated OCA bundles to install (`data/oca-bundles.json`). |
 | `--modules <A,B,C>` | OCA modules to install. `--apps` is an alias. |
 | `--name <NAME>` | The project name (`odoo-nix.name`). Defaults to the existing one, or the target directory's name. |
-| `--db <NAME>` | The default database (`settings.dbName`). Defaults to the existing one, or `odoo`. |
+| `--db <NAME>` | The default database (`dbName`). Defaults to the existing one, or `odoo`. |
 | `--skip-lock` | Do not run `uv lock`. |
 | `--commit[=<MESSAGE>]` | Commit the result instead of only staging it. The message is only taken as `--commit=<MESSAGE>`, so `--commit <DIR>` is the flag and a target. |
 | `-h`, `--help` | Show the help. |

@@ -1,4 +1,4 @@
-# Pure evaluation assertions over lib/addons.nix and lib/odoo-conf.nix.
+# Pure evaluation assertions over lib/addons.nix and lib/odoo-ini.nix.
 #
 # `pairs` is { name = { expected; actual; }; }; flake.nix turns each into its
 # own derivation (lib.checks.mk's `eval`) that compares the two as JSON, so a failing
@@ -44,82 +44,36 @@ let
     workspaceRoot = bare;
   };
 
-  sampleConf = {
-    dbHost = "127.0.0.1";
-    dbPort = 5432;
-    dbUser = "odoo";
-    dbPassword = "False";
-    dbName = "odoo_dev";
-    dataDir = "./.devenv/state/odoo";
-    adminPasswd = "admin";
-    httpInterface = "127.0.0.1";
-    httpPort = 8069;
-    geventPort = 8072;
-    workers = 0;
-    logging = {
-      level = "info";
-      handlers = [ "werkzeug:WARNING" ];
-      db = false;
-      dbLevel = "warning";
-      file = null;
-    };
-    withoutDemo = true;
-    extra = {
+  # odoo.conf's INI dialect, shared by the dev shell and the NixOS module.
+  odooIni = import ../lib/odoo-ini.nix { inherit pkgs lib; };
+  full = {
+    options = {
+      addons_path = "./odoo/odoo/addons,./odoo/addons,./custom";
+      db_host = "127.0.0.1";
+      db_password = null;
+      log_db = null;
+      http_interface = "127.0.0.1";
+      server_wide_modules = [
+        "base"
+        "rpc"
+        "web"
+        "dev_mailcatch"
+      ];
+      log_handler = [ "werkzeug:WARNING" ];
+      without_demo = true;
       proxy_mode = true;
       limit_time_real = 1200;
+      list_db = false;
     };
-  };
-  full = import ../lib/odoo-conf.nix {
-    inherit pkgs lib;
-    addonsPath = "./odoo/odoo/addons,./odoo/addons,./custom";
-    settings = sampleConf;
-    serverWideModules = [
-      "base"
-      "rpc"
-      "web"
-      "dev_mailcatch"
-    ];
-    extraSections.dev_mailcatch = {
+    dev_mailcatch = {
       enabled = true;
       host = "127.0.0.1";
       port = 2525;
     };
   };
-  minimal = import ../lib/odoo-conf.nix {
-    inherit pkgs lib;
-    addonsPath = "./custom";
-    settings = sampleConf // {
-      dbHost = "";
-      dbName = null;
-      withoutDemo = false;
-      logging = sampleConf.logging // {
-        handlers = [ ];
-      };
-      extra = { };
-    };
-  };
-  # sampleConf has log_db off; two more renderings pin the other spellings
-  logDbNamed = import ../lib/odoo-conf.nix {
-    inherit pkgs lib;
-    addonsPath = "./custom";
-    settings = sampleConf // {
-      logging = sampleConf.logging // {
-        db = "audit";
-      };
-    };
-  };
-  logDbCurrent = import ../lib/odoo-conf.nix {
-    inherit pkgs lib;
-    addonsPath = "./custom";
-    settings = sampleConf // {
-      logging = sampleConf.logging // {
-        db = true;
-      };
-    };
-  };
 in
 {
-  rendered = full.odooConfFile;
+  rendered = odooIni.generate "odoo.conf" full;
 
   pairs = {
     # ---- lib/addons.nix ----
@@ -190,76 +144,23 @@ in
       actual = empty.addonsPathList;
     };
 
-    # ---- lib/odoo-conf.nix ----
-    odoo-conf-booleans = {
-      expected = {
-        proxy_mode = "True";
-        limit_time_real = "1200";
-      };
-      actual = {
-        inherit (full.optionsBlock) proxy_mode limit_time_real;
-      };
-    };
-    # log_db: absent when off (19.0 warns about a literal False), "%d" for
-    # `true`, the name otherwise
-    odoo-conf-log-db = {
+    # ---- lib/odoo-ini.nix ----
+    # Odoo's literals for booleans, decimal text for numbers, one
+    # comma-separated value for a list.
+    odoo-ini-values = {
       expected = [
-        false
-        "%d"
-        "audit"
+        "True"
+        "False"
+        "1200"
+        "base,rpc,web,dev_mailcatch"
+        "x"
       ];
-      actual = [
-        (full.optionsBlock ? log_db)
-        logDbCurrent.optionsBlock.log_db
-        logDbNamed.optionsBlock.log_db
-      ];
-    };
-    # "False"/"" db_host + db_password are left out (socket, no password);
-    # a real host is emitted
-    odoo-conf-db-unset = {
-      expected = [
+      actual = map odooIni.toIniValue [
+        true
         false
-        false
-        "127.0.0.1"
-      ];
-      actual = [
-        (minimal.optionsBlock ? db_host)
-        (minimal.optionsBlock ? db_password)
-        full.optionsBlock.db_host
-      ];
-    };
-    odoo-conf-http-interface = {
-      expected = "127.0.0.1";
-      actual = full.optionsBlock.http_interface;
-    };
-    odoo-conf-server-wide = {
-      expected = "base,rpc,web,dev_mailcatch";
-      actual = full.optionsBlock.server_wide_modules;
-    };
-    odoo-conf-default-server-wide = {
-      expected = "base,web";
-      actual = minimal.optionsBlock.server_wide_modules;
-    };
-    odoo-conf-optional-keys = {
-      expected = {
-        without_demo = "True";
-        log_handler = "werkzeug:WARNING";
-        db_name = "odoo_dev";
-      };
-      actual = {
-        inherit (full.optionsBlock) without_demo log_handler db_name;
-      };
-    };
-    odoo-conf-optional-keys-absent = {
-      expected = [
-        false
-        false
-        false
-      ];
-      actual = [
-        (minimal.optionsBlock ? without_demo)
-        (minimal.optionsBlock ? log_handler)
-        (minimal.optionsBlock ? db_name)
+        1200
+        full.options.server_wide_modules
+        "x"
       ];
     };
   };

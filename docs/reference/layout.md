@@ -3,7 +3,7 @@ title: Repository layout
 description: Where things live in the odoo-nix repository, the flake checks and what CI runs, how the pinned test fixtures, odoo-ls lock and OCA catalog are refreshed, and how these pages are checked.
 order: 5
 tags: [contributing, layout, checks, ci]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 ## Layout
@@ -20,7 +20,7 @@ addons/
   dev_mailcatch/             # deprecated no-op stub; the mail guard replaced it
 lib/
   addons.nix                 # addons_path synthesis
-  odoo-conf.nix              # odoo.conf synthesis
+  odoo-ini.nix               # odoo.conf's INI dialect, for the dev shell and the NixOS module
   python.nix                 # the uv2nix Python environments
   odoo.nix                   # builtOdoo, the assembled tree
   cli.nix                    # wraps builtOdoo, or the live checkout, in the odoo command
@@ -68,7 +68,7 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 
 | Checks | What they cover |
 | --- | --- |
-| `addons-*`, `odoo-conf-*`, `odoo-conf-render` | `lib/addons.nix` on synthetic trees and `lib/odoo-conf.nix`'s rendering. |
+| `addons-*`, `odoo-ini-*`, `odoo-ini-render` | `lib/addons.nix` on synthetic trees and `lib/odoo-ini.nix`'s rendering. |
 | `fixture-requires-python-<18\|19\|20>`, `built-odoo-addons-path-<18\|19\|20>`, `built-odoo-version-<18\|19\|20>`, `lock-audit-<18\|19\|20>`, `lock-fresh-<18\|19\|20>`, `build-deps-<18\|19\|20>` | Per series, without running Odoo: the fixture's `requires-python`, `builtOdoo`'s passthru, the fixture lock against the pinned OCB, the managed build-dependency block. |
 | `lock-audit-*` | The stale-lock audit. |
 | `built-odoo-<18\|19\|20>`, `odoo-init-<18\|19\|20>`, `odoo-test-<18\|19\|20>` | The assembled package, `-i base` against an in-sandbox PostgreSQL with no guard rails in production, and the fixture addon's Odoo tests including the guard rails. |
@@ -80,7 +80,7 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | `odoo-module-cli`, `odoo-module-unit` | `odoo module add`, `add-bundle` and `remove` offline, and their pieces. |
 | `sources`, `bootstrap`, `bootstrap-lock-*` | Shell entry's submodule checkout and the fresh-clone bootstrap. |
 | `db-nocow` | The btrfs NOCOW handling (Linux). |
-| `secrets-*`, `restore-*`, `rename-*`, `identity-*`, `ports-*`, `mailpit-*`, `watch-*`, `ci-mode`, `tree`, `python-default-*`, `container-name*` | The flake-parts module's options, evaluated. |
+| `secrets-*`, `restore-*`, `settings-*`, `rename-*`, `identity-*`, `ports-*`, `mailpit-*`, `watch-*`, `ci-mode`, `tree`, `python-default-*`, `container-name*` | The flake-parts module's options, evaluated. |
 | `service-*`, `nginx`, `service-<18\|19\|20>` | `services.odoo-nix`, evaluated, and in NixOS VMs (KVM) with a stub and with the real Odoo: migrations on deploy, rollback leaving Odoo down, nginx, X-Sendfile, the journal, hardening. |
 | `nix-lint`, `shared-config`, `pr-policy`, `workflows` | `nixfmt-rs`, statix and deadnix; the shared editor and lint configuration; the pull-request policy; actionlint and zizmor. |
 
