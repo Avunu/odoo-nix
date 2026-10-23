@@ -4,9 +4,8 @@
 # place (./odoo.conf) and `odoo-bin -c odoo.conf` consumes. The single
 # synthesized value that matters most is `addons_path` (from lib/addons.nix).
 #
-# Booleans are emitted as Odoo's literal "True"/"False" strings; everything is
-# stringified so pkgs.formats.ini never sees a raw bool/int (which it would
-# render lowercase, breaking Odoo's parser).
+# Rendered in odoo.conf's INI dialect (lib/odoo-ini.nix, shared with the NixOS
+# module): booleans as Odoo's literal "True"/"False", lists comma-separated.
 #
 # Usage:
 #   import ./lib/odoo-conf.nix { inherit pkgs lib; settings = cfg.settings;
@@ -35,12 +34,11 @@
 }:
 
 let
-  ini = pkgs.formats.ini { };
+  odooIni = import ./odoo-ini.nix { inherit pkgs lib; };
 
   # Odoo's INI parser coerces "True"/"False" back to booleans but never casts
   # numbers, so everything is emitted as a string and read as one.
-  toIniValue = v: if builtins.isBool v then (if v then "True" else "False") else toString v;
-  toIniSection = builtins.mapAttrs (_n: toIniValue);
+  toIniSection = builtins.mapAttrs (_n: odooIni.toIniValue);
 
   # "No value" for a string option is the key's absence, never the literal
   # "False": Odoo <= 18.0 coerced that to a falsy bool, 19.0 skips the key
@@ -100,7 +98,7 @@ let
   # so callers may pass ints/bools.
   // toIniSection settings.extra;
 
-  odooConfFile = ini.generate "odoo.conf" (
+  odooConfFile = odooIni.generate "odoo.conf" (
     {
       options = optionsBlock;
     }

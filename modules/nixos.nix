@@ -34,6 +34,7 @@
 # flake.nixosModules.default sets it, so import that, not this file alone.
 {
   config,
+  options,
   lib,
   pkgs,
   odooNixBase,
@@ -72,12 +73,13 @@ let
 
   # What the units that run Odoo may write, under ProtectSystem=strict: the
   # state directory (the runtime odoo.conf, data_dir: filestore, sessions,
-  # backups), data_dir if `settings` moved it, and logging.file's directory.
+  # backups), data_dir if `settings.options.data_dir` moved it, and
+  # logging.file's directory.
   # A host adds its own with systemd.services.<unit>.serviceConfig.ReadWritePaths.
   odooWritePaths = [
     cfg.stateDir
   ]
-  ++ lib.optional (cfg.settings ? data_dir) (toString cfg.settings.data_dir)
+  ++ lib.optional (dataDir != null && dataDir != "${cfg.stateDir}/data") (toString dataDir)
   ++ lib.optional (cfg.logging.file != null) (builtins.dirOf cfg.logging.file);
 
   # The sandbox for odoo.service and odoo-migrate, which run the same Odoo
@@ -137,59 +139,113 @@ let
 
   xSendfile = cfg.nginx.enable && cfg.nginx.xSendfile;
 
-  # Base [options] (no secrets). addons_path is the assembled package's absolute
-  # path; data_dir + the conf live under the stateful directory.
-  baseOptions = {
-    addons_path = cfg.package.passthru.addonsPath "${cfg.package}";
-    data_dir = "${cfg.stateDir}/data";
-    db_user = cfg.database.user;
-    http_interface = cfg.http.interface;
-    http_port = toString cfg.http.port;
-    gevent_port = toString cfg.http.longpollingPort;
-    workers = toString cfg.workers;
-    max_cron_threads = toString cfg.maxCronThreads;
-    proxy_mode = if cfg.nginx.enable then "True" else "False";
-    list_db = if cfg.listDb then "True" else "False";
-    log_level = cfg.logging.level;
-    log_db_level = cfg.logging.dbLevel;
-  }
-  // lib.optionalAttrs xSendfile { x_sendfile = "True"; }
-  # Socket auth means no db_host/db_port at all: absent keys fall back to
-  # Odoo's defaults (the unix socket) on every series, where the old literal
-  # "False" was coerced to a falsy bool by 18.0 and is skipped with a warning
-  # by 19.0.
-  // lib.optionalAttrs (!socketAuth) {
-    db_host = cfg.database.host;
-    db_port = toString cfg.database.port;
-  }
-  # log_db is a database *name*; "%d" is Odoo's spelling for "the current
-  # request's database", so that is what `true` renders as. Absent when off.
-  // lib.optionalAttrs (cfg.logging.db != false) {
-    log_db = if cfg.logging.db == true then "%d" else cfg.logging.db;
-  }
-  // lib.optionalAttrs (dbName != null) {
-    db_name = dbName;
-    dbfilter = "^${dbName}$";
-  }
-  // lib.optionalAttrs (cfg.dbFilter != "") {
-    dbfilter = cfg.dbFilter;
-  }
-  # "True", not "all": 18.0 only tests the option's truthiness, 19.0 made
-  # it a boolean that warns about anything else.
-  // lib.optionalAttrs cfg.withoutDemo {
-    without_demo = "True";
-  }
-  // lib.optionalAttrs (cfg.logging.handlers != [ ]) {
-    log_handler = lib.concatStringsSep "," cfg.logging.handlers;
-  }
-  // lib.optionalAttrs (cfg.logging.file != null) {
-    logfile = cfg.logging.file;
-  }
-  // builtins.mapAttrs (
-    _n: v: if builtins.isBool v then (if v then "True" else "False") else toString v
-  ) cfg.settings;
+  # odoo.conf's INI dialect (lib/odoo-ini.nix, shared with the dev shell):
+  # bools as True/False, lists comma-separated, null as the key's absence.
+  odooIni = import ../lib/odoo-ini.nix { inherit pkgs lib; };
 
-  baseConf = (pkgs.formats.ini { }).generate "odoo-base.conf" { options = baseOptions; };
+  # `settings` follows NixOS RFC 42: the attrset *is* odoo.conf, one
+  # attribute per INI section (`settings.options.<key>` is [options]), and
+  # what the module computes is set into it (config, below), so reading
+  # config.services.odoo-nix.settings shows the effective file.
+  #
+  # Through 1.x, `settings` also takes 1.0's flat form, `settings.<key> =
+  # value`: the key belongs in [options]. A section's value is an attrset
+  # and a flat key's a scalar or list, so the two cannot be confused. Each
+  # flat key is moved into `options` one priority notch stronger than it was
+  # written (mkDefault's 1000 becomes 999, a plain 100 becomes 99): in 1.0 a
+  # flat key replaced the computed one outright (`//`), and that stays true
+  # even against a key the module owns. config.warnings names each one.
+  # Removed in 2.0.0.
+  isSection =
+    v:
+    if builtins.isAttrs v && v ? _type then
+      if v ? content then
+        isSection v.content
+      else if v ? contents then
+        lib.any isSection v.contents
+      else
+        false
+    else
+      builtins.isAttrs v;
+  flatKeys =
+    def:
+    if builtins.isAttrs def && !(def ? _type) then
+      lib.filter (n: !isSection def.${n}) (lib.attrNames def)
+    else
+      [ ];
+  # mkIf/mkMerge stay outside the new mkOverride, where the module system
+  # discharges them.
+  notch =
+    prio: v:
+    let
+      t = if builtins.isAttrs v then v._type or null else null;
+    in
+    if t == "if" then
+      lib.mkIf v.condition (notch prio v.content)
+    else if t == "merge" then
+      lib.mkMerge (map (notch prio) v.contents)
+    else if t == "override" then
+      notch (v.priority - 1) v.content
+    else
+      lib.mkOverride prio v;
+  notchStronger = notch (lib.modules.defaultOverridePriority - 1);
+  liftFlat =
+    def:
+    let
+      flat = flatKeys def;
+      lifted = lib.mapAttrs (_: notchStronger) (lib.getAttrs flat def);
+    in
+    removeAttrs def flat
+    // {
+      options =
+        if def ? options then
+          lib.mkMerge [
+            def.options
+            lifted
+          ]
+        else
+          lifted;
+    };
+  flatSettings = lib.mkOptionType {
+    name = "odoo-nix-flat-settings";
+    description = "1.0's flat [options] keys";
+    check = def: flatKeys def != [ ];
+  };
+
+  settingsType =
+    types.coercedTo flatSettings liftFlat (
+      types.submodule {
+        freeformType = odooIni.type;
+        options.options = mkOption {
+          type = types.attrsOf odooIni.atomType;
+          default = { };
+          description = ''
+            odoo.conf's `[options]` section, in Odoo's own key spelling. Holds
+            every key the module computes from its other options (most at
+            `mkDefault`, so a value here wins); set any other key here too.
+          '';
+        };
+      }
+    )
+    // {
+      description = "attribute set of odoo.conf sections (INI)";
+    };
+
+  # The flat keys, with where they are written, for the warning.
+  flatDefs = lib.concatMap (
+    d:
+    map (k: {
+      inherit k;
+      inherit (d) file;
+    }) (flatKeys d.value)
+  ) options.services.odoo-nix.settings.definitionsWithLocations;
+
+  # data_dir as the effective config has it (a host may move it).
+  dataDir = cfg.settings.options.data_dir or null;
+
+  # The base odoo.conf, without secrets (odoo-init appends them). The name
+  # and the text alone make its store path.
+  baseConf = odooIni.generate "odoo-base.conf" (removeAttrs cfg.settings [ "_module" ]);
 
   runtimeConf = "${cfg.stateDir}/odoo.conf";
 
@@ -606,9 +662,36 @@ in
     };
 
     settings = mkOption {
-      type = types.attrsOf (types.either types.str (types.either types.int types.bool));
+      type = settingsType;
       default = { };
-      description = "Extra [options] keys merged into odoo.conf (no secrets).";
+      description = ''
+        odoo.conf, as Nix (NixOS RFC 42): one attribute per INI section, in
+        Odoo's own key spelling. `options` is `[options]`; any other
+        attribute is a section of its own, for a server-wide module that
+        reads one. No secrets: this lands in the Nix store (use
+        `adminPasswordFile`, `database.passwordFile` or `environmentFiles`).
+
+        The module sets what it computes from its other options into
+        `options`, so this shows the effective file. Most keys are set with
+        `mkDefault` and a plain value here wins; `addons_path` and `db_user`
+        are the module's (change `package` or `database.user`, or use
+        `mkForce`). Values render as Odoo reads them: `true`/`false` as
+        `True`/`False`, a list as one comma-separated value, `null` as no
+        key at all.
+
+        1.0's flat form, `settings.<key> = value`, is still accepted through
+        1.x as `settings.options.<key>`, with a warning.
+      '';
+      example = lib.literalExpression ''
+        {
+          options = {
+            limit_time_cpu = 600;
+            proxy_mode = true;
+            server_wide_modules = [ "base" "web" "queue_job" ];
+          };
+          queue_job.channels = "root:2";
+        }
+      '';
     };
 
     update = mkOption {
@@ -760,10 +843,78 @@ in
   config = mkIf cfg.enable {
     environment.systemPackages = lib.optional cfg.adminCli adminCli;
 
+    # odoo.conf's [options] from the module's own options (no secrets: those
+    # are appended by odoo-init).
+    services.odoo-nix.settings.options = lib.mkMerge [
+      # The module's: the assembled package's addons (the only path to the
+      # project's modules), and the role the local PostgreSQL was set up for
+      # (ensureUsers, peer auth, the database's owner). Normal priority, so
+      # a second value is a conflict, not a silent override: change
+      # `package` or `database.user`, or use mkForce.
+      {
+        addons_path = cfg.package.passthru.addonsPath "${cfg.package}";
+        db_user = cfg.database.user;
+      }
+      # Everything else is a default a host may override in settings.options.
+      (lib.mapAttrs (_: lib.mkDefault) (
+        {
+          # Under the state directory; movable (hardening's ReadWritePaths
+          # and nginx's x_sendfile alias follow it).
+          data_dir = "${cfg.stateDir}/data";
+          http_interface = cfg.http.interface;
+          http_port = cfg.http.port;
+          gevent_port = cfg.http.longpollingPort;
+          inherit (cfg) workers;
+          max_cron_threads = cfg.maxCronThreads;
+          proxy_mode = cfg.nginx.enable;
+          list_db = cfg.listDb;
+          log_level = cfg.logging.level;
+          log_db_level = cfg.logging.dbLevel;
+        }
+        // lib.optionalAttrs xSendfile { x_sendfile = true; }
+        # Socket auth means no db_host/db_port at all: absent keys fall back
+        # to Odoo's defaults (the unix socket) on every series, where a
+        # literal "False" was coerced to a falsy bool by 18.0 and is skipped
+        # with a warning by 19.0.
+        // lib.optionalAttrs (!socketAuth) {
+          db_host = cfg.database.host;
+          db_port = cfg.database.port;
+        }
+        # log_db is a database *name*; "%d" is Odoo's spelling for "the
+        # current request's database", so that is what `true` renders as.
+        # Absent when off.
+        // lib.optionalAttrs (cfg.logging.db != false) {
+          log_db = if cfg.logging.db == true then "%d" else cfg.logging.db;
+        }
+        // lib.optionalAttrs (dbName != null) { db_name = dbName; }
+        # An explicit dbFilter wins over the pinned database's.
+        // lib.optionalAttrs (dbName != null || cfg.dbFilter != "") {
+          dbfilter = if cfg.dbFilter != "" then cfg.dbFilter else "^${dbName}$";
+        }
+        # True, not "all": 18.0 only tests the option's truthiness, 19.0
+        # made it a boolean that warns about anything else.
+        // lib.optionalAttrs cfg.withoutDemo { without_demo = true; }
+        // lib.optionalAttrs (cfg.logging.handlers != [ ]) { log_handler = cfg.logging.handlers; }
+        // lib.optionalAttrs (cfg.logging.file != null) { logfile = cfg.logging.file; }
+      ))
+    ];
+
     # Warnings, not assertions: a configuration that sets these must keep
     # evaluating.
     warnings =
-      lib.optional (cfg.logging.journald != false && cfg.logging.file != null) ''
+      # 1.0's flat settings (see settingsType): one warning for all of them.
+      lib.optional (flatDefs != [ ]) ''
+        services.odoo-nix.settings is now odoo.conf by section (NixOS RFC 42): an
+        [options] key is settings.options.<key>. Rename
+        ${
+          lib.concatStrings (
+            lib.unique (
+              map (d: "  settings.${d.k} -> settings.options.${d.k}  (${toString d.file})\n") flatDefs
+            )
+          )
+        }The flat form is accepted through odoo-nix 1.x and removed in 2.0.0.
+      ''
+      ++ lib.optional (cfg.logging.journald != false && cfg.logging.file != null) ''
         services.odoo-nix.logging.file is set, so Odoo logs to ${cfg.logging.file}:
         `journalctl -u odoo` sees only output from before Odoo's logging starts,
         and without per-record priorities. Leave logging.file null to log to the
@@ -1105,8 +1256,9 @@ in
           };
           # Where Odoo's X-Accel-Redirect points (nginx.xSendfile). internal:
           # reachable only through that header, never by a client's request.
-          "/web/filestore/" = mkIf xSendfile {
-            alias = "${cfg.stateDir}/data/filestore/";
+          # Follows data_dir; none when a host unset it (null).
+          "/web/filestore/" = mkIf (xSendfile && dataDir != null) {
+            alias = "${dataDir}/filestore/";
             extraConfig = ''
               internal;
             '';
