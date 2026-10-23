@@ -128,6 +128,68 @@ let
     };
   };
 
+  # settings (NixOS RFC 42), rendered as the module renders odoo-base.conf.
+  odooIni = import ../lib/odoo-ini.nix { inherit pkgs lib; };
+  conf =
+    cfg:
+    (odooIni.generate "odoo-base.conf" (removeAttrs cfg.services.odoo-nix.settings [ "_module" ])).text;
+  hasLine = cfg: line: lib.elem line (lib.splitString "\n" (conf cfg));
+  overridden = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      settings.options = {
+        workers = 6;
+        proxy_mode = false;
+        dbfilter = "^acme-.*$";
+        db_host = null;
+      };
+    };
+  };
+  sectioned = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      settings.queue_job.channels = "root:2";
+    };
+  };
+  # 1.0's flat form: an alias for settings.options that warns through 1.x,
+  # and wins over a computed key, as `//` did.
+  flat = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      settings = {
+        limit_time_cpu = 600;
+        workers = 8;
+        addons_path = "/srv/addons";
+      };
+    };
+  };
+  atoms = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      withoutDemo = true;
+      logging.handlers = [
+        "odoo.sql_db:DEBUG"
+        "werkzeug:WARNING"
+      ];
+      settings.options = {
+        server_wide_modules = [
+          "base"
+          "web"
+          "queue_job"
+        ];
+        unaccent = true;
+      };
+    };
+  };
+  nonIni = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      settings.options.limit_time_cpu = {
+        soft = 60;
+      };
+    };
+  };
+
   fields = cfg: unit: cfg.systemd.services.${unit}.serviceConfig.LogExtraFields;
   site = [ "APP_SITE=acme" ];
   odooUnits = [
@@ -420,5 +482,77 @@ in
         lib.hasInfix base.nixos.nginx.socketProxyHeaders
           socket.services.nginx.virtualHosts.odoo.locations."/".extraConfig;
     };
+  };
+
+  # A host's settings.options wins over a computed (mkDefault) key, without
+  # mkForce; null drops the key.
+  service-settings-override = {
+    expected = {
+      workers = true;
+      proxy = true;
+      dbfilter = true;
+      noHost = true;
+      effective = 6;
+    };
+    actual = {
+      workers = hasLine overridden "workers=6";
+      proxy = hasLine overridden "proxy_mode=False";
+      dbfilter = hasLine overridden "dbfilter=^acme-.*$";
+      noHost = !(lib.hasInfix "db_host" (conf overridden));
+      effective = overridden.services.odoo-nix.settings.options.workers;
+    };
+  };
+
+  # Any attribute beside `options` is a section of its own.
+  service-settings-section = {
+    expected = true;
+    actual = lib.hasInfix "[queue_job]\nchannels=root:2\n" (conf sectioned);
+  };
+
+  service-settings-flat-alias = {
+    expected = {
+      limit = 600;
+      workers = 8;
+      addons = "/srv/addons";
+      rendered = true;
+      warns = true;
+      once = 1;
+      noFlat = false;
+    };
+    actual = {
+      limit = flat.services.odoo-nix.settings.options.limit_time_cpu;
+      inherit (flat.services.odoo-nix.settings.options) workers;
+      addons = flat.services.odoo-nix.settings.options.addons_path;
+      rendered = hasLine flat "limit_time_cpu=600";
+      warns = warns flat "settings.limit_time_cpu -> settings.options.limit_time_cpu";
+      once = lib.length (lib.filter (lib.hasInfix "settings.options.<key>") flat.warnings);
+      noFlat = flat.services.odoo-nix.settings ? limit_time_cpu;
+    };
+  };
+
+  # Bools as Odoo's True/False, lists comma-separated, ints as text.
+  service-settings-atoms = {
+    expected = [
+      true
+      true
+      true
+      true
+      true
+      true
+    ];
+    actual = map (hasLine atoms) [
+      "server_wide_modules=base,web,queue_job"
+      "log_handler=odoo.sql_db:DEBUG,werkzeug:WARNING"
+      "unaccent=True"
+      "without_demo=True"
+      "list_db=False"
+      "http_port=8069"
+    ];
+  };
+
+  # A value pkgs.formats.ini cannot hold is a type error.
+  service-settings-non-ini = {
+    expected = false;
+    actual = (builtins.tryEval (builtins.deepSeq (conf nonIni) true)).success;
   };
 }

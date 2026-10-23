@@ -3,7 +3,7 @@ title: Run Odoo as a NixOS service
 description: Deploy an odoo-nix project with the services.odoo-nix module, including its secrets, PostgreSQL, nginx over TCP or a unix socket, X-Sendfile and the systemd sandbox.
 order: 1
 tags: [nixos, systemd, nginx, deploy]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 `services.odoo-nix` is a standalone NixOS module, imported separately from the flake-parts module. It runs one Odoo instance per deployment; several databases are served through `dbFilter`.
@@ -39,6 +39,25 @@ Import `odoo-nix.nixosModules.default`, not `modules/nixos.nix` on its own: the 
 
 The runtime configuration is `<stateDir>/odoo.conf` (`/var/lib/odoo` by default), mode 0600. The filestore is `<stateDir>/data`, and backups go to `<stateDir>/data/backups`, which is kept 0700.
 
+## odoo.conf
+
+`settings` is `odoo.conf` by section ([NixOS RFC 42](https://github.com/NixOS/rfcs/blob/master/rfcs/0042-config-option.md), the shape of nixpkgs' `services.odoo.settings`): `settings.options` is `[options]`, and any other attribute is a section of its own. The module sets the keys it computes (`http_port`, `workers`, `proxy_mode`, `dbfilter`, `addons_path`, ...) into `settings.options`, so `config.services.odoo-nix.settings` is the effective file, secrets aside.
+
+```nix
+services.odoo-nix.settings = {
+  options = {
+    limit_time_cpu = 600;
+    workers = 8;                                    # wins over `workers`' mkDefault
+    server_wide_modules = [ "base" "web" "queue_job" ];
+  };
+  queue_job.channels = "root:2";                    # its own [queue_job] section
+};
+```
+
+Bools render as `True`/`False`, lists comma-separated, and `null` leaves a key out. Every computed key is a `mkDefault` except `addons_path` and `db_user`, which follow `package` and `database.user` (see [settings](../reference/nixos-options.md#settings)). Keep secrets out: `settings` is written to the Nix store.
+
+1.0's flat `settings.<key> = value` still works through 1.x, as `settings.options.<key>`, with a warning that names each key to rename.
+
 ## Secrets
 
 Secret values never enter the Nix store. `database.passwordFile` and `adminPasswordFile` are read by systemd (`LoadCredential`, so root-only files are fine) and handed to `odoo-init` as private copies, which it appends to the runtime configuration.
@@ -72,7 +91,7 @@ PostGIS, for OCA's `base_geoengine`: `database.extensions = ps: [ ps.postgis ];`
 
 ## Hardening
 
-With `hardening.enable = true`, every unit the module defines runs under python-devops-nix's systemd sandboxing baseline (`lib.nixos.hardening`): `ProtectSystem=strict` with only the state directory writable (plus `logging.file`'s directory, and `settings.data_dir` if you move it), `ProtectHome`, `PrivateTmp`, `PrivateDevices`, no capabilities, `NoNewPrivileges`, a `@system-service` syscall filter and the rest of its [list](https://github.com/Avunu/python-devops-nix/blob/main/CONVENTIONS.md#unit-hardening). `odoo` and `odoo-migrate` may map W+X memory, for wkhtmltopdf (PDF reports) and rtlcss (right-to-left assets). There is no unit-wide `UMask`: nginx reads the filestore through the service group, and backups and snapshots are made private where they are written.
+With `hardening.enable = true`, every unit the module defines runs under python-devops-nix's systemd sandboxing baseline (`lib.nixos.hardening`): `ProtectSystem=strict` with only the state directory writable (plus `logging.file`'s directory, and `settings.options.data_dir` if you move it), `ProtectHome`, `PrivateTmp`, `PrivateDevices`, no capabilities, `NoNewPrivileges`, a `@system-service` syscall filter and the rest of its [list](https://github.com/Avunu/python-devops-nix/blob/main/CONVENTIONS.md#unit-hardening). `odoo` and `odoo-migrate` may map W+X memory, for wkhtmltopdf (PDF reports) and rtlcss (right-to-left assets). There is no unit-wide `UMask`: nginx reads the filestore through the service group, and backups and snapshots are made private where they are written.
 
 Each key is a `mkDefault`, so a host relaxes one with `systemd.services.odoo.serviceConfig.<KEY>` and adds a writable path with `systemd.services.odoo.serviceConfig.ReadWritePaths = [ … ];`.
 

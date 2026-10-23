@@ -3,7 +3,7 @@ title: services.odoo-nix options
 description: Every option of the odoo-nix NixOS module, with types and defaults.
 order: 2
 tags: [reference, options, nixos]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 See [Run Odoo as a NixOS service](../production/nixos-service.md) for how they fit together.
@@ -27,10 +27,34 @@ See [Run Odoo as a NixOS service](../production/nixos-service.md) for how they f
 | `listDb` | bool | `false` | `list_db`: allow the database manager and listing. |
 | `withoutDemo` | bool | `false` | `without_demo = True`. |
 | `adminPasswordFile` | null or path | `null` | A file with `admin_passwd`, read through `LoadCredential`. |
-| `settings` | attrs of string, int or bool | `{ }` | Any other `[options]` key. No secrets. |
+| `settings` | attrs of INI sections | `{ }` | `odoo.conf` itself, by section: `settings.options.<key>` is `[options]`. Shows the effective file. No secrets. See [settings](#settings). |
 | `extraEnv` | attrs of strings | `{ }` | More environment for the units and the operator's command. |
 | `environmentFiles` | list of paths | `[ ]` | systemd `EnvironmentFile=`s for `odoo` and `odoo-migrate`, such as the backup credentials. |
 | `hardening.enable` | bool | `false` | Run every unit under python-devops-nix's sandboxing baseline. On by default from 2.0.0. |
+
+## settings
+
+`settings` is `odoo.conf` as Nix, after [NixOS RFC 42](https://github.com/NixOS/rfcs/blob/master/rfcs/0042-config-option.md) and nixpkgs' own `services.odoo.settings`: one attribute per INI section, keys in Odoo's own spelling.
+
+| Attribute | Type | Description |
+| --- | --- | --- |
+| `settings.options` | attrs of INI values | `[options]`. The module fills it from its other options, so reading `config.services.odoo-nix.settings` shows what `odoo.conf` will hold. |
+| `settings.<section>` | attrs of INI values | Any other section, for a server-wide module that reads its own (`[queue_job]`, say). |
+
+An INI value is a string, an int, a float, a bool, a non-empty list of those, or `null`. They render as Odoo reads them: `true` and `false` as `True` and `False`, a list as one comma-separated value (`server_wide_modules = [ "base" "web" "queue_job" ]`), and `null` as no key at all.
+
+What the module sets, and how a host changes it:
+
+| Key | Priority | From |
+| --- | --- | --- |
+| `addons_path` | normal: the module's | `package`. A second value is a conflict; use `mkForce` to replace it. |
+| `db_user` | normal: the module's | `database.user`, the role the local PostgreSQL is set up for. |
+| `data_dir` | `mkDefault` | `<stateDir>/data`. Moving it moves `hardening`'s writable path and nginx's `x_sendfile` alias with it. |
+| `http_interface`, `http_port`, `gevent_port`, `workers`, `max_cron_threads`, `list_db`, `proxy_mode`, `x_sendfile`, `db_host`, `db_port`, `db_name`, `dbfilter`, `without_demo`, `log_level`, `log_db_level`, `log_db`, `log_handler`, `logfile` | `mkDefault` | Their typed options (`http.*`, `workers`, `nginx.*`, `database.*`, `dbName`, `dbFilter`, `withoutDemo`, `logging.*`). A plain `settings.options.<key>` wins; `null` drops the key. |
+
+`db_password` and `admin_passwd` are never in `settings`: `odoo-init` appends them from `database.passwordFile` and `adminPasswordFile`.
+
+The flat form of 1.0, `settings.<key> = value`, is an alias for `settings.options.<key>` through 1.x: it lands in `[options]`, wins over a computed key as it always did, and one warning names each key to rename. It is removed in 2.0.0.
 
 ## Database
 
