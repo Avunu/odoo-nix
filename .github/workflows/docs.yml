@@ -21,6 +21,6 @@ jobs:
   docs:
     permissions:
       contents: read # checkout
-    uses: Avunu/site-docs/.github/workflows/check-docs.yml@c918097987c19d9f1776ca6b824441aa638d24ab # 2026-10-16
+    uses: Avunu/site-docs/.github/workflows/check-docs.yml@865eb2e178dac71f667feac286e944102e117eb4 # 2026-10-16
     with:
       path: odoo-nix
