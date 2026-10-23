@@ -1,4 +1,4 @@
-"""lib/odoo-presets.json, read and checked (python-devops-nix CONVENTIONS.md,
+"""lib/odoo-presets.json, read and checked (python-devops-nix docs/conventions.md,
 Scaffolder: presets file).
 
 One object per Odoo series, keyed by the name ``--version`` takes::

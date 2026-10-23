@@ -57,7 +57,8 @@
   # checkout.
   cliScripts ? null,
   # inputs.python-devops-nix.lib: lib/cli-package.nix vendors its post-import
-  # hook and backup fetch layer into the package (PLAN.md, design rule 6).
+  # hook and backup fetch layer into the package (python-devops-nix
+  # docs/library.md, design rule 6).
   base,
   # Remote restore (lib/odoo_nix_cli/backups.py): the minio-client binary, and
   # the wrapper that runs a command with the backup-access secret decrypted.

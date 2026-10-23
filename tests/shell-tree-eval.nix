@@ -1,5 +1,5 @@
 # Evaluation-level assertions over the dev shell's option tree
-# (python-devops-nix CONVENTIONS.md, The development shell option tree):
+# (python-devops-nix docs/conventions.md, The development shell option tree):
 # `watch`, `devguard`, `mailpit` and `ports`, their defaults, and the ports
 # a project derives from its name (python-devops-nix's lib.ports). A consumer's flake is
 # evaluated through lib.mkFlake and nothing is built. Same `pairs` shape as
@@ -259,7 +259,7 @@ in
         after = lib.elem "devenv:processes:mailpit@started" off.processes.odoo.after;
       };
     };
-  # CI mode (python-devops-nix's lib.ciMode, CONVENTIONS.md, CI mode):
+  # CI mode (python-devops-nix's lib.ciMode, docs/conventions.md, CI mode):
   # enterShell exports PC_TUI_ENABLED=0 before anything else of odoo-nix's
   # runs, skips the submodule checkout, and prints one line for its banner.
   ci-mode =

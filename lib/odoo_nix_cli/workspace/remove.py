@@ -1,5 +1,5 @@
 """`odoo module remove`: the inverse of `odoo module add` (python-devops-nix
-CONVENTIONS.md, Source management; frappe-nix's `bench remove-app`).
+docs/conventions.md, Source management; frappe-nix's `bench remove-app`).
 
 add records modules in modules.txt and clones the repositories they need; this
 takes modules out of modules.txt and the repositories nothing left needs out

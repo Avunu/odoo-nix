@@ -14,7 +14,7 @@
 # PostgreSQL is external.
 #
 # The image carries the OCI labels and a HEALTHCHECK on /web/health
-# (python-devops-nix CONVENTIONS.md, Containers). Since 2.0.0 it is named
+# (python-devops-nix docs/conventions.md, Containers). Since 2.0.0 it is named
 # <registry>/<name>/odoo (1.x's <name>-odoo was the default) and runs as
 # uid/gid 1000 (containers.nonRoot; root was the default).
 { inputs, ... }:
@@ -151,7 +151,7 @@
         CONF=/etc/odoo/odoo.conf
 
         # Every variable this entrypoint reads is ODOO_NIX_* (python-devops-nix
-        # CONVENTIONS.md, Tool-owned variables). The old ODOO_* names, read
+        # docs/conventions.md, Tool-owned variables). The old ODOO_* names, read
         # through 1.x, refuse to start since 2.0.0: ignored, ODOO_DB_HOST
         # would quietly become the default host.
         _old_set=0

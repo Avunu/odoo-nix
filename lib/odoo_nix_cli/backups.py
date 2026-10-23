@@ -1,10 +1,10 @@
 """The backup store behind `odoo db restore` and `odoo project restore`:
-python-devops-nix's fetch layer (lib.backups, PLAN.md Phase 2) with odoo-nix's
-layout and names.
+python-devops-nix's fetch layer (lib.backups; its docs/library.md, Secrets and
+backups) with odoo-nix's layout and names.
 
 `_backups` is the base's python/backups.py, copied into this package when Nix
-builds the CLI (lib/cli.nix; PLAN.md, design rule 6), so it is not in the
-source tree. Standard library only, and no `odoo` import.
+builds the CLI (lib/cli.nix; python-devops-nix docs/library.md, design rule
+6), so it is not in the source tree. Standard library only, and no `odoo` import.
 
 Connection: the BACKUPS_* variables of the backup-access secret. Overrides:
 ODOO_NIX_BACKUP_SOURCE (a directory, or an mc target, laid out like the

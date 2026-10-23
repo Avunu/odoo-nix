@@ -4,7 +4,7 @@
 # a named check (lib.checks.mk's `eval`).
 #
 # Mostly the contracts shared with frappe-nix through python-devops-nix
-# (PLAN.md, Phase 6): the journald vocabulary (APP_SERVICE/APP_SITE on every
+# (docs/library.md, Production): the journald vocabulary (APP_SERVICE/APP_SITE on every
 # unit, SyslogIdentifier=odoo-<role>, roles from lib.journald.roles), the
 # hardening baseline on every unit odoo-nix defines, init as the service user
 # with LoadCredential, the socket directory, nginx's logs, the migrate.*
@@ -225,7 +225,7 @@ in
       nginx = fields multi "nginx";
     };
   };
-  # SyslogIdentifier=odoo-<role> (CONVENTIONS.md, Journald vocabulary).
+  # SyslogIdentifier=odoo-<role> (python-devops-nix docs/conventions.md, Journald vocabulary).
   service-syslog-identifiers = {
     expected = {
       odoo = "odoo-web";
@@ -349,7 +349,7 @@ in
     };
   };
 
-  # Production secrets (CONVENTIONS.md): init runs as the service user, and
+  # Production secrets (python-devops-nix docs/conventions.md): init runs as the service user, and
   # the secret files reach it through LoadCredential, not by reading them.
   service-init-credentials = {
     expected = {

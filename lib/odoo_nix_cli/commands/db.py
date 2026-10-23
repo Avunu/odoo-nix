@@ -908,7 +908,7 @@ def _migrate_restored(db_name: str) -> None:
 
 def _overwrite(force: bool, no_force: bool) -> bool:
     """Restore overwrites an existing database unless --no-force (python-devops-nix
-    CONVENTIONS.md, Restore: overwrite). --force was the old opt-in, a no-op
+    docs/conventions.md, Restore: overwrite). --force was the old opt-in, a no-op
     through 1.x; since 2.0.0 it is a usage error that says so."""
     if force:
         raise click.UsageError(

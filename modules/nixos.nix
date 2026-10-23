@@ -24,7 +24,7 @@
 #
 # With hardening.enable (on by default since 2.0.0), every unit this
 # module defines runs under python-devops-nix's systemd sandboxing baseline
-# (lib.nixos.hardening; CONVENTIONS.md, Unit hardening), with what it
+# (lib.nixos.hardening; python-devops-nix docs/conventions.md, Unit hardening), with what it
 # legitimately needs named next to it. There is no UMask: Odoo
 # writes the filestore that nginx serves through the service group
 # (nginx.xSendfile, odoo-nix#51); backups and snapshots get their modes where
@@ -55,7 +55,7 @@ let
   socketAuth = cfg.database.createLocally && cfg.database.passwordFile == null;
 
   # The journal-field contract shared with frappe-nix and wordpress-nix
-  # (python-devops-nix lib.journald.fields; CONVENTIONS.md, Journald
+  # (python-devops-nix lib.journald.fields; docs/conventions.md, Journald
   # vocabulary): APP_SERVICE names the role, APP_SITE the site the unit
   # serves, and a unit this module defines has SyslogIdentifier=odoo-<role>.
   # With no pinned dbName (multi-database via dbFilter) no one site is
@@ -258,7 +258,7 @@ let
   # The secret files, as systemd credentials: systemd reads them (as root,
   # wherever the host keeps them) and hands odoo-init private copies under
   # $CREDENTIALS_DIRECTORY, so init runs as the service user with no
-  # capabilities (python-devops-nix CONVENTIONS.md, Production secrets).
+  # capabilities (python-devops-nix docs/conventions.md, Production secrets).
   credentials =
     lib.optional (cfg.database.passwordFile != null) {
       name = "db_password";
@@ -337,14 +337,14 @@ in
   # Names removed in 2.0.0, each with what replaced it
   # (docs/development/upgrading.md, "1.x to 2.0").
   imports = [
-    # python-devops-nix CONVENTIONS.md, Database logging; frappe-nix's name.
+    # python-devops-nix docs/conventions.md, Database logging; frappe-nix's name.
     (lib.mkRemovedOptionModule [
       "services"
       "odoo-nix"
       "logging"
       "slowQueryMs"
     ] "Use services.odoo-nix.database.slowQueryMs (odoo-nix 2.0.0).")
-    # python-devops-nix CONVENTIONS.md, Journald enablement.
+    # python-devops-nix docs/conventions.md, Journald enablement.
     (lib.mkRemovedOptionModule [ "services" "odoo-nix" "logging" "journald" ]
       "Odoo logs to the journal natively whenever stderr is the journal stream; remove the option (odoo-nix 2.0.0)."
     )
@@ -366,9 +366,9 @@ in
         Run odoo, odoo-migrate and odoo-init under python-devops-nix's
         systemd sandboxing baseline (lib.nixos.hardening): ProtectSystem=strict
         with only the state directory writable, ProtectHome, PrivateTmp,
-        PrivateDevices, no capabilities, a syscall filter, and the rest of
-        CONVENTIONS.md's Unit hardening. odoo and odoo-migrate may map W+X
-        memory (wkhtmltopdf, rtlcss). Every key is a mkDefault, so a host can
+        PrivateDevices, no capabilities, a syscall filter, and the rest of the
+        baseline (python-devops-nix docs/conventions.md, Unit hardening). odoo
+        and odoo-migrate may map W+X memory (wkhtmltopdf, rtlcss). Every key is a mkDefault, so a host can
         relax one per unit.
 
         On by default since 2.0.0 (off through 1.x). Watch the first start
@@ -666,7 +666,7 @@ in
     };
 
     # python-devops-nix's shared migrate.{enable,snapshot,rollbackOnFailure,
-    # snapshotRetention} (CONVENTIONS.md, Migrate on deploy), plus odoo-nix's
+    # snapshotRetention} (python-devops-nix docs/conventions.md, Migrate on deploy), plus odoo-nix's
     # own full and timeout. odoo-migrate.service runs before every start of
     # odoo.service and updates the modules whose code changed (content
     # checksums recorded in the database, the same ones OCA

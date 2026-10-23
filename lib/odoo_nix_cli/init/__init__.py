@@ -11,5 +11,5 @@ modules), template and secret_files (what is written), pipeline (what both
 modes share), scaffold and migrate (the modes), command (dispatch). The OCA
 catalogue is odoo_nix_cli.oca. It imports no Odoo, click or rich at module
 level; git, uv, odoo-nix-sources and odoo-nix-build-deps run as subprocesses.
-Was lib/odoo-init.sh, and lib/oca-lib.sh for the catalogue (PLAN.md, Track D).
+Was lib/odoo-init.sh, and lib/oca-lib.sh for the catalogue.
 """

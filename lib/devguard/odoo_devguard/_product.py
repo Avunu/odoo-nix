@@ -1,4 +1,4 @@
-"""odoo-nix's side of the devguard contract (python-devops-nix CONVENTIONS.md,
+"""odoo-nix's side of the devguard contract (python-devops-nix docs/conventions.md,
 "The core and the product's package").
 
 ``lib.devguard.mkPackage`` (python-devops-nix) merges this tree with the core

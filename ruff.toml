@@ -2,7 +2,7 @@
 # interpreter either product's presets name (3.11 to 3.14 today), so nothing
 # newer than 3.11 may be used: no PEP 695 syntax, itertools.batched or
 # typing.override. Raise this in the pull request that retires the oldest
-# preset (PLAN.md, Python versions).
+# preset (python-devops-nix docs/library.md, Python versions).
 target-version = "py311"
 
 # Odoo's own idioms: a manifest is a bare dict literal, and an addon's

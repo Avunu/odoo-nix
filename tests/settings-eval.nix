@@ -1,5 +1,5 @@
 # Evaluation-level assertions over the dev shell's `settings` (NixOS RFC 42;
-# python-devops-nix CONVENTIONS.md, Framework config blocks): odoo.conf by
+# python-devops-nix docs/conventions.md, Framework config blocks): odoo.conf by
 # section, in Odoo's spelling, with the keys the shell computes set into it.
 # A consumer's flake is evaluated through lib.mkFlake and nothing is built.
 # Same `pairs` shape as eval.nix; flake.nix turns each into a named check

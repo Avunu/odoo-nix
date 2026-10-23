@@ -1,5 +1,5 @@
 """odoo_journald (lib/journald/odoo_journald, as lib/journald.nix grafts it)
-without Odoo: the line format (python-devops-nix CONVENTIONS.md, Journald
+without Odoo: the line format (python-devops-nix docs/conventions.md, Journald
 line format: `<N>{logger} [{db}] msg`, every line of a traceback prefixed,
 Odoo's perf_info after the message), and the whole path a production start
 takes -- the `odoo` CLI execs "odoo-bin", whose environment's `.pth` graft
