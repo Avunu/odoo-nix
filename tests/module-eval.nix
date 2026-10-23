@@ -92,25 +92,11 @@ let
   };
   # Evaluated for its assertions only: a socket straight in /run.
   badSocket = eval { services.odoo-nix.nginx.socketPath = "/run/nginx.sock"; };
-  journaldOn = eval {
-    services.odoo-nix = {
-      dbName = "acme";
-      logging.journald = true;
-    };
-  };
-  journaldOff = eval {
+  # Removed in 2.0.0: refused by an assertion that names the replacement.
+  journaldSet = eval {
     services.odoo-nix = {
       dbName = "acme";
       logging.journald = false;
-    };
-  };
-  fileQuiet = eval {
-    services.odoo-nix = {
-      dbName = "acme";
-      logging = {
-        file = "/var/log/odoo/odoo.log";
-        journald = false;
-      };
     };
   };
   tuned = eval {
@@ -120,8 +106,8 @@ let
       database.slowQueryMs = 250;
     };
   };
-  # The old path, an alias that warns through 1.x.
-  renamedSlow = eval {
+  # The old path, removed in 2.0.0.
+  removedSlow = eval {
     services.odoo-nix = {
       dbName = "acme";
       logging.slowQueryMs = 125;
@@ -151,8 +137,7 @@ let
       settings.queue_job.channels = "root:2";
     };
   };
-  # 1.0's flat form: an alias for settings.options that warns through 1.x,
-  # and wins over a computed key, as `//` did.
+  # 1.0's flat form, removed in 2.0.0: refused, naming each key.
   flat = eval {
     services.odoo-nix = {
       dbName = "acme";
@@ -201,7 +186,6 @@ let
   role =
     cfg: unit:
     lib.removePrefix "APP_SERVICE=" (lib.findFirst (lib.hasPrefix "APP_SERVICE=") "" (fields cfg unit));
-  warns = cfg: infix: lib.any (lib.hasInfix infix) cfg.warnings;
   failed = cfg: map (a: a.message) (lib.filter (a: !a.assertion) cfg.assertions);
 in
 {
@@ -274,24 +258,18 @@ in
   };
 
   # Journald formatting is always on (the odoo_journald graft); nothing sets
-  # the old switch. logging.journald is a deprecated no-op that warns, except
-  # where `false` silences the logging.file warning it always did.
+  # the old switch, logging.journald is gone (2.0.0), and a log file is the
+  # host's choice, not warned about.
   service-journald = {
     expected = {
       env = [ ];
-      toFileWarns = true;
-      defaultWarns = false;
-      onWarns = true;
-      offWarns = true;
+      removed = true;
       fileQuiet = [ ];
     };
     actual = {
       env = lib.filter (u: pinned.systemd.services.${u}.environment ? ODOO_NIX_JOURNALD) odooUnits;
-      toFileWarns = warns toFile "logging.file is set";
-      defaultWarns = warns pinned "services.odoo-nix";
-      onWarns = warns journaldOn "logging.journald has no effect";
-      offWarns = warns journaldOff "no longer turns that off";
-      fileQuiet = lib.filter (lib.hasInfix "services.odoo-nix") fileQuiet.warnings;
+      removed = lib.any (lib.hasInfix "logging.journald'") (failed journaldSet);
+      fileQuiet = lib.filter (lib.hasInfix "services.odoo-nix") toFile.warnings;
     };
   };
 
@@ -438,15 +416,16 @@ in
       prefix = "%d %u ";
       defaultSlow = null;
       slow = 250;
-      renamed = 125;
-      renamedWarns = true;
+      removed = true;
     };
     actual = {
       prefix = pinned.services.postgresql.settings.log_line_prefix;
       defaultSlow = pinned.services.postgresql.settings.log_min_duration_statement or null;
       slow = tuned.services.postgresql.settings.log_min_duration_statement;
-      renamed = renamedSlow.services.postgresql.settings.log_min_duration_statement;
-      renamedWarns = warns renamedSlow "has been renamed to `services.odoo-nix.database.slowQueryMs'";
+      removed = lib.any (
+        m:
+        lib.hasInfix "logging.slowQueryMs'" m && lib.hasInfix "Use services.odoo-nix.database.slowQueryMs" m
+      ) (failed removedSlow);
     };
   };
 
@@ -509,24 +488,16 @@ in
     actual = lib.hasInfix "[queue_job]\nchannels=root:2\n" (conf sectioned);
   };
 
-  service-settings-flat-alias = {
+  service-settings-flat-removed = {
     expected = {
-      limit = 600;
-      workers = 8;
-      addons = "/srv/addons";
-      rendered = true;
-      warns = true;
+      named = true;
       once = 1;
-      noFlat = false;
     };
     actual = {
-      limit = flat.services.odoo-nix.settings.options.limit_time_cpu;
-      inherit (flat.services.odoo-nix.settings.options) workers;
-      addons = flat.services.odoo-nix.settings.options.addons_path;
-      rendered = hasLine flat "limit_time_cpu=600";
-      warns = warns flat "settings.limit_time_cpu -> settings.options.limit_time_cpu";
-      once = lib.length (lib.filter (lib.hasInfix "settings.options.<key>") flat.warnings);
-      noFlat = flat.services.odoo-nix.settings ? limit_time_cpu;
+      named = lib.any (lib.hasInfix "settings.limit_time_cpu -> settings.options.limit_time_cpu") (
+        failed flat
+      );
+      once = lib.length (lib.filter (lib.hasInfix "settings.options.<key>") (failed flat));
     };
   };
 

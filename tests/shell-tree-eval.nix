@@ -296,7 +296,7 @@ in
     };
   };
   # The tree: watch, devguard, mailpit and ports; `dev` only as the hidden
-  # alias of dev.autoReload.
+  # removed option that refuses dev.autoReload.
   tree =
     let
       o = (perSystem { }).options.odoo-nix;
@@ -318,7 +318,7 @@ in
           "mailpit"
           "ports"
         ];
-        dev = o.dev.autoReload.visible;
+        dev = o.dev.visible;
       };
     };
 }

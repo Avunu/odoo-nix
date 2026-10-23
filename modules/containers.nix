@@ -154,8 +154,8 @@
       libraryPath = lib.makeLibraryPath runtimeDeps;
       addonsPath = if odooPkg != null then odooPkg.passthru.addonsPath "${odooPkg}" else "";
 
-      # The entrypoint's variables, ODOO_NIX_<name>; formerly ODOO_<name>.
-      legacyEnv = [
+      # The entrypoint's variables, ODOO_NIX_<name>; ODOO_<name> through 1.x.
+      removedEnv = [
         "DB_HOST"
         "DB_PORT"
         "DB_USER"
@@ -178,16 +178,20 @@
         CONF=/etc/odoo/odoo.conf
 
         # Every variable this entrypoint reads is ODOO_NIX_* (python-devops-nix
-        # CONVENTIONS.md, Tool-owned variables). The old ODOO_* name is still
-        # read, with a warning, through 1.x (removed in 2.0.0); a new one that
-        # is set wins.
-        for _new in ${lib.concatStringsSep " " (map (v: "ODOO_NIX_${v}") legacyEnv)}; do
+        # CONVENTIONS.md, Tool-owned variables). The old ODOO_* names, read
+        # through 1.x, refuse to start since 2.0.0: ignored, ODOO_DB_HOST
+        # would quietly become the default host.
+        _old_set=0
+        for _new in ${lib.concatStringsSep " " (map (v: "ODOO_NIX_${v}") removedEnv)}; do
           _old="ODOO_''${_new#ODOO_NIX_}"
-          if [ -z "''${!_new+x}" ] && [ -n "''${!_old+x}" ]; then
-            echo "odoo-nix: \$$_old is deprecated, set \$$_new instead (the old name is kept through 1.x, removed in 2.0.0)." >&2
-            export "$_new=''${!_old}"
+          if [ -n "''${!_old+x}" ]; then
+            echo "odoo-nix: \$$_old is not read since odoo-nix 2.0.0; set \$$_new instead." >&2
+            _old_set=1
           fi
         done
+        if [ "$_old_set" = 1 ]; then
+          exit 64
+        fi
 
         mkdir -p /etc/odoo /var/lib/odoo/data
 

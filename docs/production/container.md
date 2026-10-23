@@ -3,7 +3,7 @@ title: The container image
 description: The all-in-one OCI image odoo-nix builds from a project, its entrypoint's environment variables, and its volume and secret contract.
 order: 4
 tags: [containers, oci, docker]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 Set `odoo-nix.containers.enable = true` and the project gets `packages.<SYSTEM>.container-odoo`, an all-in-one image built with `dockerTools.buildLayeredImage` from the project's `packages.default`. It runs Odoo with its HTTP workers, the websocket process and cron.
@@ -37,7 +37,7 @@ The entrypoint writes `/etc/odoo/odoo.conf` at start from environment variables,
 | `ODOO_NIX_LOG_DB` | `log_db` | unset |
 | `ODOO_NIX_LOG_DB_LEVEL` | `log_db_level` | `warning` |
 
-`addons_path` is the image's own, `data_dir` is `/var/lib/odoo/data` and `http_interface` is `0.0.0.0`. The variables were `ODOO_<NAME>` before; the old names are still read, with a warning, through 1.x.
+`addons_path` is the image's own, `data_dir` is `/var/lib/odoo/data` and `http_interface` is `0.0.0.0`. The variables were `ODOO_<NAME>` through 1.x; since 2.0.0 the image refuses to start while one of the old names is set, and names its replacement.
 
 ## Volumes and secrets
 

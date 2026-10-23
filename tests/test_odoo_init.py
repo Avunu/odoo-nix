@@ -145,10 +145,13 @@ class ArgsTest(unittest.TestCase):
     def test_apps_is_modules(self):
         self.assertEqual(args_mod.parse_args(["--apps", "x,y"]).modules, ["x", "y"])
 
-    def test_series_is_a_renamed_alias(self):
-        a = args_mod.parse_args(["--series", "19.0", "--series=18.0"])
-        self.assertEqual(a.version, "18.0")
-        self.assertEqual(a.renamed, ["--series"])
+    def test_series_is_gone(self):
+        for argv in (["--series", "19.0"], ["--series=18.0"]):
+            with self.assertRaises(args_mod.UsageError) as cm:
+                args_mod.parse_args(argv)
+            self.assertIn(
+                "--series is --version since odoo-nix 2.0.0", str(cm.exception)
+            )
         self.assertNotIn("--series", args_mod.USAGE)
 
     def test_switches_and_modes(self):
@@ -229,15 +232,14 @@ class PresetsTest(unittest.TestCase):
             ("18.0", "3.11", "3.12"),
         )
 
-    def test_series_is_branchs_old_name(self):
+    def test_series_is_gone(self):
         old = {
             k: {("series" if f == "branch" else f): v for f, v in e.items()}
             for k, e in PRESETS.items()
         }
-        self.assertEqual(presets.parse(old)["19.0"].branch, "19.0")
-        both = {"18.0": {**PRESETS["18.0"], "series": "18.0"}}
-        with self.assertRaises(presets.PresetError):
-            presets.parse(both)
+        with self.assertRaises(presets.PresetError) as cm:
+            presets.parse(old)
+        self.assertIn("series is branch since odoo-nix 2.0.0", str(cm.exception))
 
     def test_optional_keys(self):
         p = presets.parse(

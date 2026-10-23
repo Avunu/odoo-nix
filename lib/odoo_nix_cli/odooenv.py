@@ -28,22 +28,6 @@ def repo_root() -> Path:
     return Path(os.environ.get("REPO_ROOT", os.getcwd()))
 
 
-def getenv(name: str, legacy: str) -> str | None:
-    """$name, else the variable's old name $legacy, read with a warning through
-    1.x, removed in 2.0.0 (python-devops-nix CONVENTIONS.md, Tool-owned
-    variables: every variable odoo-nix's own tools read is ODOO_NIX_*)."""
-    value = os.environ.get(name)
-    if value is not None:
-        return value
-    value = os.environ.get(legacy)
-    if value is not None:
-        click.echo(
-            f"odoo-nix: ${legacy} is deprecated, set ${name} instead (the old name is kept through 1.x, removed in 2.0.0).",
-            err=True,
-        )
-    return value
-
-
 def require_env(name: str) -> str:
     """A handful of commands (module add/add-bundle, project update, shell)
     delegate to a helper script or the real odoo-bin whose store path this
@@ -159,7 +143,7 @@ def resolve_database(explicit: str | None, odoo_config) -> str | None:
     """Explicit CLI arg > $ODOO_NIX_DB env > db_name from the loaded odoo.conf."""
     if explicit:
         return explicit
-    env = getenv("ODOO_NIX_DB", "ODOO_DB")
+    env = os.environ.get("ODOO_NIX_DB")
     if env:
         return env
     configured = odoo_config["db_name"]

@@ -6,15 +6,15 @@ argparse says them: ``--commit`` takes its message only as ``--commit=<msg>``,
 so ``--commit <dir>`` is the flag and a target; ``--version`` takes a value; a
 usage error is exit 1.
 
-``--series`` is the name ``--version`` had before python-devops-nix's
-CONVENTIONS.md (Scaffolder: version flag). It is still read, with a warning,
-through 1.x, until odoo-nix 2.0.0, and is not in the help. ``--apps`` is
-``--modules``, as it always was.
+``--series``, the name ``--version`` had before python-devops-nix's
+CONVENTIONS.md (Scaffolder: version flag), is refused since odoo-nix 2.0.0
+with a usage error naming ``--version``. ``--apps`` is ``--modules``, as it
+always was.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 USAGE = """\
 Usage: odoo-init [options] [target-dir]
@@ -47,13 +47,13 @@ modules are both optional and independent: skip both for a plain Odoo core
 project, or combine them -- the two selections are unioned.
 """
 
-#: The old name of a flag → its name now (CONVENTIONS.md, Scaffolder).
-RENAMED = {"--series": "--version"}
+#: A flag's name before odoo-nix 2.0.0 → its name now (CONVENTIONS.md,
+#: Scaffolder), for the usage error.
+REMOVED = {"--series": "--version"}
 
 #: Flags that take a value, as `--flag <v>` or `--flag=<v>`, and the field each sets.
 VALUED = {
     "--version": "version",
-    "--series": "version",
     "--bundles": "bundles_csv",
     "--modules": "modules_csv",
     "--apps": "modules_csv",
@@ -98,8 +98,6 @@ class InitArgs:
     db: str = ""
     target: str = ""
     help: bool = False
-    # Old flag names that were used, for the warning (RENAMED).
-    renamed: list[str] = field(default_factory=list)
 
     @property
     def bundles(self) -> list[str]:
@@ -124,6 +122,10 @@ def parse_args(argv: list[str]) -> InitArgs:
         if not word.startswith("-") or word == "-":
             args.target = word
             continue
+        if flag in REMOVED:
+            raise UsageError(
+                f"{flag} is {REMOVED[flag]} since odoo-nix 2.0.0", show_usage=False
+            )
         if flag in VALUED:
             if eq:
                 value = inline
@@ -132,8 +134,6 @@ def parse_args(argv: list[str]) -> InitArgs:
             else:
                 raise UsageError(f"{word} needs a value", show_usage=False)
             setattr(args, VALUED[flag], value)
-            if flag in RENAMED and flag not in args.renamed:
-                args.renamed.append(flag)
         elif word == "--commit":
             args.commit = True
         elif flag == "--commit" and eq:

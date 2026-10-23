@@ -3,7 +3,7 @@ title: Development guard rails
 description: The devguard options that stop a database restored from production from mailing customers, calling integrations, writing to production storage or running its backups, and the limits of that protection.
 order: 4
 tags: [devguard, security, mail, egress]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 A database restored from production carries working production credentials: SMTP and IMAP logins, S3 keys, API tokens, webhook URLs, an SFTP backup target. Left alone it will mail real customers, push a dev-mutated database over the production backup rotation, delete production files and call every integration it has a key for. Odoo's neutralization covers what Odoo and a few addons remember to cover (mail servers, crons, webhook URLs, OAuth, IAP, payment providers). `odoo_devguard` closes the rest, and holds when neutralization was skipped or an addon ships no `neutralize.sql`, which most do not.
@@ -59,4 +59,4 @@ Open Mailpit at the address the banner prints (`mailpit.httpPort`). Mailpit runs
 
 ## Older names
 
-`devguard.crons.*` is now `devguard.jobs.*`, and `mailcatch.*` is now `devguard.mail.enable` and `mailpit.*`. The old options, `ODOO_DEVGUARD_DISABLE=crons` and the `ODOO_DEVGUARD_CRONS_*` variables still work with a warning through 1.x. The `dev_mailcatch` addon is a no-op stub kept through 1.x so an old `server_wide_modules` still starts; remove it from any you set by hand. `ODOO_MAILCATCH_*` and the `[dev_mailcatch]` section are gone. See [Upgrading odoo-nix](upgrading.md#renamed-options).
+`devguard.crons.*` is now `devguard.jobs.*`, and `mailcatch.*` is now `devguard.mail.enable` and `mailpit.*`. Since 2.0.0 the old options are refused with an error that names the new ones, and `ODOO_DEVGUARD_DISABLE=crons` and the `ODOO_DEVGUARD_CRONS_*` variables are not read: the guard stays on. The `dev_mailcatch` stub addon went in 2.0.0, so take it out of any `server_wide_modules` you set by hand. `ODOO_MAILCATCH_*` and the `[dev_mailcatch]` section are gone. See [Upgrading odoo-nix](upgrading.md).

@@ -323,60 +323,21 @@ class JobGuardTest(unittest.TestCase):
             err.getvalue(),
         )
 
-    def test_old_variables_are_read_as_the_new_ones(self):
-        environ = {
-            "ODOO_DEVGUARD_CRONS_EXTRA_BLOCKED_CRONS": "old.sync",
-            "ODOO_DEVGUARD_CRONS_ENABLE": "0",
-        }
-        _product._WARNED_ENV.clear()  # a fresh process
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            _product.alias_old_env(environ)
-            _product.alias_old_env(environ)  # warned once only
-        self.assertEqual(environ["ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED"], "old.sync")
-        self.assertEqual(environ["ODOO_DEVGUARD_JOBS_ENABLE"], "0")
-        lines = err.getvalue().splitlines()
-        self.assertEqual(len(lines), 2, lines)
-        self.assertIn(
-            "WARNING odoo_devguard[crons] ODOO_DEVGUARD_CRONS_EXTRA_BLOCKED_CRONS is "
-            "deprecated; use ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED",
-            err.getvalue(),
-        )
-        # ...and the guard honours the result.
-        with unittest.mock.patch.dict(os.environ, environ):
-            self.assertFalse(jobs.enabled())
-        with unittest.mock.patch.dict(
-            os.environ, {"ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED": "old.sync"}
-        ):
-            self.assertIsNone(ir_cron(6, "old.sync")._callback("sync", 1))
-
-    def test_a_new_variable_wins_over_the_old(self):
-        environ = {
-            "ODOO_DEVGUARD_CRONS_EXTRA_BLOCKED_CRONS": "old.sync",
-            "ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED": "new.sync",
-        }
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            _product._WARNED_ENV.clear()  # a fresh process
-            _product.alias_old_env(environ)
-        self.assertEqual(environ["ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED"], "new.sync")
-        self.assertIn(
-            "use ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED (ignored: it is set too)",
-            err.getvalue(),
-        )
-
-    def test_the_old_name_still_disables_with_a_warning(self):
-        err = io.StringIO()
-        with env(DISABLE="crons"), contextlib.redirect_stderr(err):
-            self.assertEqual(
-                ir_cron(1, "auto_backup.ir_cron_backup_scheduler_0")._callback("b", 1),
-                "ran",
-            )
-            self.assertFalse(jobs.enabled())
-        self.assertIn(
-            "ODOO_DEVGUARD_DISABLE=crons is deprecated; use ODOO_DEVGUARD_DISABLE=jobs",
-            err.getvalue(),
-        )
+    def test_the_old_names_are_not_read(self):
+        # ODOO_DEVGUARD_CRONS_* and ODOO_DEVGUARD_DISABLE=crons, the names
+        # before the shared job denylist, are not read since odoo-nix 2.0.0:
+        # the guard stays on.
+        self.assertFalse(hasattr(_product, "alias_old_env"))
+        with env(CRONS_ENABLE="0", DISABLE="crons"):
+            self.assertTrue(jobs.enabled())
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertIsNone(
+                    ir_cron(1, "auto_backup.ir_cron_backup_scheduler_0")._callback(
+                        "b", 1
+                    )
+                )
+            self.assertNotIn("deprecated", err.getvalue())
 
 
 class ObjectstoreGuardTest(unittest.TestCase):

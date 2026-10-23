@@ -3,7 +3,7 @@ title: Logging
 description: Everything services.odoo-nix logs goes to the journal with APP_SERVICE and APP_SITE fields and real syslog priorities, including nginx's JSON access log and PostgreSQL's slow queries.
 order: 3
 tags: [logging, journald, nginx, postgresql]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 Everything goes to the journal, with no log files, in a shape a shipper reading it (Vector to Loki, or `journalctl -p warning`) can filter without parsing text. It is the same contract as frappe-nix's and wordpress-nix's, so one query spans all three.
@@ -50,4 +50,4 @@ With `database.createLocally`, each line is prefixed with the database and role 
 
 `logging.level`, `logging.handlers` (per-logger overrides such as `"werkzeug:WARNING"`) and `logging.db`/`logging.dbLevel` (mirror records into a database table) set Odoo's own `log_level`, `log_handler`, `log_db` and `log_db_level`.
 
-`logging.file` still works, but Odoo's file and stderr handlers are mutually exclusive: with a file set, the journal only sees what is printed before Odoo's logging starts, so the module warns. Leave it null under systemd, since the journal already timestamps, rotates and ships, or set `logging.journald = false` to keep the file without the warning. `logging.rotate` wires `services.logrotate` to the file, daily with 14 kept; Odoo's `WatchedFileHandler` picks up the rotated file by itself.
+`logging.file` still works, but Odoo's file and stderr handlers are mutually exclusive: with a file set, the journal only sees what is printed before Odoo's logging starts. Leave it null under systemd, since the journal already timestamps, rotates and ships. `logging.rotate` wires `services.logrotate` to the file, daily with 14 kept; Odoo's `WatchedFileHandler` picks up the rotated file by itself.

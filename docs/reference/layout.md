@@ -16,8 +16,6 @@ modules/
   containers.nix             # the OCI image
   nixos.nix                  # services.odoo-nix
   secrets.nix                # odoo-nix.secrets: python-devops-nix's lib.secrets.mkModule
-addons/
-  dev_mailcatch/             # deprecated no-op stub; the mail guard replaced it
 lib/
   addons.nix                 # addons_path synthesis
   odoo-ini.nix               # odoo.conf's INI dialect, for the dev shell and the NixOS module

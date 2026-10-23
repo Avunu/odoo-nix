@@ -3,7 +3,7 @@ title: Secrets options
 description: Every odoo-nix.secrets option, declared at the top level of the project flake, with types and defaults.
 order: 3
 tags: [reference, options, secrets]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 These are declared at the top level of the project flake, beside `perSystem`, not inside it. The module is python-devops-nix's `lib.secrets.mkModule`. See [Secrets](../development/secrets.md).
@@ -22,4 +22,4 @@ These are declared at the top level of the project flake, beside `perSystem`, no
 | `odoo-nix.secrets.extra.<NAME>.var` | string | `"odoo_<NAME>"` | The shell variable; `$<VAR>_PATH` follows. |
 | `odoo-nix.secrets.extra.<NAME>.hosts` | bool | `false` | Also encrypt it to `hostRecipients`. |
 
-The project flake exports `lib.secrets`: `recipients`, and `files`, every declared file by its variable name (`lib.secrets.files.odoo_backup_access`). `lib.odooSecrets` is its old name, kept through 1.x.
+The project flake exports `lib.secrets`: `recipients`, and `files`, every declared file by its variable name (`lib.secrets.files.odoo_backup_access`). `lib.odooSecrets`, its old name, went in 2.0.0.

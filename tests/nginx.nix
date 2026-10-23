@@ -113,9 +113,6 @@ in
           handlers = [ "werkzeug:WARNING" ];
           file = "/var/log/odoo/odoo.log";
           rotate = true;
-          # a log file on purpose; this is how to say so without a warning
-          # (logging.journald is otherwise a deprecated no-op)
-          journald = false;
         };
         # What OCA base_geoengine needs from the database
         services.odoo-nix.database = {

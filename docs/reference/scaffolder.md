@@ -30,7 +30,7 @@ nix run github:Avunu/odoo-nix -- [FLAGS] [TARGET_DIR]
 | `--commit[=<MESSAGE>]` | Commit the result instead of only staging it. The message is only taken as `--commit=<MESSAGE>`, so `--commit <DIR>` is the flag and a target. |
 | `-h`, `--help` | Show the help. |
 
-`--version` was `--series` before odoo-nix and frappe-nix agreed on one set of scaffolder flags. The old name still works, with a warning, through 1.x. In `lib/odoo-presets.json` the key holding each preset's git branch is `branch` (it was `series`); the schema is the one both products share, `label`, `branch`, `python` and `requiresPython`, with `nodejs` and `overrideDependencies` optional.
+`--version` was `--series` before odoo-nix and frappe-nix agreed on one set of scaffolder flags. Since 2.0.0 the old name is a usage error that names `--version`. In `lib/odoo-presets.json` the key holding each preset's git branch is `branch` (it was `series`, which is refused since 2.0.0); the schema is the one both products share, `label`, `branch`, `python` and `requiresPython`, with `nodejs` and `overrideDependencies` optional.
 
 ## Exit codes
 

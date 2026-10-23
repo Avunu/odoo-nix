@@ -38,7 +38,7 @@ Two files are the project's own, and an upgrade never rewrites them:
 
 ## Renamed options
 
-odoo-nix and frappe-nix name the things they share the same way (python-devops-nix's [CONVENTIONS.md](https://github.com/Avunu/python-devops-nix/blob/main/CONVENTIONS.md)). Each old name below still works through 1.x and is removed in 2.0.0: it sets the new option, and evaluating the shell prints a warning naming both.
+odoo-nix and frappe-nix name the things they share the same way (python-devops-nix's [CONVENTIONS.md](https://github.com/Avunu/python-devops-nix/blob/main/CONVENTIONS.md)). Each old name below was an alias through 1.x. Since 2.0.0 it is refused: evaluating the shell, or the host, fails with an error that names the new one.
 
 In `perSystem.odoo-nix`:
 
@@ -56,7 +56,7 @@ In `services.odoo-nix`:
 | Old | New |
 | --- | --- |
 | `logging.slowQueryMs` | `database.slowQueryMs` |
-| `logging.journald` | nothing: Odoo logs to the journal natively. It is accepted with a warning; `false` only silences the `logging.file` warning. |
+| `logging.journald` | nothing: Odoo logs to the journal natively. Remove it. |
 
 Elsewhere:
 
@@ -65,7 +65,7 @@ Elsewhere:
 | `odoo-init --series` | `--version` |
 | `"series"` in `lib/odoo-presets.json` | `"branch"` |
 | `lib.odooSecrets` | `lib.secrets` |
-| `odoo db restore --force` | the default; `--no-force` refuses to overwrite. `--force` is accepted and does nothing. |
+| `odoo db restore --force` | the default; `--no-force` refuses to overwrite. `--force` is a usage error. |
 | `odoo db restore --attachments` | `--files` |
 
 ## The dev shell's `settings` (2.0.0)
@@ -93,13 +93,13 @@ In 2.0.0 the container image becomes `<name>/odoo` (python-devops-nix's `<REGIST
 
 ## Renamed environment variables
 
-The variables odoo-nix's own tools read or export are `ODOO_NIX_*`. Odoo's own, such as `ODOO_RC`, and the guard rails' `ODOO_DEVGUARD_*` keep their names. An old name is still read, with a warning, through 1.x, and a new one that is set wins.
+The variables odoo-nix's own tools read or export are `ODOO_NIX_*`. Odoo's own, such as `ODOO_RC`, and the guard rails' `ODOO_DEVGUARD_*` keep their names. An old name was read, with a warning, through 1.x. Since 2.0.0 it is not read, except that the container image refuses to start while one of its old names is set.
 
 | Old | New |
 | --- | --- |
 | `ODOO_DB`, the `odoo` command's default database | `ODOO_NIX_DB` |
 | `ODOO_TEST_ALLOW_SKIP` | `ODOO_NIX_TEST_ALLOW_SKIP` |
-| `ODOO_HTTP_PORT`, `ODOO_GEVENT_PORT`, exported by the dev shell (the old names are still exported too) | `ODOO_NIX_HTTP_PORT`, `ODOO_NIX_GEVENT_PORT` |
+| `ODOO_HTTP_PORT`, `ODOO_GEVENT_PORT`, exported by the dev shell | `ODOO_NIX_HTTP_PORT`, `ODOO_NIX_GEVENT_PORT` |
 | the container entrypoint's `ODOO_<NAME>` | `ODOO_NIX_<NAME>` (see [The container image](../production/container.md)) |
 | `ODOO_DEVGUARD_CRONS_ENABLE`, `ODOO_DEVGUARD_CRONS_EXTRA_BLOCKED_CRONS` | `ODOO_DEVGUARD_JOBS_ENABLE`, `ODOO_DEVGUARD_JOBS_EXTRA_BLOCKED` |
-| `ODOO_NIX_JOURNALD` | nothing; it is accepted with a warning |
+| `ODOO_NIX_JOURNALD` | nothing |

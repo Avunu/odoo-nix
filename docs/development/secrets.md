@@ -3,7 +3,7 @@ title: Secrets
 description: Keep a project's credentials as age-encrypted files in the repository, decrypt them per command in the dev shell, check who can read them, and let the server read the same ciphertext.
 order: 5
 tags: [secrets, agenix, age]
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 A project's credentials live in `.age` files encrypted with [age](https://github.com/FiloSottile/age), committed next to the code. The machinery is python-devops-nix's secrets toolkit, shared with frappe-nix: [agenix](https://github.com/ryantm/agenix) for the files and [agenix-shell](https://github.com/aciceri/agenix-shell) for the dev shell.
@@ -62,4 +62,4 @@ age.secrets.odoo-backup.file = inputs.myproject.lib.secrets.files.odoo_backup_ac
 services.odoo-nix.environmentFiles = [ config.age.secrets.odoo-backup.path ];
 ```
 
-The host's key must be in `hostRecipients`. `lib.odooSecrets` is the old name of `lib.secrets`, kept through 1.x and removed in 2.0.0.
+The host's key must be in `hostRecipients`. `lib.odooSecrets`, the old name of `lib.secrets`, went in 2.0.0.

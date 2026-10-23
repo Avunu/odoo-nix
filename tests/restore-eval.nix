@@ -1,6 +1,6 @@
 # Evaluation-level assertions over the dev shell's restore options
 # (modules/devenv.nix, odoo-nix.restore.*): what reaches the `odoo` CLI's
-# environment, and the old `restore.attachments` read as `restore.files`. A
+# environment (the old `restore.attachments` is tests/removed-eval.nix's). A
 # consumer's flake is evaluated through lib.mkFlake and only the shell's env
 # is read, so nothing is built. Same `pairs` shape as eval.nix; flake.nix turns
 # each into a named check (lib.checks.mk's `eval`).
@@ -73,16 +73,5 @@ in
       neutralize = false;
       requireDevguard = false;
     };
-  };
-  # The old name, kept through 1.x (removed in 2.0.0): "mirror" is files = true.
-  restore-attachments-alias = {
-    expected = [
-      "1"
-      "0"
-    ];
-    actual = [
-      (restoreEnv { attachments = "mirror"; }).ODOO_NIX_RESTORE_FILES
-      (restoreEnv { attachments = "none"; }).ODOO_NIX_RESTORE_FILES
-    ];
   };
 }

@@ -47,4 +47,4 @@ The banner prints the server's and Mailpit's addresses. See [Getting started](do
 
 MIT, see [LICENSE](LICENSE).
 
-The `dev_mailcatch` stub (`addons/`) and the test fixture addons (`tests/fixtures/`) are Odoo modules and declare `LGPL-3` in their own `__manifest__.py`.
+The test fixture addons (`tests/fixtures/`) are Odoo modules and declare `LGPL-3` in their own `__manifest__.py`.

@@ -18,7 +18,7 @@ import os
 import sys
 
 from odoo_nix_cli.init import ui
-from odoo_nix_cli.init.args import RENAMED, USAGE, UsageError, parse_args
+from odoo_nix_cli.init.args import USAGE, UsageError, parse_args
 from odoo_nix_cli.init.config import ConfigError
 from odoo_nix_cli.init.config import load as load_config
 from odoo_nix_cli.init.detect import (
@@ -85,10 +85,6 @@ def dispatch(st: Run) -> None:
     from odoo_nix_cli.init.scaffold import cmd_init
 
     a = st.args
-    for old in a.renamed:
-        st.warn(
-            f"{old} is now {RENAMED[old]}; the old name works through 1.x and goes in odoo-nix 2.0.0"
-        )
 
     # No target: the current directory when it is an Odoo tree or an odoo-nix
     # project, or when --migrate forces it (decide_mode then says what is
