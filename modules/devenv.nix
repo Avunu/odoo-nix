@@ -76,6 +76,11 @@ in
           "restore"
           "attachments"
         ] "It is restore.files: \"mirror\" is true, \"none\" false.")
+        # One image name since 2.0.0, <name>/odoo, so the switch that opted
+        # into it through 1.x is gone rather than left a no-op to remove later.
+        (removed [ "odoo-nix" "containers" "roleImageNames" ]
+          "The image is always <registry>/<name>/odoo now; remove the option, and point what pulls or runs it at that name."
+        )
         # The 1.x `odooConf` block, whose options became the camelCase
         # `settings` tree, which is odoo.conf by section now (see
         # removedSettings).
@@ -729,17 +734,12 @@ in
             type = types.str;
             default = "";
             example = "ghcr.io/avunu";
-            description = "Registry prefix for the image name: \"ghcr.io/avunu\" names the image ghcr.io/avunu/<name>-odoo (ghcr.io/avunu/<name>/odoo with roleImageNames). A trailing slash is dropped; empty leaves the name bare.";
-          };
-          roleImageNames = mkOption {
-            type = types.bool;
-            default = false;
-            description = "Name the image <name>/odoo (python-devops-nix's <registry>/<name>/<role>) instead of 1.0's <name>-odoo. Opt-in through 1.x, because whatever pulls or runs the image has to change with it; building the image under the old name warns. The default becomes true in 2.0.0.";
+            description = "Registry prefix for the image name: \"ghcr.io/avunu\" names the image ghcr.io/avunu/<name>/odoo. A trailing slash is dropped; empty leaves the name bare.";
           };
           nonRoot = mkOption {
             type = types.bool;
-            default = false;
-            description = "Run the image as odoo (uid/gid 1000) instead of root, with /etc/odoo and /var/lib/odoo owned by it. Opt-in through 1.x; the default becomes true in 2.0.0. A filestore volume a root image wrote is owned by root and needs a one-time chown first: see the README's Production — OCI containers section.";
+            default = true;
+            description = "Run the image as odoo (uid/gid 1000) instead of root, with /etc/odoo and /var/lib/odoo owned by it. The default since 2.0.0 (root through 1.x). A filestore volume a root image wrote is owned by root and needs a one-time chown first: see docs/production/container.md, Running as non-root. `false` runs it as root.";
           };
           labels = mkOption {
             type = types.attrsOf types.str;

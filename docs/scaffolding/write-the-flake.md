@@ -30,7 +30,7 @@ updated: 2026-10-23
 {
   inputs = {
     self.submodules = true;                  # submodule contents enter the flake source tree
-    odoo-nix.url = "github:Avunu/odoo-nix/release-1";
+    odoo-nix.url = "github:Avunu/odoo-nix/release-2";
     nixpkgs.follows = "odoo-nix/nixpkgs";    # flake-parts takes perSystem pkgs from `nixpkgs`
   };
 
@@ -54,7 +54,7 @@ updated: 2026-10-23
 
 `odoo-nix.lib.mkFlake` is `flake-parts.lib.mkFlake` with odoo-nix's own inputs (devenv, uv2nix and the rest) merged into yours, so you declare only `odoo-nix` and `nixpkgs.follows`. `self.submodules = true` is what lets Nix read OCB and the module repositories, and it is also why a fresh clone needs its submodules checked out before the flake can be evaluated (see [A fresh clone](../development/README.md#a-fresh-clone)).
 
-The scaffolder writes `github:Avunu/odoo-nix`, which follows `main`. `release-1` follows every 1.x release and nothing that breaks it; see [Upgrading odoo-nix](../development/upgrading.md#which-odoo-nix-to-follow).
+The scaffolder writes `github:Avunu/odoo-nix`, which follows `main`. `release-2` follows every 2.x release and nothing that breaks it; see [Upgrading odoo-nix](../development/upgrading.md#which-odoo-nix-to-follow).
 
 ## Options you will change most
 
@@ -78,7 +78,7 @@ An application project keeps OCB as the `odoo/` submodule: it is the thing being
 ```nix
 {
   inputs = {
-    odoo-nix.url = "github:Avunu/odoo-nix/release-1";
+    odoo-nix.url = "github:Avunu/odoo-nix/release-2";
     nixpkgs.follows = "odoo-nix/nixpkgs";
     ocb = {
       url = "github:OCA/OCB/18.0";

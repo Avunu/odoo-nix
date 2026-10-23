@@ -1,11 +1,10 @@
 # Evaluation-level assertions over the flake-parts module's container image
 # (modules/containers.nix): the name the image is built under, with and
-# without containers.registry and containers.roleImageNames, and the parts of
-# its config python-devops-nix's CONVENTIONS.md (Containers) asks for: the
-# OCI labels, a healthcheck, and the User with and without
-# containers.nonRoot. A consumer's flake is evaluated through lib.mkFlake and
-# only the image's imageName and passthru.imageConfig are read, so nothing is
-# built (and the 1.x-name warning, which sits on drvPath, never fires).
+# without containers.registry, and the parts of its config python-devops-nix's
+# CONVENTIONS.md (Containers) asks for: the OCI labels, a healthcheck, and the
+# User with and without containers.nonRoot. A consumer's flake is evaluated
+# through lib.mkFlake and only the image's imageName and passthru.imageConfig
+# are read, so nothing is built.
 # Same `pairs` shape as eval.nix; flake.nix turns each into a named
 # check (lib.checks.mk's `eval`).
 {
@@ -45,57 +44,45 @@ let
 
   imageName = containers: (image containers).imageName;
   inherit (image { }) imageConfig;
-  nonRootConfig = (image { nonRoot = true; }).imageConfig;
+  rootConfig = (image { nonRoot = false; }).imageConfig;
   hasHome = config: builtins.elem "HOME=/var/lib/odoo" config.Env;
 in
 {
-  # 1.x: 1.0's <name>-odoo unless roleImageNames.
+  # <registry>/<name>/odoo since 2.0.0 (python-devops-nix's
+  # <registry>/<name>/<role>).
   container-name = {
-    expected = "acme-odoo";
+    expected = "acme/odoo";
     actual = imageName { };
   };
   container-name-registry = {
-    expected = "ghcr.io/avunu/acme-odoo";
+    expected = "ghcr.io/avunu/acme/odoo";
     actual = imageName { registry = "ghcr.io/avunu"; };
   };
-  container-name-role = {
-    expected = "acme/odoo";
-    actual = imageName { roleImageNames = true; };
-  };
-  container-name-role-registry = {
-    expected = "ghcr.io/avunu/acme/odoo";
-    actual = imageName {
-      roleImageNames = true;
-      registry = "ghcr.io/avunu";
-    };
-  };
   # A trailing slash is the separator already: not doubled.
-  container-name-role-registry-slash = {
+  container-name-registry-slash = {
     expected = "ghcr.io/avunu/acme/odoo";
-    actual = imageName {
-      roleImageNames = true;
-      registry = "ghcr.io/avunu/";
-    };
+    actual = imageName { registry = "ghcr.io/avunu/"; };
   };
-  # 1.x: root, as before, unless nonRoot.
+  # Non-root since 2.0.0: uid/gid 1000, home /var/lib/odoo.
   container-user = {
     expected = {
-      user = "0:0";
-      home = false;
+      user = "1000:1000";
+      home = true;
     };
     actual = {
       user = imageConfig.User;
       home = hasHome imageConfig;
     };
   };
-  container-user-non-root = {
+  # nonRoot = false: root, as through 1.x.
+  container-user-root = {
     expected = {
-      user = "1000:1000";
-      home = true;
+      user = "0:0";
+      home = false;
     };
     actual = {
-      user = nonRootConfig.User;
-      home = hasHome nonRootConfig;
+      user = rootConfig.User;
+      home = hasHome rootConfig;
     };
   };
   container-labels = {
@@ -108,7 +95,7 @@ in
     actual = builtins.attrNames imageConfig.Labels;
   };
   container-label-title = {
-    expected = "acme-odoo";
+    expected = "acme/odoo";
     actual = imageConfig.Labels."org.opencontainers.image.title";
   };
   # containers.labels goes over the defaults.

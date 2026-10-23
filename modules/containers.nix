@@ -14,11 +14,9 @@
 # PostgreSQL is external.
 #
 # The image carries the OCI labels and a HEALTHCHECK on /web/health
-# (python-devops-nix CONVENTIONS.md, Containers). Two parts of that convention
-# are opt-in through 1.x and the default in 2.0.0, because each breaks a
-# running deployment: containers.roleImageNames (<registry>/<name>/odoo
-# rather than <name>-odoo) and containers.nonRoot (uid/gid 1000 rather than
-# root).
+# (python-devops-nix CONVENTIONS.md, Containers). Since 2.0.0 it is named
+# <registry>/<name>/odoo (1.x's <name>-odoo was the default) and runs as
+# uid/gid 1000 (containers.nonRoot; root was the default).
 { inputs, ... }:
 {
   # Options live in ./devenv.nix (odoo-nix.containers.*). This module only adds
@@ -38,42 +36,17 @@
       # services.odoo-nix (python-devops-nix lib.python.threadCaps).
       inherit (inputs.python-devops-nix.lib.python) threadCaps;
 
-      # With containers.roleImageNames the image is <name>/<role>, the same
-      # rule as frappe-nix's modules/containers.nix; without it (the 1.x
-      # default) it keeps 1.0's <name>-<role>. containers.registry prefixes
-      # either: "ghcr.io/avunu" (or "ghcr.io/avunu/") names it
-      # ghcr.io/avunu/<name>/odoo; "" leaves it bare.
-      inherit (cfg.containers) roleImageNames nonRoot;
+      # The image is <name>/<role>, the same rule as frappe-nix's
+      # modules/containers.nix. containers.registry prefixes it:
+      # "ghcr.io/avunu" (or "ghcr.io/avunu/") names it ghcr.io/avunu/<name>/odoo;
+      # "" leaves it bare.
+      inherit (cfg.containers) nonRoot;
       registry = lib.removeSuffix "/" cfg.containers.registry;
       imageName =
-        role:
-        let
-          image = if roleImageNames then "${cfg.name}/${role}" else "${cfg.name}-${role}";
-        in
-        if registry == "" then image else "${registry}/${image}";
-
-      # The 1.x name, warned about when the image is built or its store path
-      # read (drvPath, outPath), not on every evaluation of the flake: a host
-      # that moves to the new name has to change what pulls or runs it, so it
-      # opts in rather than being renamed under a running deployment.
-      warnLegacyName =
-        image:
-        let
-          warn = lib.warn "odoo-nix: the container image is named ${image.imageName}, the 1.x default. Set odoo-nix.containers.roleImageNames = true to name it ${imageName' "odoo"}, python-devops-nix's <registry>/<name>/<role>, and update what pulls or runs it; that name is the default in 2.0.0.";
-        in
-        if roleImageNames then
-          image
-        else
-          image
-          // {
-            drvPath = warn image.drvPath;
-            outPath = warn image.outPath;
-          };
-      imageName' =
         role: if registry == "" then "${cfg.name}/${role}" else "${registry}/${cfg.name}/${role}";
 
-      # The user the image runs as with containers.nonRoot; root otherwise, as
-      # before. Fixed, so a volume or a bind mount can be owned to match
+      # The user the image runs as with containers.nonRoot (the default since
+      # 2.0.0); root otherwise. Fixed, so a volume or a bind mount can be owned to match
       # before the first start; the same uid as frappe-nix's images.
       uid = 1000;
       gid = 1000;
@@ -294,6 +267,6 @@
         };
     in
     lib.mkIf (cfg.enable && cfg.containers.enable) {
-      packages.container-odoo = warnLegacyName odooImage;
+      packages.container-odoo = odooImage;
     };
 }

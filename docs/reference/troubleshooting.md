@@ -44,9 +44,9 @@ With `coreSource`, `odoo/` must be a symlink the shell maintains, and a real dir
 
 `ide.enable` links the Nix-built environment at `./.venv`, and will not replace a real virtualenv there. Delete the directory if you do not need it.
 
-### A warning about a renamed option
+### An option, flag or variable "has been removed"
 
-`The option '…' defined in … has been renamed to '…'`: the project sets an option by its old name. It still works through 1.x; rename it. See [Renamed options](../development/upgrading.md#renamed-options).
+`odoo-nix: The option 'odoo-nix.…' defined in … has been removed. …`, a failed assertion about `services.odoo-nix.…`, or a usage error that names a flag's new name: the project still uses a name 1.x kept as an alias, and 2.0.0 removed it. The message names the replacement. See [1.x to 2.0](../development/upgrading.md#1x-to-20).
 
 ## In the dev shell
 

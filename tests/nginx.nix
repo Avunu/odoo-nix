@@ -67,8 +67,6 @@ let
     virtualisation.memorySize = 1024;
     services.odoo-nix = {
       enable = true;
-      # Off by default through 1.x; the VM tests keep the sandbox covered.
-      hardening.enable = true;
       package = stubOdoo;
       dbName = "odoo";
       database.createLocally = true;
