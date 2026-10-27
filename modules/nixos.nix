@@ -99,16 +99,47 @@ let
       "jit"
     ];
   };
+  # odoo.service also creates its sockets. ProtectSystem=strict keeps /run
+  # read-only, so their directories are listed beside the state.
+  webHardening = harden {
+    readWritePaths = odooWritePaths ++ odooSocketDirs;
+    profiles = [
+      "wkhtmltopdf"
+      "jit"
+    ];
+  };
 
-  # nginx serves the public side over a unix socket; Odoo itself stays on
-  # loopback TCP. Verified against the Odoo 18.0 source this module builds:
-  # ThreadedWSGIServerReloadable.__init__ hands (host, port) straight to
-  # werkzeug.serving.ThreadedWSGIServer, bypassing run_simple/make_server where
-  # werkzeug's own `unix://` support lives; PreforkServer builds AF_INET and
-  # binds a 2-tuple; and server_bind's socket-activation branch hardcodes
-  # AF_INET in socket.fromfd. (19.x adds http_socket_activation but still passes
-  # AF_INET explicitly, which CPython does not verify against the real fd.)
+  # nginx serves the public side over a unix socket (nginx.socketPath), and can
+  # reach Odoo over unix sockets too (http.socketPath, http.longpollingSocketPath).
+  # Odoo binds TCP only on every series -- the prefork server and 20.0's
+  # create_server name AF_INET, and the socket-activation branches hardcode it
+  # in socket.fromfd -- so the odoo_socket graft (lib/socket) binds them
+  # instead, from the two variables odoo.service gets (socketEnv).
   nginxSocket = cfg.nginx.socketPath != "";
+  httpSocket = cfg.http.socketPath != "";
+  longpollingSocket = cfg.http.longpollingSocketPath != "";
+
+  # What odoo.service hands the graft. Only odoo.service: the migrate unit and
+  # root's `odoo` run no server, and a stray one must not replace the
+  # service's sockets.
+  socketEnv =
+    lib.optionalAttrs httpSocket { ODOO_NIX_HTTP_SOCKET = cfg.http.socketPath; }
+    // lib.optionalAttrs longpollingSocket { ODOO_NIX_GEVENT_SOCKET = cfg.http.longpollingSocketPath; };
+
+  odooSocketDirs = lib.unique (
+    map dirOf (
+      lib.filter (p: p != "") [
+        cfg.http.socketPath
+        cfg.http.longpollingSocketPath
+      ]
+    )
+  );
+
+  # Without workers the threaded server answers /websocket itself; only the
+  # prefork server starts the gevent process on gevent_port. The effective
+  # value: a host may set settings.options.workers over `workers`.
+  workers = cfg.settings.options.workers or 0;
+  websocketUpstream = if workers > 0 then "odoochat" else "odoo";
 
   # nginx's listen socket in its own directory (lib.nixos.unixSocket): 0770,
   # since nginx -- a member of cfg.group, not the owner -- creates the socket
@@ -123,6 +154,17 @@ let
         peerCreates = true;
         example = "/run/odoo/nginx.sock";
       }
+      # Odoo creates these; nginx, in the group, only connects (0750).
+      {
+        option = "services.odoo-nix.http.socketPath";
+        path = cfg.http.socketPath;
+        example = "/run/odoo-http/http.sock";
+      }
+      {
+        option = "services.odoo-nix.http.longpollingSocketPath";
+        path = cfg.http.longpollingSocketPath;
+        example = "/run/odoo-http/websocket.sock";
+      }
     ];
   };
 
@@ -130,14 +172,19 @@ let
   # socket it is the default server, so server_name never has to match.
   vhostName = if cfg.nginx.domain != "" then cfg.nginx.domain else "odoo";
 
-  # recommendedProxySettings hardcodes `X-Forwarded-Proto $scheme`, and NixOS
-  # emits its include AFTER a location's extraConfig, so the wrong scheme cannot
-  # be overridden from there — Odoo's proxy_mode would then build http URLs and
-  # drop the Secure flag on session cookies. Opt each location out and set the
-  # whole header block explicitly (lib.nixos.nginx.socketProxyHeaders).
-  socketProxyHeaders = optionalString nginxSocket odooNixBase.nixos.nginx.socketProxyHeaders;
-
   xSendfile = cfg.nginx.enable && cfg.nginx.xSendfile;
+
+  # The vhost, its locations and the upstreams, from python-devops-nix's
+  # lib.nixos.nginx (docs/conventions.md, nginx configuration).
+  #
+  # Behind the socket listener every location opts out of
+  # recommendedProxySettings: it hardcodes `X-Forwarded-Proto $scheme`, and
+  # NixOS emits its include AFTER a location's extraConfig, so the wrong
+  # scheme cannot be overridden from there -- Odoo's proxy_mode would then
+  # build http URLs and drop the Secure flag on session cookies. nginx.proxy
+  # sets the whole header block instead (lib.nixos.nginx.socketProxyHeaders).
+  inherit (odooNixBase.nixos) nginx;
+  proxy = args: nginx.proxy ({ viaSocket = nginxSocket; } // args);
 
   # odoo.conf's INI dialect (lib/odoo-ini.nix, shared with the dev shell):
   # bools as True/False, lists comma-separated, null as the key's absence.
@@ -419,6 +466,39 @@ in
         type = types.str;
         default = "127.0.0.1";
         description = "HTTP bind interface (keep loopback behind nginx).";
+      };
+      socketPath = mkOption {
+        type = types.str;
+        default = "";
+        example = "/run/odoo-http/http.sock";
+        description = ''
+          Serve Odoo's HTTP server on this unix socket instead of
+          `interface`:`port`: the threaded server (`workers = 0`, which
+          answers /websocket too) or the prefork workers. nginx proxies to it
+          when `nginx.enable`.
+
+          Odoo binds TCP only; the odoo_socket graft every odoo-nix
+          environment carries binds the socket in its place, on 18.0 through
+          20.0. A unix-socket peer has no address, so behind nginx the
+          client's comes from X-Forwarded-For (proxy_mode, on with nginx).
+
+          The socket's own mode is 0666; give it a directory of its own,
+          which this module creates 0750 and owned by the service user and
+          group (nginx, in the group, connects), and which is the real gate.
+          It may share that directory with `longpollingSocketPath`.
+        '';
+      };
+      longpollingSocketPath = mkOption {
+        type = types.str;
+        default = "";
+        example = "/run/odoo-http/websocket.sock";
+        description = ''
+          Serve the gevent/websocket process the prefork server starts
+          (`workers > 0`) on this unix socket instead of `longpollingPort`.
+          nginx proxies /websocket to it when `nginx.enable`. Without workers
+          there is no such process: the threaded server answers /websocket
+          on `socketPath` or `port`. See `socketPath` for the directory.
+        '';
       };
     };
 
@@ -725,8 +805,9 @@ in
         description = ''
           Serve the nginx vhost over this unix socket instead of a TCP port, for
           a co-located reverse proxy or tunnel connector that terminates TLS.
-          Odoo itself stays on loopback TCP — its server layer cannot bind a
-          unix socket (see the comment in this module).
+          With `http.socketPath` (and `http.longpollingSocketPath` under
+          workers) nginx reaches Odoo over unix sockets too, so nothing
+          listens on TCP.
 
           Implies the public scheme is https: `X-Forwarded-Proto` is set
           accordingly and the client IP is taken from `CF-Connecting-IP`, since a
@@ -893,7 +974,27 @@ in
     ]
     # nginx chmods its listen socket to 0666, so the directory around it is
     # what keeps it private.
-    ++ sockets.assertions;
+    ++ sockets.assertions
+    ++ [
+      {
+        assertion =
+          let
+            set = lib.filter (p: p != "") [
+              cfg.nginx.socketPath
+              cfg.http.socketPath
+              cfg.http.longpollingSocketPath
+            ];
+          in
+          lib.unique set == set;
+        message = "services.odoo-nix: nginx.socketPath, http.socketPath and http.longpollingSocketPath must be different paths.";
+      }
+    ];
+
+    warnings = lib.optional (longpollingSocket && workers == 0) ''
+      services.odoo-nix.http.longpollingSocketPath is set, but workers = 0 starts
+      no gevent process to listen on it: the threaded server answers /websocket
+      on http.socketPath (or http.port). Unset it, or set workers.
+    '';
 
     users.users = lib.mkMerge [
       (mkIf (cfg.user == "odoo") {
@@ -903,9 +1004,10 @@ in
           home = cfg.stateDir;
         };
       })
-      # nginx needs group membership to traverse the 0750 socket directory,
-      # and the 0750 state directory down to the filestore for x_sendfile.
-      (mkIf (cfg.nginx.enable && (nginxSocket || xSendfile)) {
+      # nginx needs group membership to traverse the socket directories (its
+      # own 0770, Odoo's 0750), and the 0750 state directory down to the
+      # filestore for x_sendfile.
+      (mkIf (cfg.nginx.enable && (nginxSocket || httpSocket || longpollingSocket || xSendfile)) {
         nginx.extraGroups = [ cfg.group ];
       })
     ];
@@ -1012,7 +1114,7 @@ in
       ++ lib.optional mg.enable "odoo-migrate.service";
 
       path = runtimePath;
-      environment = serviceEnv;
+      environment = serviceEnv // socketEnv;
 
       serviceConfig = {
         User = cfg.user;
@@ -1044,7 +1146,7 @@ in
         Restart = "always";
         RestartSec = "5";
       }
-      // odooHardening
+      // webHardening
       # SyslogIdentifier=odoo-web: otherwise each Exec line's own executable
       # name (ExecStartPre's is a generated script's), which follows the
       # package, not the role -- stable names are what a query can key on.
@@ -1117,94 +1219,69 @@ in
       )
     );
 
-    services.nginx = mkIf cfg.nginx.enable {
-      enable = true;
-      recommendedProxySettings = true;
-      recommendedGzipSettings = true;
-      # The error log over syslog, so each line keeps its severity (on
-      # stderr every line is info). nginx-wide, as logError is; mkDefault, so
-      # the host may send it elsewhere.
-      logError = lib.mkDefault odooNixBase.nixos.nginx.errorLog;
-      # The access log as one JSON object per request, to the journal under
-      # SYSLOG_IDENTIFIER=nginx_access (lib.nixos.nginx.accessLog). http-level,
-      # so every server block inherits it.
-      commonHttpConfig = odooNixBase.nixos.nginx.accessLog cfg.logging.accessLog;
-      upstreams.odoo.servers."127.0.0.1:${toString cfg.http.port}" = { };
-      upstreams.odoochat.servers."127.0.0.1:${toString cfg.http.longpollingPort}" = { };
-      virtualHosts.${vhostName} = {
-        listen = lib.optionals nginxSocket [ { addr = "unix:${cfg.nginx.socketPath}"; } ];
-
-        # A unix socket has no peer address, so $remote_addr is meaningless.
-        # Trust the socket peer and take the real client IP from Cloudflare's
-        # header — the socket is only reachable from the connector beside it.
-        extraConfig = ''
-          client_max_body_size ${cfg.nginx.clientMaxBodySize};
-        ''
-        + optionalString nginxSocket odooNixBase.nixos.nginx.cloudflareRealIp;
-
-        # In socket mode this module owns the complete header set (the
-        # recommended include is off per location, and its $scheme is wrong here).
-        # In TCP mode the previous configuration is reproduced exactly.
-        locations = {
-          "/" = {
-            proxyPass = "http://odoo";
-            recommendedProxySettings = !nginxSocket;
-            extraConfig =
-              if nginxSocket then
-                ''
-                  ${socketProxyHeaders}
-                  proxy_redirect off;
-                ''
-              else
-                ''
-                  proxy_redirect off;
-                  proxy_set_header X-Forwarded-Host $host;
-                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                  proxy_set_header X-Forwarded-Proto $scheme;
-                  proxy_set_header X-Real-IP $remote_addr;
-                '';
-          };
-          "/websocket" = {
-            proxyPass = "http://odoochat";
-            proxyWebsockets = true;
-            recommendedProxySettings = !nginxSocket;
-            extraConfig =
-              if nginxSocket then
-                socketProxyHeaders
-              else
-                ''
-                  proxy_set_header X-Forwarded-Host $host;
-                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                  proxy_set_header X-Forwarded-Proto $scheme;
-                '';
-          };
-          "/longpolling" = {
-            proxyPass = "http://odoochat";
-            proxyWebsockets = true;
-            recommendedProxySettings = !nginxSocket;
-            extraConfig = socketProxyHeaders;
-          };
-          # Where Odoo's X-Accel-Redirect points (nginx.xSendfile). internal:
-          # reachable only through that header, never by a client's request.
-          # Follows data_dir; none when a host unset it (null).
-          "/web/filestore/" = mkIf (xSendfile && dataDir != null) {
-            alias = "${dataDir}/filestore/";
-            extraConfig = ''
-              internal;
-            '';
-          };
-          "~* /web/static/" = {
-            proxyPass = "http://odoo";
-            recommendedProxySettings = !nginxSocket;
-            extraConfig = ''
-              ${socketProxyHeaders}
-              proxy_cache_valid 200 60m;
-              proxy_buffering on;
-              expires 864000;
-            '';
-          };
+    # On, with the recommended proxy and gzip settings; the error log over
+    # syslog, so each line keeps its severity (on stderr every line is info;
+    # a mkDefault, so the host may send it elsewhere); the access log as one
+    # JSON object per request, to the journal under
+    # SYSLOG_IDENTIFIER=nginx_access, at the http level so every server block
+    # inherits it (python-devops-nix's lib.nixos.nginx).
+    services.nginx = mkIf cfg.nginx.enable (
+      nginx.serviceDefaults { inherit (cfg.logging) accessLog; }
+      // {
+        upstreams.odoo = nginx.upstream {
+          inherit (cfg.http) socketPath;
+          inherit (cfg.http) port;
         };
-      };
-    };
+        upstreams.odoochat = nginx.upstream {
+          socketPath = cfg.http.longpollingSocketPath;
+          port = cfg.http.longpollingPort;
+        };
+        # In socket mode the client's address comes from Cloudflare's header
+        # (a unix socket has no peer address), and each location sets the
+        # complete header set in place of the recommended include, whose
+        # $scheme is wrong behind a connector that ended TLS.
+        virtualHosts.${vhostName} =
+          nginx.vhost {
+            inherit (cfg.nginx) socketPath;
+            extraConfig = ''
+              client_max_body_size ${cfg.nginx.clientMaxBodySize};
+            '';
+          }
+          // {
+            locations = {
+              "/" = proxy {
+                pass = "http://odoo";
+                extraConfig = ''
+                  proxy_redirect off;
+                '';
+              };
+              # The gevent process under workers, the threaded server itself
+              # without (websocketUpstream).
+              "/websocket" = proxy {
+                pass = "http://${websocketUpstream}";
+                websockets = true;
+              };
+              "/longpolling" = proxy {
+                pass = "http://${websocketUpstream}";
+                websockets = true;
+              };
+              # Where Odoo's X-Accel-Redirect points (nginx.xSendfile). internal:
+              # reachable only through that header, never by a client's request.
+              # Follows data_dir; none when a host unset it (null).
+              "/web/filestore/" = mkIf (xSendfile && dataDir != null) (
+                nginx.internal { alias = "${dataDir}/filestore/"; }
+              );
+              "~* /web/static/" = proxy {
+                pass = "http://odoo";
+                extraConfig = ''
+                  proxy_cache_valid 200 60m;
+                  proxy_buffering on;
+                  expires 864000;
+                '';
+              };
+            };
+          };
+      }
+    );
   };
 }

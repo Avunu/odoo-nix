@@ -304,6 +304,11 @@ in
       test -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/odoo_journald/_journald.py
       grep -qxF 'import odoo_journald; odoo_journald.install()' \
         ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/zzz-odoo-journald.pth
+      # The socket graft too, inert without ODOO_NIX_*_SOCKET (service-<major>
+      # serves on TCP with it in place; socket-<major> on sockets).
+      test -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/odoo_socket/_hook.py
+      grep -qxF 'import odoo_socket; odoo_socket.install()' \
+        ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/zzz-odoo-socket.pth
     '';
 
     # The fixture addon's Odoo tests, with the test env (prod wheels + dev
@@ -637,6 +642,15 @@ in
         inherit pkgs series odooCli;
         odooCliV2 = v2.cli;
         odooCliV3 = v3.cli;
+        odooModule = inputs.self.nixosModules.default;
+      }
+    );
+
+    # Unix sockets end to end, the odoo_socket graft in a real Odoo (see the
+    # file header).
+    socket = nixosTest "socket-${major}" (
+      import ./socket.nix {
+        inherit pkgs odooCli;
         odooModule = inputs.self.nixosModules.default;
       }
     );

@@ -20,6 +20,8 @@ See [Run Odoo as a NixOS service](../production/nixos-service.md) for how they f
 | `http.port` | port | `8069` | `http_port`. |
 | `http.longpollingPort` | port | `8072` | `gevent_port`, the websocket process. |
 | `http.interface` | string | `"127.0.0.1"` | `http_interface`. Keep loopback behind nginx. |
+| `http.socketPath` | string | `""` | Odoo's HTTP server on this unix socket instead of `interface`:`port` (the `odoo_socket` graft). Give it a directory of its own. |
+| `http.longpollingSocketPath` | string | `""` | The websocket process (`workers > 0`) on this unix socket instead of `longpollingPort`. |
 | `workers` | int | `2` | HTTP worker processes. 0 is the threaded server. |
 | `maxCronThreads` | int | `2` | `max_cron_threads`. |
 | `dbName` | null or string | `null` | Pin one database: sets `db_name` and `dbfilter = ^<NAME>$`. |
