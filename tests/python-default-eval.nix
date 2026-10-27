@@ -61,7 +61,7 @@ in
   };
   python-default-20 = {
     expected = {
-      python = "3.12";
+      python = "3.14";
       image = true;
     };
     actual = consumer "20.0" inputs.ocb-20;

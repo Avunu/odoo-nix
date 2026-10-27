@@ -12,9 +12,9 @@
     "requiresPython": ">=3.12"
   },
   "20.0": {
-    "label": "20.0 — latest (python 3.12)",
+    "label": "20.0 — latest (python 3.14)",
     "branch": "20.0",
-    "python": "python312",
+    "python": "python314",
     "requiresPython": ">=3.12"
   }
 }
