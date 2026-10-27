@@ -126,10 +126,15 @@ let
   # requirements.txt does, which uv2nix does not read), so uv resolves
   # whatever lxml is newest on PyPI and the import fails. Backfill it from
   # nixpkgs. A series whose setup.py already declares it (19.0+) is left
-  # alone: `prev` already carries the uv-resolved attribute there.
+  # alone: `prev` already carries the uv-resolved package there, under its
+  # normalized name `lxml-html-clean` (hasUvLxmlHtmlClean). Testing only for
+  # `lxml_html_clean` backfilled it on 19.0+ as well, a second copy in the
+  # venv, which went unnoticed while nixpkgs' version differed from the
+  # lock's and fails the venv's collision check once they match.
+  hasUvLxmlHtmlClean = set: set ? "lxml-html-clean" || set ? lxml_html_clean;
   lxmlHtmlCleanOverlay =
     _final: prev:
-    lib.optionalAttrs (!(prev ? lxml_html_clean)) (
+    lib.optionalAttrs (!(hasUvLxmlHtmlClean prev)) (
       let
         base = python.pkgs.lxml-html-clean;
         # nixpkgs' own `passthru.dependencies` is a flat derivation list that
@@ -233,10 +238,16 @@ let
   # For the virtual single-root project, `workspace.deps.default` is the root
   # node; mkVirtualEnv resolves its deps (odoo + the install roots) with markers.
 
-  # Force lxml_html_clean into the venv regardless of what the workspace lock
-  # resolved (see lxmlHtmlCleanOverlay above) -- a no-op where it's already
-  # there, since the package declares no extras.
-  withLxmlHtmlClean = deps: deps // { lxml_html_clean = deps.lxml_html_clean or [ ]; };
+  # Put the backfilled lxml_html_clean (lxmlHtmlCleanOverlay above) into the
+  # venv, which nothing in the lock asks for. Where the lock resolved it
+  # itself (19.0+), odoo's own dependency brings it in and there is nothing
+  # to add. pythonSet and editableSet share the lock, so either tells.
+  withLxmlHtmlClean =
+    deps:
+    if pythonSet ? "lxml-html-clean" then
+      deps
+    else
+      deps // { lxml_html_clean = deps.lxml_html_clean or [ ]; };
 
   # Graft odoo_devguard into a virtualenv's site-packages with a `.pth`
   # bootstrap (zzz-odoo-devguard.pth), so any interpreter started from the

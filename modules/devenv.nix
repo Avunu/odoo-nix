@@ -885,7 +885,7 @@ in
           '';
         };
 
-        mcBin = "${pkgs.minio-client}/bin/mc";
+        rcloneBin = lib.getExe pkgs.rclone;
 
         # The backup fetch layer as a command (`odoo-nix-backup-fetch
         # {list,folders,fetch}`), with odoo-nix's layout: what
@@ -958,7 +958,7 @@ in
           name = "${cfg.name}-odoo-cli-dev";
           rawOdooBin = devRawOdooBin;
           targetPythonEnv = pythonEnvs.devPythonEnv;
-          inherit mcBin;
+          inherit rcloneBin;
           base = inputs.python-devops-nix.lib;
           withSecrets = if restoreEnabled then withBackupAccess else null;
         };
@@ -1353,7 +1353,7 @@ in
                 ++ lib.optional (cfg.testBrowser != null) cfg.testBrowser
                 ++ lib.optional (cfg.ide.enable && cfg.ide.languageServer.enable) cfg.ide.languageServer.package
                 ++ secretsTools.packages
-                ++ lib.optional restoreEnabled pkgs.minio-client
+                ++ lib.optional restoreEnabled pkgs.rclone
                 # For the one-off `odoo-nix-db-nocow migrate` shell entry asks for.
                 ++ lib.optional (cfg.postgres.noCow && pkgs.stdenv.hostPlatform.isLinux) dbNocow
                 ++ cfg.extraDevPackages;

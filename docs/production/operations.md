@@ -53,6 +53,6 @@ odoo db migrate acme
 odoo shell acme
 ```
 
-A restore on a server is not neutralized unless you pass `--neutralize`. Fetching the newest backup from the S3 store (`odoo db restore` with no file) is a dev-shell feature: the server's package carries no minio client, so download the backup and restore the file.
+A restore on a server is not neutralized unless you pass `--neutralize`. Fetching the newest backup from the S3 store (`odoo db restore` with no file) is a dev-shell feature: the server's package carries no S3 client, so download the backup and restore the file.
 
 For scheduled backups to object storage, use OCA's `auto_backup` with the FS Storage bridge described in [Restore a production backup](../development/restore-from-production.md#2-the-server-side).
