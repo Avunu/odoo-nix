@@ -222,7 +222,7 @@ check "--flag=value: the modules" eval '[ "$(cat eq/modules.txt)" = partner_firs
 init twenty --version 20.0 acme
 expect_rc 0
 check "20.0: the series" has '^\s*odooSeries = "20\.0";$' acme/flake.nix
-check "20.0: its interpreter" has '^\s*python = pkgs\.python312;$' acme/flake.nix
+check "20.0: its interpreter" has '^\s*python = pkgs\.python314;$' acme/flake.nix
 check "20.0: OCB is cloned from its branch" \
   hasF 'clone --branch 20.0 --require-branch --treeless https://github.com/OCA/OCB.git odoo' "$STUB_LOG/sources"
 check "20.0: modules.txt starts empty" eval '[ ! -s acme/modules.txt ]'

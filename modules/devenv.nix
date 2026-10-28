@@ -160,7 +160,7 @@ in
             };
           defaultText = lib.literalMD ''
             the series' interpreter from `lib/odoo-presets.json`
-            (`pkgs.python311` for 18.0, `pkgs.python312` for 19.0 and 20.0)
+            (`pkgs.python311` for 18.0, `pkgs.python312` for 19.0, `pkgs.python314` for 20.0)
           '';
           description = "Python interpreter (should match the series' `requires-python`).";
         };
