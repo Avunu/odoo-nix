@@ -13,7 +13,7 @@ flake.nix                    # inputs; flakeModules, nixosModules, lib, packages
 modules/
   flake-module.nix           # imports devenv's flake module, secrets.nix, devenv.nix, containers.nix
   devenv.nix                 # the perSystem.odoo-nix options and the dev shell
-  containers.nix             # the OCI image
+  containers.nix             # the OCI image, its shared parts from python-devops-nix's lib.containers
   nixos.nix                  # services.odoo-nix
   secrets.nix                # odoo-nix.secrets: python-devops-nix's lib.secrets.mkModule
 lib/
@@ -112,14 +112,14 @@ git add lib/odoo-ls-Cargo.lock
 
 ## The OCA catalog
 
-`data/oca-modules.json` is the bundled catalog behind the module picker and the dependency resolver: one record per repository, module and series, with `repo`, `version`, `application`, `installable`, `depends`, `summary` and more. It covers 18.0 and 19.0. Refreshing it is two commands:
+`data/oca-modules.json` is the bundled catalog behind the module picker and the dependency resolver: one record per repository, module and series, with `repo`, `version`, `application`, `installable`, `depends`, `summary` and more. It covers 18.0, 19.0 and 20.0. Refreshing it is two commands:
 
 ```bash
 data/sync-oca-repos.sh              # or: data/sync-oca-repos.sh 19.0
 data/extract_manifests.py           # rewrites data/oca-modules.json
 ```
 
-`sync-oca-repos.sh` keeps one bare mirror per repository of `data/oca-repos.txt` under the gitignored `data/.cache/`, fetching each series as a shallow branch and skipping repositories without it. `extract_manifests.py` reads the manifests straight out of the git objects, with no working trees, and skips a manifest whose `version` disagrees with its branch. Both scripts carry their own series list (19.0 and 18.0): keep them in step with `lib/odoo-presets.json` when a series is added or dropped.
+`sync-oca-repos.sh` keeps one bare mirror per repository of `data/oca-repos.txt` under the gitignored `data/.cache/`, fetching each series as a shallow branch and skipping repositories without it. A re-run moves each branch to OCA's current head. `extract_manifests.py` reads the manifests straight out of the git objects, with no working trees, and skips a manifest whose `version` disagrees with its branch. Both scripts carry their own series list (20.0, 19.0 and 18.0): keep them in step with `lib/odoo-presets.json` when a series is added or dropped.
 
 `data/oca-bundles.json` is maintained by hand; add or edit a bundle there with no code change. `odoo module add <GIT_URL>` bypasses the catalog entirely.
 

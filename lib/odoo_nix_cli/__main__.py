@@ -140,7 +140,9 @@ def main() -> None:
     _install_devguard()
     from .commands import cli
 
-    cli(args=argv)
+    # Without prog_name, click names the program after how Python started it
+    # (`python -m odoo_nix_cli`), in every usage line.
+    cli(args=argv, prog_name="odoo")
 
 
 if __name__ == "__main__":
