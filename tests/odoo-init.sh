@@ -226,14 +226,14 @@ check "20.0: OCB is cloned from its branch" \
   hasF 'clone --branch 20.0 --require-branch --treeless https://github.com/OCA/OCB.git odoo' "$STUB_LOG/sources"
 check "20.0: modules.txt starts empty" eval '[ ! -s acme/modules.txt ]'
 
-# 20.0's catalog is small, but a module and a bundle resolve from it. The
-# sales bundle has no 20.0 member yet.
+# 20.0's catalog is small, but a module resolves from it. The sales bundle has
+# no 20.0 member yet, so it adds nothing.
 init twenty-oca --version 20.0 --bundles sales --modules web_responsive acme
 expect_rc 0
 check "20.0: a catalog module's repository is cloned on 20.0" \
   hasF 'clone --branch 20.0 --require-branch https://github.com/OCA/web.git modules/web' "$STUB_LOG/sources"
 check "20.0: a bundle with no 20.0 member adds nothing" \
-  hasF 'not available for 20.0, skipped: portal_sale_order_search' err
+  hasF 'not available for 20.0, skipped: ' err
 check "20.0: modules.txt holds the module alone" eval '[ "$(cat acme/modules.txt)" = web_responsive ]'
 
 init apps --version 18.0 --apps partner_firstname acme

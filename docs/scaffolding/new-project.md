@@ -36,7 +36,7 @@ The presets are in `lib/odoo-presets.json`:
 | 19.0   | python312 | 19.0               |
 | 20.0   | python314 | 20.0               |
 
-18.0 is the default of `odoo-nix.odooSeries`, and the bundled OCA catalog is richest for it. 19.0 is supported and catalogued, but OCA's port to it is still in progress, so fewer modules exist there. 20.0 is supported the same way (the Python, CLI and NixOS paths are tested against OCB 20.0) and catalogued too, but OCA's port to it has barely started: few modules exist there, mostly localizations and a handful of `web`, `server-brand` and `server-ux` modules. Of the bundles, only `base` and `oca-accounting` add anything for 20.0; `project`, `purchase` and `sales` add nothing yet. Add what the catalog lacks with `odoo module add <GIT_URL>` once its OCA repository has a 20.0 branch.
+18.0 is the default of `odoo-nix.odooSeries`, and the bundled OCA catalog is richest for it. 19.0 is supported and catalogued, but OCA's port to it is still in progress, so fewer modules exist there. 20.0 is supported the same way (the Python, CLI and NixOS paths are tested against OCB 20.0) and catalogued too, but OCA's port to it has barely started: few modules exist there, mostly localizations and a few `web`, `product-attribute` and server modules. Of the bundles, only `base` and `oca-accounting` add anything for 20.0; `project`, `purchase` and `sales` add nothing yet. Add what the catalog lacks with `odoo module add <GIT_URL>` once OCA has ported it to 20.0. The bundled catalog can lag OCA's branches.
 
 ## OCA software is opt-in
 
