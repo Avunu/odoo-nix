@@ -18,8 +18,10 @@
 }:
 let
   # Stands in for the assembled Odoo. Reads http_interface/http_port out of the
-  # generated conf so it binds wherever the module told Odoo to bind, then
-  # reflects the request headers so the test can assert what nginx sent.
+  # generated conf so it binds wherever the module told Odoo to bind -- or the
+  # unix socket in ODOO_NIX_HTTP_SOCKET, as the odoo_socket graft makes Odoo
+  # do (mode 0666 in its 0750 directory) -- then reflects the request headers
+  # so the test can assert what nginx sent.
   stubOdoo =
     pkgs.runCommand "stub-odoo"
       {
@@ -29,7 +31,7 @@ let
         mkdir -p $out/bin $out/addons
         cat > $out/bin/odoo <<'EOF'
         #!${pkgs.python3}/bin/python3
-        import configparser, json, sys
+        import configparser, json, os, socketserver, sys
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
         conf_path = sys.argv[sys.argv.index("-c") + 1]
@@ -57,7 +59,13 @@ let
             def log_message(self, *a):
                 pass
 
-        ThreadingHTTPServer((host, port), H).serve_forever()
+        path = os.environ.get("ODOO_NIX_HTTP_SOCKET")
+        if path:
+            server = socketserver.ThreadingUnixStreamServer(path, H)
+            os.chmod(path, 0o666)
+        else:
+            server = ThreadingHTTPServer((host, port), H)
+        server.serve_forever()
         EOF
         chmod +x $out/bin/odoo
       '';
@@ -79,7 +87,7 @@ in
 # names it.
 {
   nodes = {
-    # ---- socket: nginx fronts Odoo over a unix socket, no TCP listener ----
+    # ---- socket: unix sockets end to end, no TCP listener ----
     socket =
       { ... }:
       {
@@ -88,6 +96,7 @@ in
           enable = true;
           socketPath = "/run/odoo/nginx.sock";
         };
+        services.odoo-nix.http.socketPath = "/run/odoo-http/http.sock";
         # A secret only root can read: odoo-init, running as the service
         # user, gets it through LoadCredential.
         services.odoo-nix.adminPasswordFile = "/etc/odoo-admin-passwd";
@@ -138,7 +147,8 @@ in
         # proxy_mode is on whenever nginx fronts Odoo, so werkzeug's ProxyFix
         # honours the X-Forwarded-* headers asserted below
         m.succeed("grep -qE '^proxy_mode\\s*=\\s*True' /var/lib/odoo/odoo.conf")
-        # Odoo stays on loopback TCP in both modes
+        # odoo.conf keeps the TCP address in both modes; the socket is the
+        # graft's, from odoo.service's environment
         m.succeed("grep -qE '^http_interface\\s*=\\s*127\\.0\\.0\\.1' /var/lib/odoo/odoo.conf")
 
     # ---- socket mode ----
@@ -149,6 +159,11 @@ in
     socket.succeed("stat -c '%a %U:%G' /run/odoo | grep -x '770 odoo:odoo'")
     # nginx is in the odoo group so it can traverse that directory
     socket.succeed("id -nG nginx | tr ' ' '\\n' | grep -qx odoo")
+    # Odoo's socket: in a 0750 directory, since Odoo creates the socket and
+    # nginx only connects; odoo.service alone is told where it is
+    socket.wait_for_file("/run/odoo-http/http.sock")
+    socket.succeed("stat -c '%a %U:%G' /run/odoo-http | grep -x '750 odoo:odoo'")
+    socket.succeed("systemctl show odoo -P Environment | grep -q ODOO_NIX_HTTP_SOCKET=/run/odoo-http/http.sock")
 
     hdrs = json.loads(
         socket.succeed(
@@ -222,9 +237,9 @@ in
         "journalctl SYSLOG_IDENTIFIER=nginx -p err -o cat --no-pager | grep -q 'connect() failed'"
     )
 
-    # nothing listens on the network in socket mode
+    # nothing listens on the network in socket mode: not nginx, not Odoo
     socket.fail("curl -sS --max-time 5 http://localhost/")
-    socket.fail("ss -HltnO | grep -qE ':80\\s'")
+    socket.fail("ss -HltnO | grep -qE ':(80|8069)\\s'")
 
     # ---- tcp mode: untouched ----
     tcp.wait_for_open_port(80)

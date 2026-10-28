@@ -91,6 +91,46 @@ let
   };
   # Evaluated for its assertions only: a socket straight in /run.
   badSocket = eval { services.odoo-nix.nginx.socketPath = "/run/nginx.sock"; };
+  # Unix sockets end to end: nginx's, and both of Odoo's in one directory.
+  sockets = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      nginx = {
+        domain = lib.mkForce "";
+        socketPath = "/run/odoo/nginx.sock";
+      };
+      http = {
+        socketPath = "/run/odoo-http/http.sock";
+        longpollingSocketPath = "/run/odoo-http/websocket.sock";
+      };
+    };
+  };
+  # Without workers: the threaded server answers /websocket on its socket,
+  # and a gevent socket has nothing to listen on it.
+  threaded = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      workers = 0;
+      http = {
+        socketPath = "/run/odoo-http/http.sock";
+        longpollingSocketPath = "/run/odoo-http/websocket.sock";
+      };
+    };
+  };
+  # workers through settings.options, over `workers`.
+  threadedBySettings = eval {
+    services.odoo-nix = {
+      dbName = "acme";
+      settings.options.workers = 0;
+    };
+  };
+  # Evaluated for its assertions only: two sockets on one path.
+  sameSocket = eval {
+    services.odoo-nix.http = {
+      socketPath = "/run/odoo-http/http.sock";
+      longpollingSocketPath = "/run/odoo-http/http.sock";
+    };
+  };
   # Removed in 2.0.0: refused by an assertion that names the replacement.
   journaldSet = eval {
     services.odoo-nix = {
@@ -379,6 +419,70 @@ in
       refused = lib.any (lib.hasPrefix "services.odoo-nix.nginx.socketPath must be an absolute path inside its own directory") (
         failed badSocket
       );
+    };
+  };
+
+  # Odoo's own sockets: named to the graft on odoo.service only, in a 0750
+  # directory odoo.service may write, and what nginx proxies to.
+  service-odoo-sockets = {
+    expected = {
+      env = {
+        ODOO_NIX_HTTP_SOCKET = "/run/odoo-http/http.sock";
+        ODOO_NIX_GEVENT_SOCKET = "/run/odoo-http/websocket.sock";
+      };
+      migrateEnv = false;
+      tcpEnv = false;
+      rule = true;
+      writable = true;
+      upstreams = {
+        odoo = [ "unix:/run/odoo-http/http.sock" ];
+        odoochat = [ "unix:/run/odoo-http/websocket.sock" ];
+      };
+      tcpUpstreams = {
+        odoo = [ "127.0.0.1:8069" ];
+        odoochat = [ "127.0.0.1:8072" ];
+      };
+      nginxInGroup = true;
+      refused = true;
+      warned = false;
+    };
+    actual = {
+      env = lib.getAttrs [
+        "ODOO_NIX_HTTP_SOCKET"
+        "ODOO_NIX_GEVENT_SOCKET"
+      ] sockets.systemd.services.odoo.environment;
+      migrateEnv = sockets.systemd.services.odoo-migrate.environment ? ODOO_NIX_HTTP_SOCKET;
+      tcpEnv = pinned.systemd.services.odoo.environment ? ODOO_NIX_HTTP_SOCKET;
+      rule = lib.elem "d /run/odoo-http 0750 odoo odoo -" sockets.systemd.tmpfiles.rules;
+      writable = lib.elem "/run/odoo-http" sockets.systemd.services.odoo.serviceConfig.ReadWritePaths;
+      upstreams = lib.mapAttrs (_: u: lib.attrNames u.servers) sockets.services.nginx.upstreams;
+      tcpUpstreams = lib.mapAttrs (_: u: lib.attrNames u.servers) pinned.services.nginx.upstreams;
+      nginxInGroup = lib.elem "odoo" sockets.users.users.nginx.extraGroups;
+      refused = lib.elem "services.odoo-nix: nginx.socketPath, http.socketPath and http.longpollingSocketPath must be different paths." (
+        failed sameSocket
+      );
+      warned = sockets.warnings != [ ];
+    };
+  };
+
+  # /websocket goes to the gevent process under workers, to the threaded
+  # server without; workers counts as odoo.conf has it.
+  service-websocket-route = {
+    expected = {
+      prefork = "http://odoochat";
+      threaded = "http://odoo";
+      bySettings = "http://odoo";
+      longpolling = "http://odoo";
+      warned = true;
+    };
+    actual = {
+      prefork = pinned.services.nginx.virtualHosts."odoo.example.com".locations."/websocket".proxyPass;
+      threaded = threaded.services.nginx.virtualHosts."odoo.example.com".locations."/websocket".proxyPass;
+      bySettings =
+        threadedBySettings.services.nginx.virtualHosts."odoo.example.com".locations."/websocket".proxyPass;
+      longpolling =
+        threaded.services.nginx.virtualHosts."odoo.example.com".locations."/longpolling".proxyPass;
+      warned = lib.any (lib.hasInfix "longpollingSocketPath is set, but workers = 0") threaded.warnings;
     };
   };
 
