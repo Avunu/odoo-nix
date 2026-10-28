@@ -42,7 +42,7 @@ in
       "odoo-nix: uv.lock does not cover every declared dependency"
       "pyproject.toml requires odoo-addon-queue_job, but 'odoo-addon-queue-job' is not in uv.lock"
       "a module added to modules.txt"
-      "    uv lock\n"
+      "    nix run .#relock\n"
     ];
   };
 

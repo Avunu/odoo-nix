@@ -84,3 +84,4 @@ sensibly when run non-interactively.
 | `odoo shell [db]`            | Odoo Python REPL                                |
 | `odoo project update`        | Pull submodules + refresh deps + re-lock, then migrate |
 | `odoo project relock`        | Refresh deps + re-lock, pulling nothing (after editing `modules.txt` or `pyproject.toml`) |
+| `nix run .#relock`           | The same, outside the shell (when a stale `uv.lock` keeps it from starting) |

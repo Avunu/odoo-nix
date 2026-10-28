@@ -87,7 +87,7 @@ def main(lock_path, ocb, series):
             "did not follow. Fix:\n",
             file=sys.stderr,
         )
-        print("    nix run .#relock", file=sys.stderr)
+        print("    nix run .#relock-fixtures", file=sys.stderr)
         print(
             f"    git add tests/fixtures/{series}/uv.lock "
             f"tests/fixtures/{series}/pyproject.toml\n",

@@ -30,7 +30,7 @@ To check: clone the project, change any tracked file, `direnv allow`. The submod
 
 ### `uv.lock does not cover every declared dependency`
 
-`pyproject.toml` declares a dependency `uv.lock` lacks, usually a module added to `modules.txt` without re-locking. The message names it. Run `uv lock` from the project root, commit `uv.lock`, and re-enter the shell. See [A stale lock is an evaluation error](../development/locks.md#a-stale-lock-is-an-evaluation-error).
+`pyproject.toml` declares a dependency `uv.lock` lacks, usually a module added to `modules.txt` without re-locking. The message names it. Run `nix run .#relock` from the project root, commit `pyproject.toml` and `uv.lock`, and re-enter the shell. See [A stale lock is an evaluation error](../development/locks.md#a-stale-lock-is-an-evaluation-error).
 
 ### `uv.lock` or a module is missing, but the file is on disk
 

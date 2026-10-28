@@ -1,11 +1,12 @@
 """The lock sequence, and the lock-time shadow of an OCB tree in the Nix store.
-Shared by ``odoo project relock`` (and so ``project update`` and ``module
-add|add-bundle|remove``, through odoo_nix_cli.workspace.update) and by
-``nix run .#relock``, which re-locks odoo-nix's own test fixtures
-(tests/relock.nix runs this module's ``main``). Was lib/core-shadow.sh and the
-tail of lib/cli-scripts.nix's regenerateAndLock.
+Shared by a project's relock (``odoo project relock`` and ``nix run
+.#relock``, and so ``project update`` and ``module add|add-bundle|remove``,
+through odoo_nix_cli.workspace.update) and by ``nix run .#relock-fixtures``,
+which re-locks odoo-nix's own test fixtures (tests/relock-fixtures.nix runs
+this module's ``main``). Was lib/core-shadow.sh and the tail of
+lib/cli-scripts.nix's regenerateAndLock.
 
-Stdlib only: tests/relock.nix runs it on a plain interpreter.
+Stdlib only: tests/relock-fixtures.nix runs it on a plain interpreter.
 """
 
 from __future__ import annotations
@@ -60,10 +61,12 @@ def core_shadow(link: str, store: str | None) -> Iterator[str | None]:
     pyproject.toml, …) and links the two big ones, odoo/ and addons/: writable
     at the root, identical everywhere setuptools looks. Afterwards LINK points
     at STORE again, which is what everything else (odoo-bin, the IDE mirror)
-    wants. Nothing is done when STORE is None or LINK is not a symlink (a
-    submodule checkout). Yields the shadow directory, or None.
+    wants. A missing LINK is made, as shell entry would make it: ``nix run
+    .#relock`` runs where the shell has never started. Nothing is done when
+    STORE is None or LINK is something else (a submodule checkout). Yields
+    the shadow directory, or None.
     """
-    if not store or not os.path.islink(link):
+    if not store or (os.path.lexists(link) and not os.path.islink(link)):
         yield None
         return
     shadow = tempfile.mkdtemp(prefix="odoo-nix-core-shadow.")
@@ -105,7 +108,7 @@ def lock(uv: str, build_deps: str, uv_args: Sequence[str] = ()) -> tuple[int, in
 
 
 def main(argv: Sequence[str]) -> int:
-    """The fixtures' relock (tests/relock.nix): every step must pass."""
+    """The fixtures' relock (tests/relock-fixtures.nix): every step must pass."""
     args = list(argv)
     opts: dict[str, str] = {}
     while args and args[0] in ("--uv", "--build-deps", "--core"):

@@ -924,10 +924,19 @@ in
             inherit pkgs;
             base = inputs.python-devops-nix.lib;
           };
-          python = "${pythonEnvs.devPythonEnv}/bin/python";
+          python = cfg.python.interpreter;
           inherit (cfg) odooSeries layout coreSource;
           ocaDataset = ../data/oca-modules.json;
           bundlesFile = ../data/oca-bundles.json;
+        };
+
+        # `nix run .#relock`: `odoo project relock` outside the shell, for a
+        # lock too stale for the shell to evaluate (lib/relock.nix).
+        relockApp = import ../lib/relock.nix {
+          inherit pkgs;
+          base = inputs.python-devops-nix.lib;
+          inherit (cfg) python;
+          inherit (cliScripts) workspaceConfig;
         };
 
         builtOdoo = import ../lib/odoo.nix {
@@ -1487,6 +1496,16 @@ in
         })
 
         (lib.mkIf cfg.enable { odoo-nix.tui = tuiRun; })
+
+        # Deliberately outside the dev shell's dependency graph: it has to
+        # evaluate when nothing that reads uv.lock can.
+        (lib.mkIf cfg.enable {
+          apps.relock = {
+            type = "app";
+            program = lib.getExe relockApp;
+            meta.description = "Re-lock the project without its dev shell (odoo project relock)";
+          };
+        })
 
         (lib.mkIf cfg.enable {
           packages.odooPythonEnv = pythonEnvs.odooPythonEnv;

@@ -223,9 +223,10 @@ let
 
       pyproject.toml gained a dependency (a module added to modules.txt, or an
       edit) and uv.lock was not regenerated. The development shell cannot
-      start until it is, so re-lock from the project root:
+      start until it is, so re-lock from the project root with the flake app
+      (the same as `odoo project relock`):
 
-          uv lock
+          nix run .#relock
     '';
   };
 
