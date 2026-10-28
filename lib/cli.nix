@@ -65,6 +65,9 @@
   # Dev shell only; null elsewhere.
   rcloneBin ? null,
   withSecrets ? null,
+  # The dev shell's TUI (python-devops-nix's lib.tui.script): `odoo ui`, and a
+  # bare `odoo` at a terminal. Dev shell only; null elsewhere.
+  tui ? null,
 }:
 
 let
@@ -100,6 +103,9 @@ let
     ]
     ++ lib.optionals (withSecrets != null) [
       ''--set ODOO_NIX_WITH_SECRETS "${withSecrets}"''
+    ]
+    ++ lib.optionals (tui != null) [
+      ''--set ODOO_NIX_TUI "${lib.getExe tui}"''
     ]
     ++ [
       ''--prefix PYTHONPATH : "${targetPythonEnv}/${python.sitePackages}"''

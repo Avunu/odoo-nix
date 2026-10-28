@@ -89,6 +89,7 @@ It exports `PC_TUI_ENABLED=0` and `DEVENV_IN_DIRENV_SHELL=true` first, so `deven
 ## In this section
 
 - [The odoo command](commands.md) and [Migrations](migrations.md)
+- [The menu](menu.md): `odoo ui`
 - [Manage modules](modules.md)
 - [Development guard rails](guard-rails.md)
 - [Secrets](secrets.md) and [Restore a production backup](restore-from-production.md)
