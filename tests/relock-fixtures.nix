@@ -1,6 +1,7 @@
-# `nix run .#relock [-- --upgrade]`: regenerate tests/fixtures/<series>/uv.lock
-# against the pinned OCB inputs. odoo-nix's own fixtures only; a project
-# re-locks with `odoo project relock`. Needs network (PyPI) and so runs on the
+# `nix run .#relock-fixtures [-- --upgrade]`: regenerate
+# tests/fixtures/<series>/uv.lock against the pinned OCB inputs. odoo-nix's
+# own fixtures only; a project re-locks with `odoo project relock` or `nix run
+# .#relock` (lib/relock.nix). Needs network (PyPI) and so runs on the
 # developer's machine, never in a check.
 #
 # The lock is the one `odoo project relock` runs, from the same Python
@@ -18,7 +19,7 @@
   cliPackage,
 }:
 pkgs.writeShellApplication {
-  name = "odoo-nix-relock";
+  name = "odoo-nix-relock-fixtures";
   runtimeInputs = [
     pkgs.git
     pkgs.coreutils

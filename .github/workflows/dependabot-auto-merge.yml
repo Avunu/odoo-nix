@@ -8,7 +8,7 @@ name: Dependabot auto-merge
 # jobs and pr-policy). Dependabot's github-actions entry moves the pin below.
 #
 # The OCB pins (the `ocb` group, dependabot/nix/ocb-*) are reviewed by a person too:
-# a bump can legitimately go red and need `nix run .#relock` (.github/dependabot.yml),
+# a bump can legitimately go red and need `nix run .#relock-fixtures` (.github/dependabot.yml),
 # and the one in #63 pinned odoo/odoo commits without OCB's pyproject.toml. With
 # nothing required on `main`, auto-merge merged it before its `flake` check failed.
 # The reusable workflow decides by ecosystem and update type, not by group, so that

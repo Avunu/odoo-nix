@@ -1,5 +1,6 @@
 """Entrypoint: `odoo` either runs its own click app (db/module/project/shell)
-or execs straight into the real odoo-bin, preserving every existing odoo-bin
+or execs straight into the real odoo-bin (lib/raw-odoo.nix, which runs Odoo
+from a tree without odoo-bin too), preserving every existing odoo-bin
 subcommand (server, shell passthrough for anything beyond the sugar in
 commands/__init__.py, scaffold, populate, cloc, deploy, neutralize, …) with
 zero duplication -- mirrors how `bench`'s own entrypoint decides between
@@ -139,7 +140,9 @@ def main() -> None:
     _install_devguard()
     from .commands import cli
 
-    cli(args=argv)
+    # Without prog_name, click names the program after how Python started it
+    # (`python -m odoo_nix_cli`), in every usage line.
+    cli(args=argv, prog_name="odoo")
 
 
 if __name__ == "__main__":

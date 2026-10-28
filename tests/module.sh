@@ -383,7 +383,13 @@ run project relock --no-such-uv-flag
 check "arguments go to uv lock" hasF 'no-such-uv-flag' err
 run project relock --help
 expect_rc 0
-check "--help is the command's own, not uv's" hasF 'project relock [OPTIONS] [UV_ARGS]...' out
+check "--help is the command's own, not uv's" hasF 'Usage: odoo project relock [OPTIONS] [UV_ARGS]...' out
+
+# The usage line names the command `odoo`, not how Python started it
+# (`python -m odoo_nix_cli`).
+run db --help
+expect_rc 0
+check "the usage line says odoo" hasF 'Usage: odoo db [OPTIONS] COMMAND [ARGS]...' out
 
 if [ "$fails" -gt 0 ]; then
   echo "module: $fails failure(s)" >&2

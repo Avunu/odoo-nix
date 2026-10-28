@@ -87,6 +87,26 @@ let
     inherit (pythonEnvs) odooPythonEnv;
   };
 
+  # An Enterprise source tree can come without odoo-bin: OCB without it, which
+  # builtOdoo then runs as `python -m odoo` (lib/raw-odoo.nix).
+  builtOdooNoOdooBin = import ../lib/odoo.nix {
+    inherit
+      pkgs
+      lib
+      workspaceRoot
+      layout
+      ;
+    projectName = "${projectName}-no-odoo-bin";
+    odooSeries = series;
+    coreSource = pkgs.runCommandLocal "ocb-${major}-no-odoo-bin" { } ''
+      mkdir $out
+      for entry in ${ocb}/*; do
+        [ "$(basename "$entry")" = odoo-bin ] || ln -s "$entry" $out/
+      done
+    '';
+    inherit (pythonEnvs) odooPythonEnv;
+  };
+
   # The `odoo` CLI, production-shaped (no workspace scripts -- this fixture
   # is not a git checkout): exercises the same wrapper NixOS/containers get.
   mkCli =
@@ -251,7 +271,7 @@ in
         '';
 
     # The managed [tool.uv.extra-build-dependencies] block is what
-    # odoo-nix-build-deps derives from this uv.lock (`nix run .#relock` keeps
+    # odoo-nix-build-deps derives from this uv.lock (`nix run .#relock-fixtures` keeps
     # it so).
     build-deps = scriptCheck "build-deps-${major}" { } ''
       ${lib.getExe buildDeps} check ${workspaceRoot + "/pyproject.toml"} ${workspaceRoot + "/uv.lock"}
@@ -282,6 +302,23 @@ in
       # one, which is how it once worked there and nowhere else.
       ${pythonEnvs.odooPythonEnv}/bin/python -c \
         'import magic; t = magic.from_buffer(b"%PDF-1.4\n", mime=True); assert t == "application/pdf", t'
+    '';
+
+    # The same, from a tree without odoo-bin: Odoo's own entry point, the
+    # websocket worker's too, and the tree's odoo package.
+    built-odoo-no-odoo-bin = scriptCheck "built-odoo-no-odoo-bin-${major}" { } ''
+      test ! -e ${builtOdooNoOdooBin}/odoo/odoo-bin
+      ${builtOdooNoOdooBin}/bin/odoo --version | tee version.txt
+      grep -qx 'Odoo Server ${series}' version.txt
+      ${builtOdooNoOdooBin}/bin/odoo gevent --version | tee gevent-version.txt
+      grep -qx 'Odoo Server ${series}' gevent-version.txt
+      ${builtOdooNoOdooBin}/bin/odoo --help | tee help.txt
+      grep -q 'odoo-bin' help.txt
+      # The tree's odoo, not the wheel's: the environment carries an odoo
+      # wheel of the same version. `shell` with no database runs stdin.
+      echo 'print(odoo.release.__file__)' \
+        | ${builtOdooNoOdooBin}/bin/odoo shell --no-http | tee release.txt
+      grep -qx '${builtOdooNoOdooBin}/odoo/odoo/release.py' release.txt
     '';
 
     # `-i base` through the production wrapper. `web` is auto_install with

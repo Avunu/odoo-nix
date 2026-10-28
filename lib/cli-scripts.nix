@@ -1,6 +1,7 @@
 # The workspace side of the `odoo` CLI: the JSON ODOO_NIX_WORKSPACE_CONFIG
-# names, which `odoo module add`, `add-bundle` and `remove`, and `odoo project
-# update` and `relock` read (lib/odoo_nix_cli/workspace, Python): the series,
+# names, which `odoo module add`, `add-bundle` and `remove`, `odoo project
+# update` and `relock`, and `nix run .#relock` (lib/relock.nix) read
+# (lib/odoo_nix_cli/workspace, Python): the series,
 # the OCA catalog, the layout, odoo-nix-sources, and what the re-lock runs
 # (lib/oca_sources.py, uv, odoo-nix-build-deps, and OCB's store path under
 # coreSource). Everything DB-shaped (provision/upgrade/migrate/backup/restore)
@@ -14,7 +15,7 @@
 #     ocaDataset = ../data/oca-modules.json;
 #     bundlesFile = ../data/oca-bundles.json;
 #     layout = cfg.layout;
-#     python = "${pythonEnvs.devPythonEnv}/bin/python";
+#     python = cfg.python.interpreter;
 #   }
 
 {
@@ -24,7 +25,9 @@
   ocaDataset,
   bundlesFile,
   layout,
-  # The interpreter lib/oca_sources.py runs on.
+  # The interpreter lib/oca_sources.py runs on (stdlib only). Not one built
+  # from uv.lock: `nix run .#relock` reads this configuration when the lock
+  # is too stale to evaluate.
   python,
   # OCB from a flake input (see modules/devenv.nix `coreSource`): <coreSrc> is
   # then a symlink to it, which the lock goes through a writable shadow of
@@ -39,6 +42,8 @@
   # lib/build-deps.nix: odoo-nix-build-deps, which keeps pyproject.toml's
   # sdist build dependencies in step with uv.lock after each `uv lock`.
   buildDeps,
+  # uv, for the re-lock.
+  uv ? pkgs.uv,
 }:
 
 {
@@ -55,7 +60,7 @@
       sources = sourcesBin;
       inherit python;
       ocaSources = "${./oca_sources.py}";
-      uv = lib.getExe pkgs.uv;
+      uv = lib.getExe uv;
       buildDeps = lib.getExe buildDeps;
       coreSource = if coreSource == null then null else toString coreSource;
     }

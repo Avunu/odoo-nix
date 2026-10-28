@@ -193,9 +193,9 @@
       journaldGraft = pkgs: import ./lib/journald.nix { inherit pkgs base; };
       shellTools = pkgs: import ./lib/shell-tools.nix { inherit pkgs base; };
 
-      relock =
+      relockFixtures =
         pkgs:
-        import ./tests/relock.nix {
+        import ./tests/relock-fixtures.nix {
           inherit pkgs ocbInputs presets;
           buildDeps = import ./lib/build-deps.nix { inherit pkgs base; };
           cliPackage = cliPackage pkgs;
@@ -247,6 +247,8 @@
       #   bootstrap, bootstrap-lock-*                         the fresh-clone checkout before `use flake` (all systems)
       #   scaffold, odoo-init-unit                            odoo-init: its projects, offline; its pieces (all systems)
       #   odoo-module-cli, odoo-module-unit                   `odoo module add|add-bundle|remove`, offline; their pieces (all systems)
+      #   relock                                              a project's `nix run .#relock`, offline (all systems)
+      #   relock-stale-lock                                   it evaluates where the stale-lock audit stops the shell (Linux only)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
       #   ci-pins, dependabot, check-names, env-vars, command-flags
@@ -255,6 +257,7 @@
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   odoo-db-compat                                      the CLI's one API over Odoo's two database-management APIs (all systems)
+      #   raw-odoo                                            lib/raw-odoo.nix, with stand-in trees (all systems)
       #   secrets-*                                           odoo-nix's secrets module (all systems)
       #   lock-audit-*                                        the stale-lock audit on a stale fixture (all systems)
       #   restore-*                                           the dev shell's restore options (Linux only)
@@ -267,8 +270,8 @@
       #   fixture-requires-python-<major>, built-odoo-{addons-path,version}-<major>,
       #   lock-audit-<major>, lock-fresh-<major>, build-deps-<major>
       #                                                       per-series, no Odoo run (all systems)
-      #   built-odoo-<major>, odoo-init-<major>, odoo-test-<major>,
-      #   cli-*-<major>                                       run Odoo (Linux only)
+      #   built-odoo-<major>, built-odoo-no-odoo-bin-<major>, odoo-init-<major>,
+      #   odoo-test-<major>, cli-*-<major>                    run Odoo (Linux only)
       #   service-<major>, nginx                              NixOS VM tests (Linux only)
       checks = forAllSystems (
         pkgs:
@@ -417,6 +420,23 @@
             '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
           );
 
+          # lib/raw-odoo.nix: a tree's odoo-bin, or Odoo as `python -m odoo`
+          # runs it when the tree has none, with stand-in trees.
+          raw-odoo =
+            let
+              script = pkgs.writeShellScript "raw-odoo" ''
+                tree=$1
+                shift
+                ${import ./lib/raw-odoo.nix {
+                  inherit pkgs;
+                  python = pkgs.python3.interpreter;
+                }}
+              '';
+            in
+            scriptCheck pkgs "raw-odoo" { } ''
+              ${pkgs.python3.interpreter} -I ${./tests/test_raw_odoo.py} ${script}
+            '';
+
           # nixfmt-rs (what `nix fmt` writes), statix (statix.toml, compared
           # with the base's) and deadnix, over the files `nix fmt` covers.
           nix-lint = base.checks.nixLint {
@@ -554,6 +574,63 @@
               ''
                 bash ${./tests/module.sh} ${cli}/bin/odoo ${./templates/project/pyproject.toml}
               '';
+
+          # A project's `nix run .#relock` (lib/relock.nix) over a stale lock,
+          # offline: the app with a shell's workspace configuration, OCB a
+          # stand-in coreSource, uv and odoo-nix-build-deps stood in, git and
+          # odoo-nix-sources real (tests/relock.sh). relock-stale-lock checks
+          # it evaluates there.
+          relock =
+            let
+              python = pkgs.${presets."18.0".python};
+              # One line per call to $CALLS: the tool, its arguments, whether
+              # odoo/ is the lock-time shadow, and the interpreter uv locks with.
+              stub =
+                name: body:
+                pkgs.writeShellScriptBin name ''
+                  case "$(readlink odoo)" in *odoo-nix-core-shadow.*) at=shadow ;; *) at=- ;; esac
+                  printf '%s %s %s UV_PYTHON=%s\n' "${name}" "$*" "$at" "''${UV_PYTHON:-}" >> "$CALLS"
+                  ${body}
+                '';
+              uv = stub "uv" ''
+                [ -z "''${UV_FAIL:-}" ] || { echo "error: no solution" >&2; exit 3; }
+                [ "$1" != lock ] || echo locked > uv.lock
+              '';
+              buildDeps = stub "build-deps" ''[ -z "''${BUILD_DEPS_FAIL:-}" ] || exit 4'';
+              ocb = pkgs.runCommand "relock-ocb" { } ''
+                mkdir -p $out/odoo $out/addons $out/setup
+                echo 'setup()' > $out/setup.py
+              '';
+              app = import ./lib/relock.nix {
+                inherit pkgs base python;
+                inherit
+                  (import ./lib/cli-scripts.nix {
+                    inherit
+                      lib
+                      pkgs
+                      uv
+                      buildDeps
+                      ;
+                    odooSeries = "18.0";
+                    ocaDataset = ./data/oca-modules.json;
+                    bundlesFile = ./data/oca-bundles.json;
+                    layout = {
+                      coreSrc = "odoo";
+                      externalDir = "modules";
+                      customDir = "custom";
+                    };
+                    python = python.interpreter;
+                    sourcesBin = lib.getExe (shellTools pkgs).sources;
+                    coreSource = ocb;
+                  })
+                  workspaceConfig
+                  ;
+              };
+            in
+            scriptCheck pkgs "relock" { tools = [ pkgs.git ]; } ''
+              bash ${./tests/relock.sh} ${lib.getExe app} ${ocb} \
+                ${./templates/project/pyproject.toml} ${python.interpreter}
+            '';
 
           # Their pieces (lib/odoo_nix_cli/workspace): the config schema, what a
           # removal takes, and the in-use check against databases with Odoo
@@ -714,6 +791,14 @@
         // lib.optionalAttrs isLinux (
           evalChecks "" (
             import ./tests/python-default-eval.nix {
+              inherit pkgs inputs;
+              inherit (self.lib) mkFlake;
+            }
+          )
+        )
+        // lib.optionalAttrs isLinux (
+          evalChecks "" (
+            import ./tests/relock-eval.nix {
               inherit pkgs inputs;
               inherit (self.lib) mkFlake;
             }
@@ -922,12 +1007,14 @@
             program = pkgs.lib.getExe (shellTools pkgs).sources;
             meta.description = "Check out a project's submodules as shell entry does (odoo-nix-sources)";
           };
-          # `nix run .#relock [-- --upgrade]`: regenerate tests/fixtures/*/uv.lock
-          # against the pinned OCB inputs (needs network; never runs in a check).
-          # odoo-nix's own fixtures; a project re-locks with `odoo project relock`.
-          relock = {
+          # `nix run .#relock-fixtures [-- --upgrade]`: regenerate
+          # tests/fixtures/*/uv.lock against the pinned OCB inputs (needs
+          # network; never runs in a check). odoo-nix's own fixtures; a project
+          # re-locks with `odoo project relock`, or its own `nix run .#relock`
+          # (the flake module's, lib/relock.nix).
+          relock-fixtures = {
             type = "app";
-            program = "${relock pkgs}/bin/odoo-nix-relock";
+            program = "${relockFixtures pkgs}/bin/odoo-nix-relock-fixtures";
             meta.description = "Re-lock the test fixtures against the pinned OCB inputs";
           };
           # `nix run .#relock-odoo-ls`: regenerate lib/odoo-ls-Cargo.lock against
@@ -961,7 +1048,7 @@
             pkgs.deadnix
             pkgs.python3
             pkgs.jq
-            (relock pkgs)
+            (relockFixtures pkgs)
           ];
           OCB_18 = "${inputs.ocb-18}";
           OCB_19 = "${inputs.ocb-19}";
@@ -972,7 +1059,7 @@
             echo "                    ocb-20 -> $OCB_20"
             echo "  nix flake check -L        run everything (needs KVM for the VM tests)"
             echo "  nix fmt                   format the Nix files (checks.nix-lint enforces it)"
-            echo "  odoo-nix-relock           re-lock tests/fixtures/*/uv.lock"
+            echo "  odoo-nix-relock-fixtures  re-lock tests/fixtures/*/uv.lock"
           '';
         };
       });

@@ -3,7 +3,7 @@ title: Repository layout
 description: Where things live in the odoo-nix repository, the flake checks and what CI runs, how the pinned test fixtures, odoo-ls lock and OCA catalog are refreshed, and how these pages are checked.
 order: 5
 tags: [contributing, layout, checks, ci]
-updated: 2026-10-23
+updated: 2026-10-28
 ---
 
 ## Layout
@@ -13,7 +13,7 @@ flake.nix                    # inputs; flakeModules, nixosModules, lib, packages
 modules/
   flake-module.nix           # imports devenv's flake module, secrets.nix, devenv.nix, containers.nix
   devenv.nix                 # the perSystem.odoo-nix options and the dev shell
-  containers.nix             # the OCI image
+  containers.nix             # the OCI image, its shared parts from python-devops-nix's lib.containers
   nixos.nix                  # services.odoo-nix
   secrets.nix                # odoo-nix.secrets: python-devops-nix's lib.secrets.mkModule
 lib/
@@ -21,12 +21,15 @@ lib/
   odoo-ini.nix               # odoo.conf's INI dialect, for the dev shell and the NixOS module
   python.nix                 # the uv2nix Python environments
   odoo.nix                   # builtOdoo, the assembled tree
+  raw-odoo.nix               # runs a tree's odoo-bin, or `python -m odoo` without one
   cli.nix                    # wraps builtOdoo, or the live checkout, in the odoo command
   cli-package.nix            # the odoo_nix_cli package
-  cli-scripts.nix            # the workspace configuration `odoo module` and `odoo project update|relock` read
+  cli-scripts.nix            # the workspace configuration `odoo module`, `odoo project update|relock` and `nix run .#relock` read
+  cli-module.nix             # odoo_nix_cli as a Python module, for odoo-init and the relock app
+  relock.nix                 # a project's `nix run .#relock`
   odoo_nix_cli/              # the odoo command (Python: click and rich)
     commands/                #   db, module, project, shell, test
-    workspace/               #   module add, add-bundle, remove; project update, relock (lock.py: the lock, shared with nix run .#relock)
+    workspace/               #   module add, add-bundle, remove; project update, relock (relock.py: also nix run .#relock; lock.py: the lock, shared with nix run .#relock-fixtures)
     init/                    #   odoo-init, the scaffolder
     oca.py                   #   the OCA catalog and bundles
     migrate_plan.py          #   what odoo db migrate updates
@@ -70,12 +73,14 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | `fixture-requires-python-<18\|19\|20>`, `built-odoo-addons-path-<18\|19\|20>`, `built-odoo-version-<18\|19\|20>`, `lock-audit-<18\|19\|20>`, `lock-fresh-<18\|19\|20>`, `build-deps-<18\|19\|20>` | Per series, without running Odoo: the fixture's `requires-python`, `builtOdoo`'s passthru, the fixture lock against the pinned OCB, the managed build-dependency block. |
 | `lock-audit-*` | The stale-lock audit. |
 | `built-odoo-<18\|19\|20>`, `odoo-init-<18\|19\|20>`, `odoo-test-<18\|19\|20>` | The assembled package, `-i base` against an in-sandbox PostgreSQL with no guard rails in production, and the fixture addon's Odoo tests including the guard rails. |
+| `built-odoo-no-odoo-bin-<18\|19\|20>`, `raw-odoo` | The assembled package from an OCB tree without `odoo-bin`, and `lib/raw-odoo.nix` with stand-in trees. |
 | `cli-lifecycle-<18\|19\|20>`, `cli-migrate-<18\|19\|20>`, `cli-project-backup-<18\|19\|20>`, `cli-remote-restore-<18\|19\|20>` | The `odoo` command end to end: provision, backup, drop and restore; migrations from build to build, including rollback; project backups; restores from a directory store. |
 | `devguard-core`, `devguard`, `devguard-baked` | The guard rails, the shared core and odoo-nix's side, without Odoo or a network. |
 | `backups`, `backup-layout` | The backup fetch layer and odoo-nix's naming. |
 | `journald-formatter` | The `odoo_journald` graft. |
 | `scaffold`, `odoo-init-unit` | `odoo-init` offline: every flag and exit code, and its pieces. |
 | `odoo-module-cli`, `odoo-module-unit` | `odoo module add`, `add-bundle` and `remove` offline, and their pieces. |
+| `relock`, `relock-stale-lock` | A project's `nix run .#relock` offline over a stale lock, and that it evaluates where the dev shell does not. |
 | `sources`, `bootstrap`, `bootstrap-lock-*` | Shell entry's submodule checkout and the fresh-clone bootstrap. |
 | `db-nocow` | The btrfs NOCOW handling (Linux). |
 | `secrets-*`, `restore-*`, `settings-*`, `rename-*`, `identity-*`, `ports-*`, `mailpit-*`, `watch-*`, `ci-mode`, `tree`, `python-default-*`, `container-name*` | The flake-parts module's options, evaluated. |
@@ -83,7 +88,7 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | `nix-lint`, `shared-config`, `pr-policy`, `workflows` | `nixfmt-rs`, statix and deadnix; the shared editor and lint configuration; the pull-request policy; actionlint and zizmor. |
 | `ci-pins`, `dependabot`, `check-names`, `env-vars`, `command-flags`, `option-paths`, `config-blocks` | python-devops-nix's conformance checks (its `lib.checks.conventions`, docs/conventions.md, Tests): pinned actions, the Dependabot shape, check names, `ODOO_NIX_*` variables, the shared flags of `odoo db restore` and `odoo-init`, the options the conventions name and the `settings` blocks. The last two read the modules' options, on Linux. |
 
-Everything that runs Odoo or a VM is Linux-only. `nix develop` gives a shell for working on odoo-nix itself, with `uv`, `nixfmt-rs` and `odoo-nix-relock`; `nix fmt` formats the Nix files.
+Everything that runs Odoo or a VM is Linux-only. `nix develop` gives a shell for working on odoo-nix itself, with `uv`, `nixfmt-rs` and `odoo-nix-relock-fixtures`; `nix fmt` formats the Nix files.
 
 The fixtures are the smallest project-shaped workspace: a hand-written `pyproject.toml`, a committed `uv.lock` and one custom addon, with no `odoo/` in the tree. The build gets OCB from the `ocb-*` input through `coreSource`, and the tests run in `odooTestEnv`, so they run in the sandbox.
 
@@ -96,11 +101,11 @@ The `check` workflow runs two jobs on every pull request and every push to `main
 The weekly Dependabot pull request bumps `ocb-18`, `ocb-19` and `ocb-20`. `uv.lock` does not record OCB's revision, only what uv derived from it, so a bump is stale only when OCB's `install_requires` or its series changed. Then `lock-fresh-<MAJOR>` fails and prints the fix:
 
 ```bash
-nix run .#relock            # or: nix run .#relock -- --upgrade
+nix run .#relock-fixtures   # or: nix run .#relock-fixtures -- --upgrade
 git add tests/fixtures/*/uv.lock tests/fixtures/*/pyproject.toml
 ```
 
-It runs `uv lock` in each fixture with the series' interpreter, then syncs the build-dependency block, with the same code a project's `odoo project relock` locks with (`lib/odoo_nix_cli/workspace/lock.py`), including the lock-time shadow of the store path, except that any failed step fails it. It is odoo-nix's own: a project re-locks with [`odoo project relock`](../development/locks.md#re-locking-a-project).
+It runs `uv lock` in each fixture with the series' interpreter, then syncs the build-dependency block, with the same code a project's `odoo project relock` locks with (`lib/odoo_nix_cli/workspace/lock.py`), including the lock-time shadow of the store path, except that any failed step fails it. It is odoo-nix's own: a project re-locks with [`odoo project relock` or its own `nix run .#relock`](../development/locks.md#re-locking-a-project).
 
 odoo-ls does not commit a `Cargo.lock` upstream, so odoo-nix vendors one at `lib/odoo-ls-Cargo.lock`. A bump of `odoo-ls-src` needs it refreshed, or `nix build .#odoo-ls` fails:
 

@@ -3,10 +3,10 @@ title: The odoo command
 description: The odoo command that the dev shell, services.odoo-nix and the container share, its database, module and project subcommands, and how everything else passes through to odoo-bin.
 order: 1
 tags: [cli, database, backup]
-updated: 2026-10-23
+updated: 2026-10-28
 ---
 
-The dev shell, `services.odoo-nix` and the container image share one `odoo` command. `db`, `module`, `project`, `shell` and `test` are odoo-nix's own subcommands. `ui` opens the dev shell's [menu](menu.md), and so does a bare `odoo` typed at a terminal there. Anything else, `server` (the default with no subcommand anywhere else), `scaffold`, `populate`, `cloc`, `deploy`, `neutralize` and the rest, passes straight through to the real `odoo-bin`, so nothing from Odoo is lost.
+The dev shell, `services.odoo-nix` and the container image share one `odoo` command. `db`, `module`, `project`, `shell` and `test` are odoo-nix's own subcommands. `ui` opens the dev shell's [menu](menu.md), and so does a bare `odoo` typed at a terminal there. Anything else, `server` (the default with no subcommand anywhere else), `scaffold`, `populate`, `cloc`, `deploy`, `neutralize` and the rest, passes straight through to the real `odoo-bin`, so nothing from Odoo is lost. A source tree without `odoo-bin`, as an Enterprise tree can be, runs Odoo the way `python -m odoo` does, with the same interpreter.
 
 `-c/--config`, `-d/--database` and `--db-host`, `--db-port`, `--db-user`, `--db-password` are accepted before the subcommand, the way `odoo-bin` takes its own flags. The configuration defaults to `$ODOO_RC`, then `./odoo.conf`. A subcommand with no database falls back to `-d`, then `$ODOO_NIX_DB`, then `db_name` in `odoo.conf`.
 
@@ -38,7 +38,7 @@ These need a git checkout and `modules.txt`, so they work only in the dev shell.
 | `odoo module add-bundle [NAME …]` | Add a curated bundle of OCA modules. |
 | `odoo module remove [--force] [--keep-repos] <MODULE \| REPO> …` | Take modules out of `modules.txt`, and the repositories nothing needs any more out of the workspace. |
 | `odoo project update [--no-migrate]` | Pull every submodule to the tip of its pinned branch, regenerate the managed blocks of `pyproject.toml`, `uv lock`, then migrate every database matching `dbfilter` unless `--no-migrate`. |
-| `odoo project relock [UV_ARGS…]` | The project's one re-lock: regenerate the managed blocks of `pyproject.toml` from what is on disk, `uv lock` with the build-dependency block in step, pulling nothing. `UV_ARGS` go to `uv lock`. See [Re-locking a project](locks.md#re-locking-a-project). |
+| `odoo project relock [UV_ARGS…]` | The project's one re-lock: regenerate the managed blocks of `pyproject.toml` from what is on disk, `uv lock` with the build-dependency block in step, pulling nothing. `UV_ARGS` go to `uv lock`. Outside the shell, `nix run .#relock [-- UV_ARGS…]` is the same. See [Re-locking a project](locks.md#re-locking-a-project). |
 
 After any of them, run `direnv reload` so Nix derives `addons_path` again and rebuilds the Python environment. [Manage modules](modules.md) covers them in full.
 

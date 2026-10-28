@@ -924,10 +924,19 @@ in
             inherit pkgs;
             base = inputs.python-devops-nix.lib;
           };
-          python = "${pythonEnvs.devPythonEnv}/bin/python";
+          python = cfg.python.interpreter;
           inherit (cfg) odooSeries layout coreSource;
           ocaDataset = ../data/oca-modules.json;
           bundlesFile = ../data/oca-bundles.json;
+        };
+
+        # `nix run .#relock`: `odoo project relock` outside the shell, for a
+        # lock too stale for the shell to evaluate (lib/relock.nix).
+        relockApp = import ../lib/relock.nix {
+          inherit pkgs;
+          base = inputs.python-devops-nix.lib;
+          inherit (cfg) python;
+          inherit (cliScripts) workspaceConfig;
         };
 
         builtOdoo = import ../lib/odoo.nix {
@@ -952,10 +961,16 @@ in
         # builder) passes through to builtOdoo's own wrapper instead, and has
         # no workspace scripts wired in -- there is no git checkout to pull or
         # modules.txt to add to in an assembled /nix/store deployment.
+        # A tree without odoo-bin runs as `python -m odoo` (lib/raw-odoo.nix).
+        # The `odoo` process under `devenv up` runs this too.
         devRawOdooBin = pkgs.writeShellScript "odoo-nix-dev-odoo-bin" ''
           set -euo pipefail
           cd "''${REPO_ROOT:-$PWD}"
-          exec ${pythonEnvs.devPythonEnv}/bin/python "''${REPO_ROOT:-$PWD}/${cfg.layout.coreSrc}/odoo-bin" "$@"
+          tree="''${REPO_ROOT:-$PWD}/${cfg.layout.coreSrc}"
+          ${import ../lib/raw-odoo.nix {
+            inherit pkgs;
+            python = "${pythonEnvs.devPythonEnv}/bin/python";
+          }}
         '';
 
         odooCliDev = import ../lib/cli.nix {
@@ -1482,6 +1497,16 @@ in
 
         (lib.mkIf cfg.enable { odoo-nix.tui = tuiRun; })
 
+        # Deliberately outside the dev shell's dependency graph: it has to
+        # evaluate when nothing that reads uv.lock can.
+        (lib.mkIf cfg.enable {
+          apps.relock = {
+            type = "app";
+            program = lib.getExe relockApp;
+            meta.description = "Re-lock the project without its dev shell (odoo project relock)";
+          };
+        })
+
         (lib.mkIf cfg.enable {
           packages.odooPythonEnv = pythonEnvs.odooPythonEnv;
           packages.odooDevEnv = pythonEnvs.devPythonEnv;
@@ -1655,8 +1680,7 @@ in
                       export PYTHONPATH="${watchdogFallback}''${PYTHONPATH:+:$PYTHONPATH}"
                     fi
                   ''}
-                  exec ${pythonEnvs.devPythonEnv}/bin/python \
-                    "$REPO_ROOT/${cfg.layout.coreSrc}/odoo-bin" \
+                  exec ${devRawOdooBin} \
                     -c "$REPO_ROOT/odoo.conf" \
                     --dev=${cfg.devMode}
                 '';
