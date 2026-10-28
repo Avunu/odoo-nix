@@ -3,7 +3,7 @@ title: Repository layout
 description: Where things live in the odoo-nix repository, the flake checks and what CI runs, how the pinned test fixtures, odoo-ls lock and OCA catalog are refreshed, and how these pages are checked.
 order: 5
 tags: [contributing, layout, checks, ci]
-updated: 2026-10-23
+updated: 2026-10-28
 ---
 
 ## Layout
@@ -13,7 +13,7 @@ flake.nix                    # inputs; flakeModules, nixosModules, lib, packages
 modules/
   flake-module.nix           # imports devenv's flake module, secrets.nix, devenv.nix, containers.nix
   devenv.nix                 # the perSystem.odoo-nix options and the dev shell
-  containers.nix             # the OCI image
+  containers.nix             # the OCI image, its shared parts from python-devops-nix's lib.containers
   nixos.nix                  # services.odoo-nix
   secrets.nix                # odoo-nix.secrets: python-devops-nix's lib.secrets.mkModule
 lib/
