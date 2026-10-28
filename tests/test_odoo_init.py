@@ -274,9 +274,9 @@ class PresetsFileTest(unittest.TestCase):
     """lib/odoo-presets.json, as shipped: the shared schema, branch not series."""
 
     def test_shipped(self):
-        path = os.environ.get("ODOO_PRESETS")
+        path = os.environ.get("ODOO_NIX_PRESETS")
         if not path:
-            self.skipTest("ODOO_PRESETS not set")
+            self.skipTest("ODOO_NIX_PRESETS not set")
         raw = json.loads(Path(path).read_text())
         self.assertTrue(all("branch" in e and "series" not in e for e in raw.values()))
         self.assertEqual(sorted(presets.load(path)), sorted(raw))
@@ -435,9 +435,9 @@ class OcaTest(unittest.TestCase):
     def test_every_series_has_a_catalog(self):
         """Each series of lib/odoo-presets.json has installable catalog records,
         and at least one bundle that adds something for it."""
-        path = os.environ.get("ODOO_PRESETS")
+        path = os.environ.get("ODOO_NIX_PRESETS")
         if not path:
-            self.skipTest("ODOO_PRESETS not set")
+            self.skipTest("ODOO_NIX_PRESETS not set")
         catalog = oca.load_catalog(DATA / "oca-modules.json")
         bundles = oca.load_bundles(DATA / "oca-bundles.json")
         for series in presets.load(path):

@@ -81,6 +81,7 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | `secrets-*`, `restore-*`, `settings-*`, `rename-*`, `identity-*`, `ports-*`, `mailpit-*`, `watch-*`, `ci-mode`, `tree`, `python-default-*`, `container-name*` | The flake-parts module's options, evaluated. |
 | `service-*`, `nginx`, `service-<18\|19\|20>` | `services.odoo-nix`, evaluated, and in NixOS VMs (KVM) with a stub and with the real Odoo: migrations on deploy, rollback leaving Odoo down, nginx, X-Sendfile, the journal, hardening. |
 | `nix-lint`, `shared-config`, `pr-policy`, `workflows` | `nixfmt-rs`, statix and deadnix; the shared editor and lint configuration; the pull-request policy; actionlint and zizmor. |
+| `ci-pins`, `dependabot`, `check-names`, `env-vars`, `command-flags`, `option-paths`, `config-blocks` | python-devops-nix's conformance checks (its `lib.checks.conventions`, docs/conventions.md, Tests): pinned actions, the Dependabot shape, check names, `ODOO_NIX_*` variables, the shared flags of `odoo db restore` and `odoo-init`, the options the conventions name and the `settings` blocks. The last two read the modules' options, on Linux. |
 
 Everything that runs Odoo or a VM is Linux-only. `nix develop` gives a shell for working on odoo-nix itself, with `uv`, `nixfmt-rs` and `odoo-nix-relock`; `nix fmt` formats the Nix files.
 

@@ -178,6 +178,18 @@
         }:
         import ./lib/devguard.nix { inherit pkgs base settings; };
       cliPackage = pkgs: import ./lib/cli-package.nix { inherit pkgs base; };
+      # The `odoo` CLI with no Odoo behind it and no workspace: enough for
+      # `odoo db restore --help`, which checks.command-flags reads.
+      helpCli =
+        pkgs:
+        import ./lib/cli.nix {
+          inherit pkgs base;
+          inherit (pkgs) lib;
+          python = pkgs.python3;
+          name = "odoo-nix-help-cli";
+          rawOdooBin = "${pkgs.coreutils}/bin/false";
+          targetPythonEnv = pkgs.python3;
+        };
       journaldGraft = pkgs: import ./lib/journald.nix { inherit pkgs base; };
       shellTools = pkgs: import ./lib/shell-tools.nix { inherit pkgs base; };
 
@@ -237,6 +249,9 @@
       #   odoo-module-cli, odoo-module-unit                   `odoo module add|add-bundle|remove`, offline; their pieces (all systems)
       #   db-nocow                                            the dev datadir's btrfs NOCOW (Linux only)
       #   nix-lint, shared-config                             python-devops-nix's repository checks (all systems)
+      #   ci-pins, dependabot, check-names, env-vars, command-flags
+      #                                                       python-devops-nix's conformance checks (all systems)
+      #   option-paths, config-blocks                         the same over the modules' options (Linux only)
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   odoo-db-compat                                      the CLI's one API over Odoo's two database-management APIs (all systems)
@@ -485,7 +500,7 @@
           odoo-init-unit = scriptCheck pkgs "odoo-init-unit" { tools = [ pkgs.git ]; } (
             lib.concatMapStrings
               (py: ''
-                ODOO_PRESETS=${./lib/odoo-presets.json} ${py.interpreter} -I ${./tests/test_odoo_init.py} \
+                ODOO_NIX_PRESETS=${./lib/odoo-presets.json} ${py.interpreter} -I ${./tests/test_odoo_init.py} \
                   ${cliPackage pkgs} ${./data} ${./templates/project}
               '')
               (
@@ -774,6 +789,93 @@
             }
           );
         }
+        # python-devops-nix's conformance checks (docs/conventions.md, Tests):
+        # ci-pins, dependabot, check-names, env-vars and command-flags; and on
+        # Linux, where the modules are evaluated, option-paths and
+        # config-blocks.
+        // base.checks.conventions (
+          {
+            inherit pkgs;
+            src = ./.;
+            product = "odoo-nix";
+            checks = self.checks.${pkgs.stdenv.hostPlatform.system};
+            commands = {
+              restore = [
+                (lib.getExe' (helpCli pkgs) "odoo")
+                "db"
+                "restore"
+              ];
+              scaffolder = lib.getExe (odooInit pkgs);
+            };
+            envVars = {
+              # Stand-ins for consumer projects.
+              ignore = [ "tests/fixtures" ];
+              exceptions = [
+                "ODOO_RC" # Odoo's own: the config file
+                "ODOO_HTTP_SOCKET_FD" # Odoo's own: a 19.0 reload hands its socket on by it
+              ];
+            };
+          }
+          // lib.optionalAttrs isLinux (
+            let
+              inherit (pkgs.stdenv.hostPlatform) system;
+              odooIni = import ./lib/odoo-ini.nix { inherit pkgs lib; };
+              ini = module: {
+                inherit module;
+                path = [ "settings" ];
+                format = "ini";
+                # Odoo's INI writes a list as one value.
+                args.listToValue = odooIni.toIniValue;
+              };
+            in
+            {
+              options = {
+                # perSystem's options, through lib.mkFlake as a consumer has
+                # them (debug exposes them).
+                shell =
+                  (self.lib.mkFlake
+                    {
+                      inputs.self = {
+                        outPath = ./.;
+                        inherit inputs;
+                      };
+                    }
+                    {
+                      debug = true;
+                      systems = [ system ];
+                      imports = [ ./modules/flake-module.nix ];
+                    }
+                  ).allSystems.${system}.options;
+                nixos =
+                  (import "${pkgs.path}/nixos/lib/eval-config.nix" {
+                    inherit system;
+                    modules = [ nixosModule ];
+                  }).options;
+              };
+              # Identity options: Odoo's db_name in the dev shell, nixpkgs'
+              # `domain` on a server.
+              tenant = {
+                shell = "dbName";
+                nixos = "domain";
+              };
+              settings = [
+                (ini "shell")
+                (ini "nixos")
+              ];
+              optionPaths.exceptions = [
+                # frappe-nix's tree, not odoo-nix's yet (odoo-nix#120).
+                "odoo-nix.devguard.mail.sender"
+                "odoo-nix.devguard.mail.unmute"
+                "odoo-nix.mailpit.pop3.enable"
+                "odoo-nix.mailpit.pop3.password"
+                "odoo-nix.mailpit.pop3.port"
+                "odoo-nix.mailpit.pop3.user"
+                # nginx.domain here (odoo-nix#121).
+                "services.odoo-nix.domain"
+              ];
+            }
+          )
+        )
       );
 
       # `nix run github:<owner>/odoo-nix` scaffolds a new Odoo + OCA project.
