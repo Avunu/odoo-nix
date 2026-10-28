@@ -443,6 +443,20 @@ class DetectTest(InDir):
         self.assertTrue(detect.looks_like_odoo_tree())
         self.assertFalse(detect.looks_like_empty_tree())
 
+    def test_ocb_with_and_without_odoo_bin(self):
+        Path("odoo").mkdir()
+        self.assertFalse(detect.has_ocb())
+        Path("odoo/odoo-bin").touch()
+        self.assertTrue(detect.has_ocb())
+        # An Enterprise tree can come without odoo-bin: the odoo package says it.
+        Path("odoo/odoo-bin").unlink()
+        Path("odoo/odoo").mkdir()
+        Path("odoo/odoo/release.py").write_text(
+            "version_info = (19, 0, 0, FINAL, 0, '')\n"
+        )
+        self.assertTrue(detect.has_ocb())
+        self.assertTrue(detect.looks_like_odoo_tree())
+
     def test_series_from_manifests_most_common(self):
         self.manifest("custom/a", "18.0.1.0.0")
         self.manifest("custom/b", "18.0.2.0.0")

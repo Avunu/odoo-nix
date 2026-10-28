@@ -402,6 +402,23 @@
             '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
           );
 
+          # lib/raw-odoo.nix: a tree's odoo-bin, or Odoo as `python -m odoo`
+          # runs it when the tree has none, with stand-in trees.
+          raw-odoo =
+            let
+              script = pkgs.writeShellScript "raw-odoo" ''
+                tree=$1
+                shift
+                ${import ./lib/raw-odoo.nix {
+                  inherit pkgs;
+                  python = pkgs.python3.interpreter;
+                }}
+              '';
+            in
+            scriptCheck pkgs "raw-odoo" { } ''
+              ${pkgs.python3.interpreter} -I ${./tests/test_raw_odoo.py} ${script}
+            '';
+
           # nixfmt-rs (what `nix fmt` writes), statix (statix.toml, compared
           # with the base's) and deadnix, over the files `nix fmt` covers.
           nix-lint = base.checks.nixLint {
