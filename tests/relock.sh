@@ -2,7 +2,8 @@
 # the workspace configuration a shell would bake (lib/cli-scripts.nix), OCB a
 # flake input (coreSource, a stand-in tree), uv and odoo-nix-build-deps stand-ins
 # that log to $CALLS. The project's uv.lock is stale: modules.txt gained
-# queue_job and nothing re-locked it. lib/oca_sources.py is real.
+# queue_job and nothing re-locked it. lib/oca_sources.py, odoo-nix-sources and
+# git are real.
 #
 #   bash tests/relock.sh <odoo-nix-relock> <OCB tree> <templates/project/pyproject.toml> <interpreter>
 set -euo pipefail
@@ -99,6 +100,38 @@ run --upgrade --help
 expect_rc 0
 check "--help is the app's own, not uv's" hasF 'Usage: nix run .#relock' "$T/out"
 check "...and runs nothing" refute test -s "$CALLS"
+
+# A pull that brought a new repository: .gitmodules and modules.txt name it,
+# and the clone has never checked it out, as a pull does not. The app checks
+# it out as shell entry would, so its module stays in the lock.
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com
+export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always
+git init -q -b 18.0 "$T/queue"
+mkdir "$T/queue/queue_job"
+echo "{'name': 'Job Queue', 'depends': ['base']}" > "$T/queue/queue_job/__manifest__.py"
+printf '[project]\nname = "odoo-addon-queue_job"\n' > "$T/queue/queue_job/pyproject.toml"
+git -C "$T/queue" add -A
+git -C "$T/queue" commit -qm queue
+git init -q -b main "$T/upstream"
+cd "$T/upstream"
+sed -e 's/@PROJECT_NAME@/shop/; s/@REQUIRES_PYTHON@/>=3.11/' "$pyproject_template" > pyproject.toml
+echo queue_job > modules.txt
+printf 'version = 1\n# stale\n' > uv.lock
+git submodule add -q -b 18.0 "file://$T/queue" modules/queue
+git add -A
+git commit -qm project
+git clone -q "$T/upstream" "$T/clone"
+cd "$T/clone"
+check "the clone has not checked the repository out" refute test -e modules/queue/queue_job
+run
+expect_rc 0
+check "the app checks it out" test -f modules/queue/queue_job/__manifest__.py
+check "...as shell entry would" hasF 'checking out modules/queue' "$T/err"
+check "...so its module stays in the install set and the module sources" eval \
+  'hasF "\"odoo-addon-queue_job\"," pyproject.toml && hasF "\"odoo-addon-queue_job\" = { path = \"modules/queue/queue_job\", editable = true }" pyproject.toml'
+check "...and none is skipped" refute hasF 'not found on disk' "$T/err"
+check "the lock is rewritten" hasF 'locked' uv.lock
 
 if [ "$fails" -gt 0 ]; then
   echo "relock: $fails failure(s)" >&2

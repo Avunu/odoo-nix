@@ -416,8 +416,10 @@ class RelockAppTest(Workspace):
         super().setUp()
         Path("pyproject.toml").touch()
         baked = Path(".tools", "workspace.json")
+        stub(Path(".tools", "sources"), "sources", "RC_ENTER")
         data = {
             **GOOD,
+            "sources": str(Path(".tools", "sources").resolve()),
             "ocaSources": self.cfg.oca_sources,
             "uv": self.cfg.uv,
             "buildDeps": self.cfg.build_deps,
@@ -454,8 +456,23 @@ class RelockAppTest(Workspace):
         with unittest.mock.patch.dict(os.environ, {"REPO_ROOT": str(root)}):
             rc, out, _ = self.main("--upgrade-package", "lxml")
         self.assertEqual((rc, Path.cwd()), (0, root))
-        self.assertEqual(self.calls()[1], "uv lock --upgrade-package lxml")
+        self.assertEqual(self.calls()[2], "uv lock --upgrade-package lxml")
         self.assertIn(relock.DONE, out)
+
+    def test_main_checks_out_what_shell_entry_would(self):
+        # First the submodules a clone whose shell never started has never
+        # had, as shell entry checks them out, so the install set has their
+        # modules. odoo-nix-sources always exits 0; the relock goes on anyway.
+        rc, _, _ = self.main()
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            self.calls()[:2],
+            [
+                f"sources enter --treeless odoo {Path.cwd()}",
+                "oca_sources update pyproject.toml modules.txt modules custom odoo",
+            ],
+        )
+        self.assertEqual(self.main(RC_ENTER="1")[0], 0)
 
     def test_main_statuses(self):
         self.assertEqual(self.main(RC_UV="2")[0], 2)

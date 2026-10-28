@@ -544,8 +544,9 @@
 
           # A project's `nix run .#relock` (lib/relock.nix) over a stale lock,
           # offline: the app with a shell's workspace configuration, OCB a
-          # stand-in coreSource, uv and odoo-nix-build-deps stood in
-          # (tests/relock.sh). relock-stale-lock checks it evaluates there.
+          # stand-in coreSource, uv and odoo-nix-build-deps stood in, git and
+          # odoo-nix-sources real (tests/relock.sh). relock-stale-lock checks
+          # it evaluates there.
           relock =
             let
               python = pkgs.${presets."18.0".python};
@@ -586,14 +587,14 @@
                       customDir = "custom";
                     };
                     python = python.interpreter;
-                    sourcesBin = "odoo-nix-sources";
+                    sourcesBin = lib.getExe (shellTools pkgs).sources;
                     coreSource = ocb;
                   })
                   workspaceConfig
                   ;
               };
             in
-            scriptCheck pkgs "relock" { } ''
+            scriptCheck pkgs "relock" { tools = [ pkgs.git ]; } ''
               bash ${./tests/relock.sh} ${lib.getExe app} ${ocb} \
                 ${./templates/project/pyproject.toml} ${python.interpreter}
             '';

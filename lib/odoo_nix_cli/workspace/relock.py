@@ -17,6 +17,7 @@ import sys
 from collections.abc import Sequence
 
 from odoo_nix_cli.init import ui
+from odoo_nix_cli.init.proc import attempt
 from odoo_nix_cli.workspace import config
 from odoo_nix_cli.workspace.update import relock
 
@@ -33,7 +34,9 @@ It pulls nothing and moves no submodule. UV_ARGS go to `uv lock`, e.g.
 --upgrade or --upgrade-package NAME.
 
 Run it from the project root, when the shell does not start because uv.lock
-is stale."""
+is stale. First it checks out the submodules this clone has never had, as
+shell entry would: a module whose repository is not on disk is left out of
+the lock."""
 
 DONE = "✅ Re-locked. Commit pyproject.toml and uv.lock, then: direnv reload"
 AFTER_FAILED = "⚠  odoo-nix-build-deps, or the uv lock after it, failed — see above."
@@ -51,7 +54,7 @@ def run(cfg: config.WorkspaceConfig, uv_args: Sequence[str] = ()) -> int:
 
 def main(argv: Sequence[str]) -> int:
     """``nix run .#relock``: ``run`` from the project root ($REPO_ROOT, else
-    the working directory)."""
+    the working directory), after what shell entry does first."""
     if any(a in ("-h", "--help") for a in argv):
         print(HELP)
         return 0
@@ -68,7 +71,14 @@ def main(argv: Sequence[str]) -> int:
         )
         return 1
     os.chdir(root)
+    # The shell this clone never started would have checked out the
+    # submodules it has never had (modules/devenv.nix). The install set is
+    # what is on disk, so without them the lock would drop their modules: a
+    # pull that brings a new repository and its modules.txt entry leaves
+    # exactly that. odoo-nix-sources always exits 0 and says what it could not
+    # do; the odoo/ link is core_shadow's.
     try:
+        attempt([cfg.sources, "enter", "--treeless", cfg.layout.core_src, root])
         return run(cfg, argv)
     except ui.Exit as e:
         return e.code
