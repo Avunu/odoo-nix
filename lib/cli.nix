@@ -60,10 +60,10 @@
   # hook and backup fetch layer into the package (python-devops-nix
   # docs/library.md, design rule 6).
   base,
-  # Remote restore (lib/odoo_nix_cli/backups.py): the minio-client binary, and
-  # the wrapper that runs a command with the backup-access secret decrypted.
+  # Remote restore (lib/odoo_nix_cli/backups.py): the rclone binary, and the
+  # wrapper that runs a command with the backup-access secret decrypted.
   # Dev shell only; null elsewhere.
-  mcBin ? null,
+  rcloneBin ? null,
   withSecrets ? null,
 }:
 
@@ -95,8 +95,8 @@ let
     ++ lib.optionals (cliScripts != null) [
       ''--set ODOO_NIX_WORKSPACE_CONFIG "${cliScripts.workspaceConfig}"''
     ]
-    ++ lib.optionals (mcBin != null) [
-      ''--set ODOO_NIX_MC "${mcBin}"''
+    ++ lib.optionals (rcloneBin != null) [
+      ''--set ODOO_NIX_RCLONE "${rcloneBin}"''
     ]
     ++ lib.optionals (withSecrets != null) [
       ''--set ODOO_NIX_WITH_SECRETS "${withSecrets}"''

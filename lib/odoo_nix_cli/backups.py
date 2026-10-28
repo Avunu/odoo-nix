@@ -7,8 +7,10 @@ builds the CLI (lib/cli.nix; python-devops-nix docs/library.md, design rule
 6), so it is not in the source tree. Standard library only, and no `odoo` import.
 
 Connection: the BACKUPS_* variables of the backup-access secret. Overrides:
-ODOO_NIX_BACKUP_SOURCE (a directory, or an mc target, laid out like the
-bucket), ODOO_NIX_MC (the minio-client binary).
+ODOO_NIX_BACKUP_SOURCE (a directory, or an rclone target such as
+`<remote>:<bucket>/<prefix>`, laid out like the bucket), ODOO_NIX_RCLONE (the
+rclone binary). ODOO_NIX_MC, from when the client was minio-client, is refused
+with what replaced it.
 """
 
 from . import _backups, backup_layout
@@ -25,5 +27,5 @@ __all__ = [
 ]
 
 #: The fetch layer, as odoo-nix names it: messages are "odoo-nix: ...", the
-#: overrides are ODOO_NIX_*, and the throwaway mc alias is `odoonix`.
+#: overrides are ODOO_NIX_*, and the throwaway rclone remote is `odoonix`.
 backups = _backups.Backups(label="odoo-nix", env_prefix="ODOO", layout=backup_layout)
