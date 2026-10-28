@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.0.0](https://github.com/Avunu/odoo-nix/compare/v1.1.0...v2.0.0) (2026-10-28)
+
+
+### Features
+
+* **cli:** odoo ui, the dev shell's menu, with a store for OCA modules and stacks ([#111](https://github.com/Avunu/odoo-nix/issues/111)) ([2e1bacf](https://github.com/Avunu/odoo-nix/commit/2e1bacf383c2502d6e409ba9ccfe81e7dd46a0e1))
+* **devenv:** make the dev shell's settings odoo.conf by section (RFC 42) ([d3d4bd5](https://github.com/Avunu/odoo-nix/commit/d3d4bd599c0ce4932a290e4eda487878385d2642))
+* **nixos:** make services.odoo-nix.settings odoo.conf by section (RFC 42) ([#91](https://github.com/Avunu/odoo-nix/issues/91)) ([5dfbf9e](https://github.com/Avunu/odoo-nix/commit/5dfbf9ebf001b94bc6db342578364d24a5967d99))
+* **nixos:** serve Odoo on unix sockets, and nginx from python-devops-nix's builders ([#104](https://github.com/Avunu/odoo-nix/issues/104)) ([7f18710](https://github.com/Avunu/odoo-nix/commit/7f18710e186a1c2419e9ba4d5c82d9683a308927))
+* prefer Python 3.14 for Odoo 20.0, on OCB 20.0's current head ([250665a](https://github.com/Avunu/odoo-nix/commit/250665ac3e55be213734ba763f971fe77f306660))
+* remove every 1.x alias, refusing each old name with what replaced it ([86b71a5](https://github.com/Avunu/odoo-nix/commit/86b71a5bf87472accc0dea9264d4b4327495762b))
+* turn on the 2.0.0 defaults and add the 1.x to 2.0 migration guide ([994385e](https://github.com/Avunu/odoo-nix/commit/994385eae42188470f329999d6154e20fc329be1))
+
+
+### Bug Fixes
+
+* **deps:** bump https://github.com/astral-sh/ruff-pre-commit ([#100](https://github.com/Avunu/odoo-nix/issues/100)) ([a2f2118](https://github.com/Avunu/odoo-nix/commit/a2f211889718524788a05de79ff9bf2ac90e0f02))
+* **deps:** bump nixpkgs from `7fd4004` to `55bfb4d` in the nix group ([#89](https://github.com/Avunu/odoo-nix/issues/89)) ([4fb9dac](https://github.com/Avunu/odoo-nix/commit/4fb9dac2804f246a2d879598d35132223612d696))
+* **deps:** bump the github-actions group across 1 directory with 2 updates ([30816dc](https://github.com/Avunu/odoo-nix/commit/30816dc29161c56ce96d7c5f248af5d058ae7eaf))
+* **deps:** bump the github-actions group with 2 updates ([#112](https://github.com/Avunu/odoo-nix/issues/112)) ([e65768d](https://github.com/Avunu/odoo-nix/commit/e65768d3e1a20964411a05d1613d5ac6f920fc35))
+* read backups with rclone and build on current nixpkgs ([718c685](https://github.com/Avunu/odoo-nix/commit/718c685705f271e3b59e742f0e925761c686ef7c))
+
 ## [1.1.0](https://github.com/Avunu/odoo-nix/compare/v1.0.0...v1.1.0) (2026-10-22)
 
 
