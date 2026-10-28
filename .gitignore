@@ -2,7 +2,7 @@
 # produce (data/oca-modules.json) is what gets committed.
 /data/.cache/
 
-# Test fixtures: `nix run .#relock` links <fixture>/odoo to the pinned OCB input
+# Test fixtures: `nix run .#relock-fixtures` links <fixture>/odoo to the pinned OCB input
 # for the duration of `uv lock`. Never committed -- the flake source must not
 # carry OCB, lib/python.nix builds the `odoo` wheel from the input instead.
 # No trailing slash: git records a symlink as a file.

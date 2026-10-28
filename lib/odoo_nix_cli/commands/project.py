@@ -1,7 +1,9 @@
 """`odoo project update` -- pull submodules + relock, then (by default) run
 the same migrate engine `odoo db migrate --all` uses; `odoo project relock`
 -- the relock alone, odoo-nix's one consumer-facing relock (python-devops-nix
-docs/conventions.md, Relock). Their workspace half is odoo_nix_cli.workspace.update.
+docs/conventions.md, Relock), which `nix run .#relock` runs outside the shell
+(odoo_nix_cli.workspace.relock). Their workspace half is
+odoo_nix_cli.workspace.update.
 
 This is the "hook a migrate step into the update flow" the CLI exists to add:
 the old odoo-update script only ever touched code, leaving every database to
@@ -97,23 +99,10 @@ def project_relock(uv_args):
     module as uv path sources, the install set from modules.txt), then
     re-lock uv.lock with the sdist build dependencies in step -- what `project
     update` does after pulling, with no source moved. UV_ARGS go to `uv lock`,
-    e.g. --upgrade or --upgrade-package NAME."""
-    from ..workspace.update import relock
+    e.g. --upgrade or --upgrade-package NAME. Outside the shell: nix run .#relock."""
+    from ..workspace.relock import run
 
-    def run(cfg) -> int:
-        r = relock(cfg, uv_args)
-        if r.after:
-            click.echo(
-                "⚠  odoo-nix-build-deps, or the uv lock after it, failed — see above.",
-                err=True,
-            )
-        elif not r.status:
-            click.echo(
-                "✅ Re-locked. Commit pyproject.toml and uv.lock, then: direnv reload"
-            )
-        return r.status
-
-    sys.exit(_in_workspace(run))
+    sys.exit(_in_workspace(lambda cfg: run(cfg, uv_args)))
 
 
 @project_group.command("backup")

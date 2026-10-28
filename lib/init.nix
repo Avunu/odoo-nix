@@ -16,20 +16,8 @@ let
   inherit (pkgs) lib;
 
   # odoo_nix_cli as a Python module of the interpreter below, so odoo-init runs
-  # as `python -I -m`: not as a console script, whose nixpkgs wrapper would put
-  # its own interpreter and bin/ on the PATH of every git and uv it starts
-  # (frappe-nix#110), and isolated, because odoo-init runs inside projects
-  # whose directory or dev-shell PYTHONPATH must not shadow the package.
-  cliModule =
-    ps:
-    ps.toPythonModule (
-      pkgs.runCommandLocal "odoo-nix-cli-module" { } ''
-        mkdir -p $out/${ps.python.sitePackages}
-        cp -r ${
-          import ./cli-package.nix { inherit pkgs base; }
-        }/odoo_nix_cli $out/${ps.python.sitePackages}/
-      ''
-    );
+  # as `python -I -m` (lib/cli-module.nix).
+  cliModule = import ./cli-module.nix { inherit pkgs base; };
 
   # The tool interpreter, with rich for the prompts.
   python = base.python.rich {

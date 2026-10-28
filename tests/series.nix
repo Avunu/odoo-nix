@@ -251,7 +251,7 @@ in
         '';
 
     # The managed [tool.uv.extra-build-dependencies] block is what
-    # odoo-nix-build-deps derives from this uv.lock (`nix run .#relock` keeps
+    # odoo-nix-build-deps derives from this uv.lock (`nix run .#relock-fixtures` keeps
     # it so).
     build-deps = scriptCheck "build-deps-${major}" { } ''
       ${lib.getExe buildDeps} check ${workspaceRoot + "/pyproject.toml"} ${workspaceRoot + "/uv.lock"}

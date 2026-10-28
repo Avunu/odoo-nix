@@ -22,12 +22,12 @@ updated: 2026-10-21
 | `packages.<SYSTEM>.sources`, `apps.<SYSTEM>.sources` | `odoo-nix-sources`, the dev shell's submodule checkout, outside it: `nix run github:Avunu/odoo-nix#sources -- enter --treeless odoo <ROOT>`. |
 | `packages.<SYSTEM>.bootstrap`, `apps.<SYSTEM>.bootstrap` | `odoo-nix-bootstrap <ROOT>`: a fresh clone's submodules, from the `sources` its `flake.lock` pins, before Nix evaluates the project. See [A fresh clone](../development/README.md#a-fresh-clone). |
 | `apps.<SYSTEM>.odoo-init`, `.default` | What `nix run github:Avunu/odoo-nix` runs. |
-| `apps.<SYSTEM>.relock`, `.relock-odoo-ls` | Maintenance of odoo-nix itself: see [Repository layout](layout.md#re-locking). |
+| `apps.<SYSTEM>.relock-fixtures`, `.relock-odoo-ls` | Maintenance of odoo-nix itself: see [Repository layout](layout.md#re-locking). |
 | `devShells.<SYSTEM>.default`, `formatter.<SYSTEM>` | For working on odoo-nix itself. |
 
 ## What a project gets
 
-With `odoo-nix.enable`, a project's flake gets `packages.<SYSTEM>.{default, builtOdoo, odooCli, odooPythonEnv, odooDevEnv, odooTestEnv, odooConf, odoo-ls}`, `container-odoo` with `containers.enable`, the dev shell, and, with secrets declared, `lib.secrets`. See [From development to production](../production/README.md#what-a-project-builds).
+With `odoo-nix.enable`, a project's flake gets `packages.<SYSTEM>.{default, builtOdoo, odooCli, odooPythonEnv, odooDevEnv, odooTestEnv, odooConf, odoo-ls}`, `container-odoo` with `containers.enable`, `apps.<SYSTEM>.relock` (`odoo project relock` outside the shell, see [Re-locking a project](../development/locks.md#re-locking-a-project)), the dev shell, and, with secrets declared, `lib.secrets`. See [From development to production](../production/README.md#what-a-project-builds).
 
 ## Pages in this section
 

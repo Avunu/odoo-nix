@@ -10,6 +10,7 @@ Run: python3 -I tests/test_workspace.py <dir holding odoo_nix_cli> <data dir>
 
 import contextlib
 import io
+import json
 import os
 import subprocess
 import sys
@@ -22,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(sys.argv.pop(1)))
 DATA = Path(sys.argv.pop(1)).resolve()
 
-from odoo_nix_cli.workspace import config, lock, remove, update
+from odoo_nix_cli.workspace import config, lock, relock, remove, update
 from odoo_nix_cli.workspace.add import Stop
 from odoo_nix_cli.workspace.common import read_modules, write_modules
 
@@ -404,6 +405,71 @@ class RelockTest(Workspace):
             self.assertEqual(lock.main(tools[:2]), 2)
 
 
+class RelockAppTest(Workspace):
+    """odoo_nix_cli.workspace.relock: ``run``, which ``odoo project relock``
+    and ``nix run .#relock`` share, and ``main``, the flake app's."""
+
+    calls = RelockTest.calls
+    quiet = RelockTest.quiet
+
+    def setUp(self):
+        super().setUp()
+        Path("pyproject.toml").touch()
+        baked = Path(".tools", "workspace.json")
+        data = {
+            **GOOD,
+            "ocaSources": self.cfg.oca_sources,
+            "uv": self.cfg.uv,
+            "buildDeps": self.cfg.build_deps,
+        }
+        baked.write_text(json.dumps(data))
+        env = unittest.mock.patch.dict(os.environ, {config.ENV: str(baked.resolve())})
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("REPO_ROOT", None)
+
+    def main(self, *argv, **rcs):
+        with self.quiet(**rcs) as (out, err):
+            rc = relock.main(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_run_says_how_it_ended(self):
+        with self.quiet() as (out, _):
+            self.assertEqual(relock.run(self.cfg, ["-U"]), 0)
+        self.assertIn(relock.DONE, out.getvalue())
+        self.assertEqual(self.calls()[1], "uv lock -U")
+        with self.quiet(RC_BUILD_DEPS="4") as (out, err):
+            self.assertEqual(relock.run(self.cfg), 4)
+        self.assertIn(relock.AFTER_FAILED, err.getvalue())
+        self.assertNotIn(relock.DONE, out.getvalue())
+
+    def test_main_relocks_the_project_root(self):
+        root = Path.cwd()
+        Path("sub").mkdir()
+        os.chdir("sub")
+        rc, _, err = self.main("--upgrade-package", "lxml")
+        self.assertEqual(rc, 1)
+        self.assertIn("no pyproject.toml in", err)
+        self.assertEqual(self.calls(), [])
+        with unittest.mock.patch.dict(os.environ, {"REPO_ROOT": str(root)}):
+            rc, out, _ = self.main("--upgrade-package", "lxml")
+        self.assertEqual((rc, Path.cwd()), (0, root))
+        self.assertEqual(self.calls()[1], "uv lock --upgrade-package lxml")
+        self.assertIn(relock.DONE, out)
+
+    def test_main_statuses(self):
+        self.assertEqual(self.main(RC_UV="2")[0], 2)
+        self.assertEqual(self.main(RC_SOURCES="3")[0], 3)
+        before = self.calls()
+        rc, out, _ = self.main("--upgrade", "--help")
+        self.assertEqual((rc, self.calls()), (0, before))
+        self.assertIn("Usage: nix run .#relock", out)
+        del os.environ[config.ENV]
+        rc, _, err = self.main()
+        self.assertEqual(rc, 1)
+        self.assertIn(f"{relock.NAME}: ${config.ENV} is not set", err)
+
+
 class CoreShadowTest(unittest.TestCase):
     """The lock-time shadow of a store-resident OCB (coreSource)."""
 
@@ -447,6 +513,12 @@ class CoreShadowTest(unittest.TestCase):
             raise RuntimeError
         self.assertEqual(os.readlink(self.link), str(self.store))
         self.assertFalse(os.path.exists(shadow))
+
+    def test_a_missing_link_is_made(self):
+        self.link.unlink()
+        with lock.core_shadow(str(self.link), str(self.store)) as shadow:
+            self.assertEqual(os.readlink(self.link), shadow)
+        self.assertEqual(os.readlink(self.link), str(self.store))
 
     def test_a_checkout_or_no_core_source_is_left_alone(self):
         with lock.core_shadow(str(self.link), None) as shadow:
