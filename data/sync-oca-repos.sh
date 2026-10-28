@@ -21,7 +21,7 @@ cd "$(dirname "$0")"
 
 # Keep in sync with lib/odoo-presets.json.
 SERIES=("$@")
-[ "${#SERIES[@]}" -eq 0 ] && SERIES=(19.0 18.0)
+[ "${#SERIES[@]}" -eq 0 ] && SERIES=(20.0 19.0 18.0)
 
 CACHE=".cache"
 mkdir -p "$CACHE"
@@ -39,8 +39,10 @@ for repo in "${repos[@]}"; do
   fi
   got=()
   for s in "${SERIES[@]}"; do
+    # Forced (+): a shallow branch cannot prove the new tip descends from the
+    # old one, so a plain refspec rejects every update as non-fast-forward.
     if git -C "$git_dir" fetch -q --depth 1 --no-tags origin \
-         "refs/heads/$s:refs/heads/$s" 2>/dev/null; then
+         "+refs/heads/$s:refs/heads/$s" 2>/dev/null; then
       got+=("$s")
     fi
   done
