@@ -1,6 +1,6 @@
 ---
 title: The menu
-description: odoo ui, the dev shell's interactive menu: the stack and its logs, every odoo command as a form, and a store for OCA modules, stacks and git repositories.
+description: "odoo ui, the dev shell's interactive menu: the stack and its logs, every odoo command as a form, and a store for OCA modules, stacks and git repositories."
 order: 2
 tags: [cli, modules, tui]
 updated: 2026-10-27
