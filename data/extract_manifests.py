@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 
 # Keep in sync with lib/odoo-presets.json and sync-oca-repos.sh.
-SERIES = ["19.0", "18.0"]
+SERIES = ["20.0", "19.0", "18.0"]
 
 # Repos that are not addon collections.
 SKIP_REPOS = {"OCB", "OpenUpgrade", ".github"}
