@@ -60,9 +60,11 @@
       };
 
       # Odoo's readiness endpoint, needing no database. Bash's /dev/tcp, since
-      # the image has no curl; the port is the entrypoint's.
+      # the image has no curl; the port is the entrypoint's. The entrypoint
+      # refuses to start with the old ODOO_HTTP_PORT set, so the probe does
+      # not read it either.
       healthProbe = pkgs.writeShellScript "odoo-healthcheck" ''
-        port="''${ODOO_NIX_HTTP_PORT:-''${ODOO_HTTP_PORT:-8069}}"
+        port="''${ODOO_NIX_HTTP_PORT:-8069}"
         exec 3<>"/dev/tcp/127.0.0.1/$port" || exit 1
         printf 'GET /web/health HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3
         IFS= read -r -t 8 status <&3 || exit 1
