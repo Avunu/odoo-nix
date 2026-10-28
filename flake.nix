@@ -240,6 +240,7 @@
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   odoo-db-compat                                      the CLI's one API over Odoo's two database-management APIs (all systems)
+      #   raw-odoo                                            lib/raw-odoo.nix, with stand-in trees (all systems)
       #   secrets-*                                           odoo-nix's secrets module (all systems)
       #   lock-audit-*                                        the stale-lock audit on a stale fixture (all systems)
       #   restore-*                                           the dev shell's restore options (Linux only)
@@ -252,8 +253,8 @@
       #   fixture-requires-python-<major>, built-odoo-{addons-path,version}-<major>,
       #   lock-audit-<major>, lock-fresh-<major>, build-deps-<major>
       #                                                       per-series, no Odoo run (all systems)
-      #   built-odoo-<major>, odoo-init-<major>, odoo-test-<major>,
-      #   cli-*-<major>                                       run Odoo (Linux only)
+      #   built-odoo-<major>, built-odoo-no-odoo-bin-<major>, odoo-init-<major>,
+      #   odoo-test-<major>, cli-*-<major>                    run Odoo (Linux only)
       #   service-<major>, nginx                              NixOS VM tests (Linux only)
       checks = forAllSystems (
         pkgs:

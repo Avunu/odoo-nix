@@ -305,7 +305,7 @@ in
     '';
 
     # The same, from a tree without odoo-bin: Odoo's own entry point, the
-    # websocket worker's too.
+    # websocket worker's too, and the tree's odoo package.
     built-odoo-no-odoo-bin = scriptCheck "built-odoo-no-odoo-bin-${major}" { } ''
       test ! -e ${builtOdooNoOdooBin}/odoo/odoo-bin
       ${builtOdooNoOdooBin}/bin/odoo --version | tee version.txt
@@ -314,6 +314,11 @@ in
       grep -qx 'Odoo Server ${series}' gevent-version.txt
       ${builtOdooNoOdooBin}/bin/odoo --help | tee help.txt
       grep -q 'odoo-bin' help.txt
+      # The tree's odoo, not the wheel's: the environment carries an odoo
+      # wheel of the same version. `shell` with no database runs stdin.
+      echo 'print(odoo.release.__file__)' \
+        | ${builtOdooNoOdooBin}/bin/odoo shell --no-http | tee release.txt
+      grep -qx '${builtOdooNoOdooBin}/odoo/odoo/release.py' release.txt
     '';
 
     # `-i base` through the production wrapper. `web` is auto_install with

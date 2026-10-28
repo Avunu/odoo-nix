@@ -12,6 +12,10 @@
 # run as a script. The launcher can, and it is named odoo-bin, so Odoo's usage
 # lines read as they do with the tree's own.
 #
+# A tree with neither odoo-bin nor odoo/__main__.py, such as an uninitialised
+# submodule, still goes to odoo-bin, so the error names the tree. The
+# launcher would run the wheel's Odoo instead.
+#
 # Usage: the text runs Odoo from "$tree", which the caller sets first.
 #   import ./lib/raw-odoo.nix { inherit pkgs; python = "${env}/bin/python"; }
 
@@ -35,7 +39,7 @@ let
   };
 in
 ''
-  if [ -e "$tree/odoo-bin" ]; then
+  if [ -e "$tree/odoo-bin" ] || [ ! -e "$tree/odoo/__main__.py" ]; then
     exec ${python} "$tree/odoo-bin" "$@"
   fi
   export PYTHONPATH="$tree''${PYTHONPATH:+:$PYTHONPATH}"

@@ -1,7 +1,8 @@
 """lib/raw-odoo.nix with stand-in OCB trees: a tree's odoo-bin when it has one,
 and Odoo as `python -m odoo` runs it when it has none (an Enterprise tree can
-come without odoo-bin). The checks' built-odoo-no-odoo-bin-<major> run the
-real Odoo the second way.
+come without odoo-bin). A tree with neither, such as an uninitialised
+submodule, fails and names the tree, rather than running the wheel's Odoo.
+The checks' built-odoo-no-odoo-bin-<major> run the real Odoo the second way.
 
 Run: python3 -I tests/test_raw_odoo.py <script>   (checks.raw-odoo)
   <script>  the shell text, run as `<script> <tree> <args...>`
@@ -54,19 +55,21 @@ class RawOdooTest(unittest.TestCase):
         (pkg / "__init__.py").write_text(f"here = {here!r}\n")
         (pkg / "__main__.py").write_text(MAIN)
 
-    def run_odoo(self, *argv):
+    def run_raw(self, tree, *argv, check=True):
         env = {
             "PATH": os.environ.get("PATH", ""),
             "PYTHONPATH": str(self.root / "wheel"),
         }
-        out = subprocess.run(
-            [SCRIPT, str(self.tree), *argv],
+        return subprocess.run(
+            [SCRIPT, str(tree), *argv],
             env=env,
             capture_output=True,
             text=True,
-            check=True,
-        ).stdout
-        return json.loads(out)
+            check=check,
+        )
+
+    def run_odoo(self, *argv):
+        return json.loads(self.run_raw(self.tree, *argv).stdout)
 
     def test_odoo_bin(self):
         (self.tree / "odoo-bin").write_text(ODOO_BIN)
@@ -86,6 +89,18 @@ class RawOdooTest(unittest.TestCase):
         out = self.run_odoo("spawn")
         self.assertEqual(out["via"], "the tree")
         self.assertEqual(out["argv"], ["gevent"])
+
+    def test_no_tree(self):
+        # An uninitialised submodule: an empty directory, or none at all. The
+        # error names the tree, and the wheel's Odoo does not run.
+        empty = self.root / "empty"
+        empty.mkdir()
+        for tree in (empty, self.root / "missing"):
+            with self.subTest(tree=tree.name):
+                run = self.run_raw(tree, "--version", check=False)
+                self.assertNotEqual(run.returncode, 0)
+                self.assertNotIn("the wheel", run.stdout)
+                self.assertIn(str(tree / "odoo-bin"), run.stderr)
 
 
 if __name__ == "__main__":
