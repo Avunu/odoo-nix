@@ -60,8 +60,8 @@ class OdooBackupsTest(unittest.TestCase):
     def test_names(self):
         self.assertEqual(backups.label, "odoo-nix")
         self.assertEqual(backups.var("BACKUP_SOURCE"), "ODOO_NIX_BACKUP_SOURCE")
-        self.assertEqual(backups.var("MC"), "ODOO_NIX_MC")
-        self.assertEqual(backups.alias, "odoonix")
+        self.assertEqual(backups.var("RCLONE"), "ODOO_NIX_RCLONE")
+        self.assertEqual(backups.remote, "odoonix")
         self.assertEqual(backups.roles, ("dump",))
 
     def test_lists_databases_and_only_real_backups(self):
