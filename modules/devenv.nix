@@ -961,10 +961,16 @@ in
         # builder) passes through to builtOdoo's own wrapper instead, and has
         # no workspace scripts wired in -- there is no git checkout to pull or
         # modules.txt to add to in an assembled /nix/store deployment.
+        # A tree without odoo-bin runs as `python -m odoo` (lib/raw-odoo.nix).
+        # The `odoo` process under `devenv up` runs this too.
         devRawOdooBin = pkgs.writeShellScript "odoo-nix-dev-odoo-bin" ''
           set -euo pipefail
           cd "''${REPO_ROOT:-$PWD}"
-          exec ${pythonEnvs.devPythonEnv}/bin/python "''${REPO_ROOT:-$PWD}/${cfg.layout.coreSrc}/odoo-bin" "$@"
+          tree="''${REPO_ROOT:-$PWD}/${cfg.layout.coreSrc}"
+          ${import ../lib/raw-odoo.nix {
+            inherit pkgs;
+            python = "${pythonEnvs.devPythonEnv}/bin/python";
+          }}
         '';
 
         odooCliDev = import ../lib/cli.nix {
@@ -1674,8 +1680,7 @@ in
                       export PYTHONPATH="${watchdogFallback}''${PYTHONPATH:+:$PYTHONPATH}"
                     fi
                   ''}
-                  exec ${pythonEnvs.devPythonEnv}/bin/python \
-                    "$REPO_ROOT/${cfg.layout.coreSrc}/odoo-bin" \
+                  exec ${devRawOdooBin} \
                     -c "$REPO_ROOT/odoo.conf" \
                     --dev=${cfg.devMode}
                 '';

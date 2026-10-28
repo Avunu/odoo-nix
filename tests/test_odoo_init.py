@@ -417,6 +417,37 @@ class OcaTest(unittest.TestCase):
                 "not available for 19.0, skipped: project_task_add_very_high project_timesheet_time_control"
             ],
         )
+        # OCA's 20.0 port has barely started: the project bundle has no member
+        # there yet, so it adds nothing and names every member it skipped.
+        warnings = []
+        self.assertEqual(
+            oca.expand_bundles(bundles, catalog, "20.0", ["project"], warnings.append),
+            [],
+        )
+        self.assertEqual(
+            warnings,
+            [
+                "not available for 20.0, skipped: "
+                + " ".join(sorted(bundles["project"]["modules"]))
+            ],
+        )
+
+    def test_every_series_has_a_catalog(self):
+        """Each series of lib/odoo-presets.json has installable catalog records,
+        and at least one bundle that adds something for it."""
+        path = os.environ.get("ODOO_PRESETS")
+        if not path:
+            self.skipTest("ODOO_PRESETS not set")
+        catalog = oca.load_catalog(DATA / "oca-modules.json")
+        bundles = oca.load_bundles(DATA / "oca-bundles.json")
+        for series in presets.load(path):
+            with self.subTest(series=series):
+                self.assertTrue(oca.installable(catalog, series))
+                self.assertTrue(
+                    oca.expand_bundles(
+                        bundles, catalog, series, list(bundles), lambda _: None
+                    )
+                )
 
 
 def git(*argv):
@@ -442,6 +473,20 @@ class DetectTest(InDir):
         self.manifest("modules/repo/m", "18.0.1.0.0")
         self.assertTrue(detect.looks_like_odoo_tree())
         self.assertFalse(detect.looks_like_empty_tree())
+
+    def test_ocb_with_and_without_odoo_bin(self):
+        Path("odoo").mkdir()
+        self.assertFalse(detect.has_ocb())
+        Path("odoo/odoo-bin").touch()
+        self.assertTrue(detect.has_ocb())
+        # An Enterprise tree can come without odoo-bin: the odoo package says it.
+        Path("odoo/odoo-bin").unlink()
+        Path("odoo/odoo").mkdir()
+        Path("odoo/odoo/release.py").write_text(
+            "version_info = (19, 0, 0, FINAL, 0, '')\n"
+        )
+        self.assertTrue(detect.has_ocb())
+        self.assertTrue(detect.looks_like_odoo_tree())
 
     def test_series_from_manifests_most_common(self):
         self.manifest("custom/a", "18.0.1.0.0")

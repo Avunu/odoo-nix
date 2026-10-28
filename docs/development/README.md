@@ -4,14 +4,14 @@ description: What devenv up runs, how ports are chosen per project, what shell e
 nav_title: Development
 order: 4
 tags: [devenv, development, ports]
-updated: 2026-10-23
+updated: 2026-10-28
 ---
 
 `direnv allow` (or `nix develop --no-pure-eval`) loads the shell. `devenv up` then starts:
 
 - **PostgreSQL** 16, its data under `.devenv/state`, listening on `127.0.0.1` on the project's database port. The role `settings.options.db_user` is created as a superuser, and the database `dbName` is created empty.
 - **Mailpit**, the mail catcher (`mailpit.enable`, on by default), before the server and whether or not the mail guard is on.
-- **odoo**: `odoo-bin -c odoo.conf --dev=all` from the live checkout, threaded, serving HTTP and websockets in one process.
+- **odoo**: `odoo-bin -c odoo.conf --dev=all` from the live checkout, threaded, serving HTTP and websockets in one process. A checkout without `odoo-bin` runs the [same way](commands.md).
 
 The banner printed on entry names the project, the series, the server's and Mailpit's addresses, and the commands you will use most.
 

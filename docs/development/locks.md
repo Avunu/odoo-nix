@@ -3,7 +3,7 @@ title: Python dependencies and locks
 description: How pyproject.toml and uv.lock carry a project's Python dependencies into Nix through uv2nix, the managed blocks odoo-nix writes, what a stale lock looks like, and how to give a C extension its libraries.
 order: 7
 tags: [python, uv, uv2nix, locks]
-updated: 2026-10-21
+updated: 2026-10-28
 ---
 
 The project's `pyproject.toml` and `uv.lock` are its single Python manifest, built by [uv2nix](https://github.com/pyproject-nix/uv2nix). Dependency resolution is uv's alone; odoo-nix only lists what is on disk.
@@ -31,7 +31,7 @@ The rest of `pyproject.toml` is yours. `[dependency-groups].dev` holds developme
 | Environment | Package | Contents |
 | --- | --- | --- |
 | production | `odooPythonEnv` | Real wheels for `odoo` and every module. No dev group, no guard rails. |
-| development | `odooDevEnv` | Every local module installed editable against the checkout, plus the dev group and the [guard rails](guard-rails.md). Odoo itself runs from the checkout's `odoo-bin`. |
+| development | `odooDevEnv` | Every local module installed editable against the checkout, plus the dev group and the [guard rails](guard-rails.md). Odoo itself runs from the checkout's `odoo-bin`, or [without one](commands.md) from its `odoo` package. |
 | test | `odooTestEnv` | The production wheels plus the dev group and the guard rails, with no checkout needed, for sandboxed runs. |
 
 The package set is uv2nix's, then python-devops-nix's shared package fixes (`lib.python.overrides`: psycopg2, python-ldap, lxml, pycups, python-magic, pyvips and cairocffi), then odoo-nix's own (the OCB build, `lxml_html_clean`), then the project's `pythonOverrides`.

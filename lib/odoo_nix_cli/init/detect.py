@@ -93,7 +93,13 @@ def submodules() -> dict[str, dict[str, str]]:
 
 
 def has_ocb() -> bool:
-    return Path(CORE, "odoo-bin").exists() or CORE in submodules()
+    """OCB at odoo/: its odoo-bin, its odoo package alone (an Enterprise tree
+    can come without odoo-bin), or a submodule registered there."""
+    return (
+        Path(CORE, "odoo-bin").exists()
+        or Path(CORE, "odoo", "release.py").exists()
+        or CORE in submodules()
+    )
 
 
 def manifests() -> list[Path]:

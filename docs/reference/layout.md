@@ -3,7 +3,7 @@ title: Repository layout
 description: Where things live in the odoo-nix repository, the flake checks and what CI runs, how the pinned test fixtures, odoo-ls lock and OCA catalog are refreshed, and how these pages are checked.
 order: 5
 tags: [contributing, layout, checks, ci]
-updated: 2026-10-23
+updated: 2026-10-28
 ---
 
 ## Layout
@@ -13,7 +13,7 @@ flake.nix                    # inputs; flakeModules, nixosModules, lib, packages
 modules/
   flake-module.nix           # imports devenv's flake module, secrets.nix, devenv.nix, containers.nix
   devenv.nix                 # the perSystem.odoo-nix options and the dev shell
-  containers.nix             # the OCI image
+  containers.nix             # the OCI image, its shared parts from python-devops-nix's lib.containers
   nixos.nix                  # services.odoo-nix
   secrets.nix                # odoo-nix.secrets: python-devops-nix's lib.secrets.mkModule
 lib/
@@ -21,6 +21,7 @@ lib/
   odoo-ini.nix               # odoo.conf's INI dialect, for the dev shell and the NixOS module
   python.nix                 # the uv2nix Python environments
   odoo.nix                   # builtOdoo, the assembled tree
+  raw-odoo.nix               # runs a tree's odoo-bin, or `python -m odoo` without one
   cli.nix                    # wraps builtOdoo, or the live checkout, in the odoo command
   cli-package.nix            # the odoo_nix_cli package
   cli-scripts.nix            # the workspace configuration `odoo module`, `odoo project update|relock` and `nix run .#relock` read
@@ -72,6 +73,7 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | `fixture-requires-python-<18\|19\|20>`, `built-odoo-addons-path-<18\|19\|20>`, `built-odoo-version-<18\|19\|20>`, `lock-audit-<18\|19\|20>`, `lock-fresh-<18\|19\|20>`, `build-deps-<18\|19\|20>` | Per series, without running Odoo: the fixture's `requires-python`, `builtOdoo`'s passthru, the fixture lock against the pinned OCB, the managed build-dependency block. |
 | `lock-audit-*` | The stale-lock audit. |
 | `built-odoo-<18\|19\|20>`, `odoo-init-<18\|19\|20>`, `odoo-test-<18\|19\|20>` | The assembled package, `-i base` against an in-sandbox PostgreSQL with no guard rails in production, and the fixture addon's Odoo tests including the guard rails. |
+| `built-odoo-no-odoo-bin-<18\|19\|20>`, `raw-odoo` | The assembled package from an OCB tree without `odoo-bin`, and `lib/raw-odoo.nix` with stand-in trees. |
 | `cli-lifecycle-<18\|19\|20>`, `cli-migrate-<18\|19\|20>`, `cli-project-backup-<18\|19\|20>`, `cli-remote-restore-<18\|19\|20>` | The `odoo` command end to end: provision, backup, drop and restore; migrations from build to build, including rollback; project backups; restores from a directory store. |
 | `devguard-core`, `devguard`, `devguard-baked` | The guard rails, the shared core and odoo-nix's side, without Odoo or a network. |
 | `backups`, `backup-layout` | The backup fetch layer and odoo-nix's naming. |
@@ -113,14 +115,14 @@ git add lib/odoo-ls-Cargo.lock
 
 ## The OCA catalog
 
-`data/oca-modules.json` is the bundled catalog behind the module picker and the dependency resolver: one record per repository, module and series, with `repo`, `version`, `application`, `installable`, `depends`, `summary` and more. It covers 18.0 and 19.0. Refreshing it is two commands:
+`data/oca-modules.json` is the bundled catalog behind the module picker and the dependency resolver: one record per repository, module and series, with `repo`, `version`, `application`, `installable`, `depends`, `summary` and more. It covers 18.0, 19.0 and 20.0. Refreshing it is two commands:
 
 ```bash
 data/sync-oca-repos.sh              # or: data/sync-oca-repos.sh 19.0
 data/extract_manifests.py           # rewrites data/oca-modules.json
 ```
 
-`sync-oca-repos.sh` keeps one bare mirror per repository of `data/oca-repos.txt` under the gitignored `data/.cache/`, fetching each series as a shallow branch and skipping repositories without it. `extract_manifests.py` reads the manifests straight out of the git objects, with no working trees, and skips a manifest whose `version` disagrees with its branch. Both scripts carry their own series list (19.0 and 18.0): keep them in step with `lib/odoo-presets.json` when a series is added or dropped.
+`sync-oca-repos.sh` keeps one bare mirror per repository of `data/oca-repos.txt` under the gitignored `data/.cache/`, fetching each series as a shallow branch and skipping repositories without it. A re-run moves each branch to OCA's current head. `extract_manifests.py` reads the manifests straight out of the git objects, with no working trees, and skips a manifest whose `version` disagrees with its branch. Both scripts carry their own series list (20.0, 19.0 and 18.0): keep them in step with `lib/odoo-presets.json` when a series is added or dropped.
 
 `data/oca-bundles.json` is maintained by hand; add or edit a bundle there with no code change. `odoo module add <GIT_URL>` bypasses the catalog entirely.
 
