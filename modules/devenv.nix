@@ -106,6 +106,13 @@ in
           description = "Removed options in use: evaluating the shell's config fails with all of them.";
         };
 
+        tui = mkOption {
+          type = types.nullOr types.package;
+          default = null;
+          internal = true;
+          description = "The program `odoo ui` runs (python-devops-nix's lib.tui.script), for the checks.";
+        };
+
         name = mkOption {
           type = types.str;
           description = ''
@@ -961,6 +968,7 @@ in
           inherit rcloneBin;
           base = inputs.python-devops-nix.lib;
           withSecrets = if restoreEnabled then withBackupAccess else null;
+          tui = tuiRun;
         };
 
         odooCliProd = import ../lib/cli.nix {
@@ -1037,6 +1045,10 @@ in
                   "odoo shell"
                   "Odoo REPL"
                 ]
+                [
+                  "odoo ui"
+                  "the menu: stack, commands, OCA store (or just: odoo)"
+                ]
               ];
           urls = [
             {
@@ -1061,6 +1073,195 @@ in
               url = "http://127.0.0.1:${toString cfg.mailpit.httpPort}";
             };
           };
+        };
+
+        # The menu (`odoo ui`, and a bare `odoo` at a terminal):
+        # python-devops-nix's lib.tui, with lib/odoo_nix_cli/tui.py as its
+        # store. It runs on its own interpreter (textual, on the project's
+        # Python), isolated from the dev environment, and changes nothing
+        # itself: every action is an `odoo …` command line it shows first.
+        tuiBase = inputs.python-devops-nix.lib.tui;
+        cliPackage = import ../lib/cli-package.nix {
+          inherit pkgs;
+          base = inputs.python-devops-nix.lib;
+        };
+
+        tuiCommand = tuiBase.command {
+          inherit pkgs;
+          inherit (cfg) python;
+          name = "odoo-nix-tui";
+          plugins = [
+            {
+              name = "odoo_nix_cli";
+              path = "${cliPackage}/odoo_nix_cli";
+            }
+          ];
+        };
+
+        # The Commands tab: the `odoo` command line's own tree, built here
+        # from its click group, and the odoo-bin subcommands it passes
+        # through (their arguments are odoo-bin's, so each is one line).
+        cliCatalog = tuiBase.commands {
+          inherit pkgs;
+          name = "odoo-nix-commands";
+          python = inputs.python-devops-nix.lib.python.rich {
+            inherit (cfg) python;
+            extraPackages = ps: [ ps.click ];
+          };
+          target = "odoo_nix_cli.commands:cli";
+          cli = "odoo";
+          source = "odoo-nix";
+          interactive = [
+            "shell"
+            "ui"
+          ];
+          pythonPath = [ cliPackage ];
+        };
+        odooBinCatalog = pkgs.writeText "odoo-bin-commands.json" (
+          builtins.toJSON {
+            name = "odoo";
+            source = "odoo-bin";
+            help = "odoo-bin's own subcommands, which `odoo` passes through.";
+            commands =
+              map
+                (c: {
+                  name = builtins.elemAt c 0;
+                  path = [ (builtins.elemAt c 0) ];
+                  short = builtins.elemAt c 1;
+                  raw = true;
+                  interactive = builtins.elemAt c 2;
+                })
+                [
+                  [
+                    "server"
+                    "run the server in the foreground (devenv up runs it for you)"
+                    true
+                  ]
+                  [
+                    "scaffold"
+                    "create a module skeleton: scaffold <name> <directory>"
+                    false
+                  ]
+                  [
+                    "populate"
+                    "fill a database with generated test data"
+                    false
+                  ]
+                  [
+                    "neutralize"
+                    "neutralize a database (crons, mail servers, payment providers)"
+                    false
+                  ]
+                  [
+                    "cloc"
+                    "count the lines of code of the installed modules"
+                    false
+                  ]
+                  [
+                    "upgrade_code"
+                    "rewrite module source for this series' API"
+                    false
+                  ]
+                  [
+                    "tsconfig"
+                    "write a tsconfig.json for the addons' JavaScript"
+                    false
+                  ]
+                  [
+                    "obfuscate"
+                    "obfuscate (or unobfuscate) a database's data"
+                    false
+                  ]
+                ];
+          }
+        );
+
+        tuiRun = tuiBase.script {
+          inherit pkgs;
+          tui = tuiCommand;
+          name = "odoo-nix-ui";
+          spec = {
+            product = "odoo-nix";
+            cli = "odoo";
+            root = "@root@";
+            banner = bannerSpec;
+            site = {
+              label = "Odoo";
+              url = "http://127.0.0.1:${toString cfg.ports.http}";
+              process = "odoo";
+            };
+            stack.actions = [
+              {
+                label = "Update changed modules";
+                argv = [
+                  "odoo"
+                  "db"
+                  "migrate"
+                ];
+                help = "odoo db migrate: upgrade what changed since the last run";
+              }
+              {
+                label = "Pull and refresh the project";
+                argv = [
+                  "odoo"
+                  "project"
+                  "update"
+                ];
+                help = "odoo project update: submodules on their branch, deps re-locked, then migrate";
+                after = "rebuild";
+              }
+            ];
+            actions = [
+              {
+                label = "Provision the database";
+                argv = [
+                  "odoo"
+                  "db"
+                  "provision"
+                ];
+                help = "create it and install modules.txt, or migrate it if it exists";
+              }
+              {
+                label = "Update changed modules";
+                argv = [
+                  "odoo"
+                  "db"
+                  "migrate"
+                ];
+              }
+              {
+                label = "Odoo shell";
+                argv = [
+                  "odoo"
+                  "shell"
+                ];
+                interactive = true;
+              }
+              {
+                label = "Pull and refresh the project";
+                argv = [
+                  "odoo"
+                  "project"
+                  "update"
+                ];
+                after = "rebuild";
+              }
+            ];
+            commands = [
+              { file = "${cliCatalog}"; }
+              { file = "${odooBinCatalog}"; }
+            ];
+            plugin = {
+              module = "odoo_nix_cli.tui";
+              config = {
+                series = cfg.odooSeries;
+                ocaDataset = "${../data/oca-modules.json}";
+                ocaBundles = "${../data/oca-bundles.json}";
+                inherit (cfg.layout) externalDir customDir;
+              };
+            };
+          };
+          vars.root = "\${REPO_ROOT:-$PWD}";
         };
 
         # ── Editor / language-server integration ──────────────────────────
@@ -1278,6 +1479,8 @@ in
             })
           ];
         })
+
+        (lib.mkIf cfg.enable { odoo-nix.tui = tuiRun; })
 
         (lib.mkIf cfg.enable {
           packages.odooPythonEnv = pythonEnvs.odooPythonEnv;

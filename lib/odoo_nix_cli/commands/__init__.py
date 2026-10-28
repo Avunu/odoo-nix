@@ -85,6 +85,18 @@ cli.add_command(module_group)
 cli.add_command(project_group)
 
 
+@cli.command(
+    "ui", context_settings={"ignore_unknown_options": True, "help_option_names": []}
+)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def ui_cmd(args):
+    """The interactive menu: the stack, every command, and the OCA store. A
+    bare `odoo` at a terminal in the dev shell opens it too."""
+    from ..__main__ import tui
+
+    tui(list(args))
+
+
 @cli.command("shell")
 @click.argument("database", required=False)
 @click.pass_context

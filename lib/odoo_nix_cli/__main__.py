@@ -18,7 +18,20 @@ from __future__ import annotations
 import os
 import sys
 
-OWN_COMMANDS = {"db", "module", "project", "shell", "test", "help", "--help", "-h"}
+OWN_COMMANDS = {
+    "db",
+    "module",
+    "project",
+    "shell",
+    "test",
+    "ui",
+    "help",
+    "--help",
+    "-h",
+}
+#: The dev shell's TUI (lib.tui.script, python-devops-nix): `odoo ui`, and a
+#: bare `odoo` in a terminal.
+TUI_ENV = "ODOO_NIX_TUI"
 _VALUE_OPTS = {
     "-c",
     "--config",
@@ -93,8 +106,30 @@ def _install_devguard() -> None:
     odoo_devguard.install()
 
 
+def tui(argv: list[str]) -> None:
+    """Replace this process with the TUI, or exit saying why there is none."""
+    path = os.environ.get(TUI_ENV)
+    if not path:
+        sys.exit(
+            f"odoo ui: the menu is only in an odoo-nix workspace dev shell (${TUI_ENV} is not set)."
+        )
+    os.execv(path, [path, *argv])
+
+
 def main() -> None:
     argv = sys.argv[1:]
+    if argv[:1] == ["ui"]:
+        tui(argv[1:])
+    # A bare `odoo` is odoo-bin's server, which the dev shell runs under
+    # `devenv up`: typed at a terminal there, it opens the menu instead
+    # (`odoo server` still runs it).
+    if (
+        not argv
+        and os.environ.get(TUI_ENV)
+        and sys.stdin.isatty()
+        and sys.stdout.isatty()
+    ):
+        tui([])
     _setup_journald()
     if _first_command(argv) not in OWN_COMMANDS:
         raw = _raw_odoo_bin()

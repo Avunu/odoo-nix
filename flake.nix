@@ -712,6 +712,42 @@
             }
           )
         )
+        # `odoo ui` (python-devops-nix's lib.tui): the 19.0 fixture shell's
+        # spec, the store's plugin over a workspace and the real OCA data, the
+        # command catalogs it builds, and the TUI headless; then the program
+        # itself, which refuses to start without a terminal.
+        // lib.optionalAttrs isLinux {
+          tui =
+            let
+              inherit (pkgs.stdenv.hostPlatform) system;
+              run =
+                (self.lib.mkFlake
+                  {
+                    inputs.self = {
+                      outPath = ./.;
+                      inherit inputs;
+                    };
+                  }
+                  {
+                    debug = true;
+                    systems = [ system ];
+                    imports = [ ./modules/flake-module.nix ];
+                    perSystem.odoo-nix = {
+                      enable = true;
+                      name = "acme";
+                      workspaceRoot = ./tests/fixtures/19.0;
+                      coreSource = inputs.ocb-19;
+                      odooSeries = "19.0";
+                    };
+                  }
+                ).allSystems.${system}.odoo-nix.tui;
+            in
+            scriptCheck pkgs "tui" { } ''
+              ${run.tui.python}/bin/python3 -I ${./tests/test_tui.py} ${run.tui.modules} ${run.spec}
+              refute ${lib.getExe run} < /dev/null 2> err
+              grep -qF 'the menu needs a terminal. Run `odoo --help`' err
+            '';
+        }
         // lib.optionalAttrs isLinux (
           evalChecks "" (
             import ./tests/settings-eval.nix {
