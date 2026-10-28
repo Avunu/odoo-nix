@@ -807,14 +807,10 @@
               ];
               scaffolder = lib.getExe (odooInit pkgs);
             };
-            envVars = {
-              # Stand-ins for consumer projects.
-              ignore = [ "tests/fixtures" ];
-              exceptions = [
-                "ODOO_RC" # Odoo's own: the config file
-                "ODOO_HTTP_SOCKET_FD" # Odoo's own: a 19.0 reload hands its socket on by it
-              ];
-            };
+            envVars.exceptions = [
+              "ODOO_RC" # Odoo's own: the config file
+              "ODOO_HTTP_SOCKET_FD" # Odoo's own: a 19.0 reload hands its socket on by it
+            ];
           }
           // lib.optionalAttrs isLinux (
             let
