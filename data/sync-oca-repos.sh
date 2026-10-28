@@ -21,7 +21,7 @@ cd "$(dirname "$0")"
 
 # Keep in sync with lib/odoo-presets.json.
 SERIES=("$@")
-[ "${#SERIES[@]}" -eq 0 ] && SERIES=(19.0 18.0)
+[ "${#SERIES[@]}" -eq 0 ] && SERIES=(20.0 19.0 18.0)
 
 CACHE=".cache"
 mkdir -p "$CACHE"

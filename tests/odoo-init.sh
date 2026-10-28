@@ -217,8 +217,7 @@ check "--flag=value: 19.0's interpreter" has '^\s*python = pkgs\.python312;$' eq
 check "--flag=value: the name" has '^\s*name = "eq";$' eq/flake.nix
 check "--flag=value: the modules" eval '[ "$(cat eq/modules.txt)" = partner_firstname ]'
 
-# 20.0 has no OCA modules in the bundled catalog yet: plain core, on its own
-# branch and the interpreter the preset names.
+# 20.0: plain core, on its own branch and the interpreter the preset names.
 init twenty --version 20.0 acme
 expect_rc 0
 check "20.0: the series" has '^\s*odooSeries = "20\.0";$' acme/flake.nix
@@ -226,6 +225,16 @@ check "20.0: its interpreter" has '^\s*python = pkgs\.python314;$' acme/flake.ni
 check "20.0: OCB is cloned from its branch" \
   hasF 'clone --branch 20.0 --require-branch --treeless https://github.com/OCA/OCB.git odoo' "$STUB_LOG/sources"
 check "20.0: modules.txt starts empty" eval '[ ! -s acme/modules.txt ]'
+
+# 20.0's catalog is small, but a module and a bundle resolve from it. The
+# sales bundle has no 20.0 member yet.
+init twenty-oca --version 20.0 --bundles sales --modules web_responsive acme
+expect_rc 0
+check "20.0: a catalog module's repository is cloned on 20.0" \
+  hasF 'clone --branch 20.0 --require-branch https://github.com/OCA/web.git modules/web' "$STUB_LOG/sources"
+check "20.0: a bundle with no 20.0 member adds nothing" \
+  hasF 'not available for 20.0, skipped: portal_sale_order_search' err
+check "20.0: modules.txt holds the module alone" eval '[ "$(cat acme/modules.txt)" = web_responsive ]'
 
 init apps --version 18.0 --apps partner_firstname acme
 expect_rc 0
