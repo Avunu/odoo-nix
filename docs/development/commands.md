@@ -3,10 +3,10 @@ title: The odoo command
 description: The odoo command that the dev shell, services.odoo-nix and the container share, its database, module and project subcommands, and how everything else passes through to odoo-bin.
 order: 1
 tags: [cli, database, backup]
-updated: 2026-10-23
+updated: 2026-10-28
 ---
 
-The dev shell, `services.odoo-nix` and the container image share one `odoo` command. `db`, `module`, `project`, `shell` and `test` are odoo-nix's own subcommands. `ui` opens the dev shell's [menu](menu.md), and so does a bare `odoo` typed at a terminal there. Anything else, `server` (the default with no subcommand anywhere else), `scaffold`, `populate`, `cloc`, `deploy`, `neutralize` and the rest, passes straight through to the real `odoo-bin`, so nothing from Odoo is lost.
+The dev shell, `services.odoo-nix` and the container image share one `odoo` command. `db`, `module`, `project`, `shell` and `test` are odoo-nix's own subcommands. `ui` opens the dev shell's [menu](menu.md), and so does a bare `odoo` typed at a terminal there. Anything else, `server` (the default with no subcommand anywhere else), `scaffold`, `populate`, `cloc`, `deploy`, `neutralize` and the rest, passes straight through to the real `odoo-bin`, so nothing from Odoo is lost. A source tree without `odoo-bin`, as an Enterprise tree can be, runs Odoo the way `python -m odoo` does, with the same interpreter.
 
 `-c/--config`, `-d/--database` and `--db-host`, `--db-port`, `--db-user`, `--db-password` are accepted before the subcommand, the way `odoo-bin` takes its own flags. The configuration defaults to `$ODOO_RC`, then `./odoo.conf`. A subcommand with no database falls back to `-d`, then `$ODOO_NIX_DB`, then `db_name` in `odoo.conf`.
 

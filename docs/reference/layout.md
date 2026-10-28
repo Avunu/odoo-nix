@@ -21,6 +21,7 @@ lib/
   odoo-ini.nix               # odoo.conf's INI dialect, for the dev shell and the NixOS module
   python.nix                 # the uv2nix Python environments
   odoo.nix                   # builtOdoo, the assembled tree
+  raw-odoo.nix               # runs a tree's odoo-bin, or `python -m odoo` without one
   cli.nix                    # wraps builtOdoo, or the live checkout, in the odoo command
   cli-package.nix            # the odoo_nix_cli package
   cli-scripts.nix            # the workspace configuration `odoo module` and `odoo project update|relock` read
@@ -70,6 +71,7 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | `fixture-requires-python-<18\|19\|20>`, `built-odoo-addons-path-<18\|19\|20>`, `built-odoo-version-<18\|19\|20>`, `lock-audit-<18\|19\|20>`, `lock-fresh-<18\|19\|20>`, `build-deps-<18\|19\|20>` | Per series, without running Odoo: the fixture's `requires-python`, `builtOdoo`'s passthru, the fixture lock against the pinned OCB, the managed build-dependency block. |
 | `lock-audit-*` | The stale-lock audit. |
 | `built-odoo-<18\|19\|20>`, `odoo-init-<18\|19\|20>`, `odoo-test-<18\|19\|20>` | The assembled package, `-i base` against an in-sandbox PostgreSQL with no guard rails in production, and the fixture addon's Odoo tests including the guard rails. |
+| `built-odoo-no-odoo-bin-<18\|19\|20>`, `raw-odoo` | The assembled package from an OCB tree without `odoo-bin`, and `lib/raw-odoo.nix` with stand-in trees. |
 | `cli-lifecycle-<18\|19\|20>`, `cli-migrate-<18\|19\|20>`, `cli-project-backup-<18\|19\|20>`, `cli-remote-restore-<18\|19\|20>` | The `odoo` command end to end: provision, backup, drop and restore; migrations from build to build, including rollback; project backups; restores from a directory store. |
 | `devguard-core`, `devguard`, `devguard-baked` | The guard rails, the shared core and odoo-nix's side, without Odoo or a network. |
 | `backups`, `backup-layout` | The backup fetch layer and odoo-nix's naming. |

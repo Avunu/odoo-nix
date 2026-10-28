@@ -15,8 +15,9 @@
 #     bin/ replaced. No 2GB copy; builtOdoo's own bin/odoo stays reachable at
 #     its own store path as the passthrough target.
 #
-#   - Dev shell (mirrorTree = null, rawOdooBin = a small script that resolves
-#     $REPO_ROOT/<coreSrc>/odoo-bin at runtime through devPythonEnv): the
+#   - Dev shell (mirrorTree = null, rawOdooBin = a small script that runs
+#     $REPO_ROOT/<coreSrc> at runtime through devPythonEnv and
+#     lib/raw-odoo.nix, with or without odoo-bin): the
 #     live, editable-installed workspace checkout, not a Nix-assembled
 #     snapshot -- the same thing the old lib/scripts.nix preamble resolved,
 #     and nothing in the dev shell reads this package's passthru (odoo.conf's

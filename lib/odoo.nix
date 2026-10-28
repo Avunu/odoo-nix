@@ -9,7 +9,7 @@
 #   $out/odoo               (OCB core, layout.coreSrc)
 #   $out/modules/<repo>     (OCA repos, layout.externalDir)
 #   $out/custom             (project addons, layout.customDir)
-#   $out/bin/odoo           (wrapper: env python + odoo-bin)
+#   $out/bin/odoo           (wrapper: env python + odoo-bin, lib/raw-odoo.nix)
 #
 # Usage:
 #   import ./lib/odoo.nix {
@@ -37,6 +37,12 @@ let
       layout
       coreSource
       ;
+  };
+
+  # Run the tree's odoo-bin, or Odoo as `python -m odoo` when it has none.
+  rawOdoo = import ./raw-odoo.nix {
+    inherit pkgs;
+    python = "${odooPythonEnv}/bin/python";
   };
 
   # Where the OCB tree is read from: the workspace submodule, or the store path.
@@ -82,10 +88,13 @@ let
         # Drop any vendored VCS metadata to keep the closure lean.
         find $out -name .git -prune -exec rm -rf {} + 2>/dev/null || true
 
-        # Wrapper: run odoo-bin from the assembled OCB source with the Nix env python.
+        # Wrapper: run Odoo from the assembled OCB source with the Nix env python.
         cat > $out/bin/odoo <<EOF
         #!${pkgs.runtimeShell}
-        exec ${odooPythonEnv}/bin/python $out/${layout.coreSrc}/odoo-bin "\$@"
+        tree=$out/${layout.coreSrc}
+        EOF
+        cat >> $out/bin/odoo <<'EOF'
+        ${rawOdoo}
         EOF
         chmod +x $out/bin/odoo
       '';
