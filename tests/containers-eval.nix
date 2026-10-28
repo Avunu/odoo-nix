@@ -2,9 +2,10 @@
 # (modules/containers.nix): the name the image is built under, with and
 # without containers.registry, and the parts of its config python-devops-nix's
 # docs/conventions.md (Containers) asks for: the OCI labels, a healthcheck, and the
-# User with and without containers.nonRoot. A consumer's flake is evaluated
-# through lib.mkFlake and only the image's imageName and passthru.imageConfig
-# are read, so nothing is built.
+# User with and without containers.nonRoot, and the directories the image
+# makes writable. A consumer's flake is evaluated through lib.mkFlake and only
+# the image's imageName, passthru.imageConfig and its customisation layer's
+# fakeRootCommands are read, so nothing is built.
 # Same `pairs` shape as eval.nix; flake.nix turns each into a named
 # check (lib.checks.mk's `eval`).
 {
@@ -46,6 +47,19 @@ let
   inherit (image { }) imageConfig;
   rootConfig = (image { nonRoot = false; }).imageConfig;
   hasHome = config: builtins.elem "HOME=/var/lib/odoo" config.Env;
+
+  # The customisation layer's fakeRootCommands, one command a line. The layer
+  # is reached through the image's layers JSON, which dockerTools builds
+  # from it.
+  setup =
+    containers:
+    let
+      inherit (pkgs) lib;
+      layer =
+        lib.findFirst (d: d ? fakeRootCommands) (throw "no customisation layer")
+          (image containers).stream.conf.layersJsonFile.exportReferencesGraph.graph;
+    in
+    builtins.filter (line: line != "") (map lib.trim (lib.splitString "\n" layer.fakeRootCommands));
 in
 {
   # <registry>/<name>/odoo since 2.0.0 (python-devops-nix's
@@ -84,6 +98,25 @@ in
       user = rootConfig.User;
       home = hasHome rootConfig;
     };
+  };
+  # What odoo writes: /etc/odoo (the entrypoint's odoo.conf), the filestore
+  # under /var/lib/odoo, and /tmp. Owned by uid/gid 1000 with nonRoot.
+  container-writable = {
+    expected = [
+      "mkdir -p /tmp /var/lib/odoo/data"
+      "chmod 1777 /tmp"
+      "mkdir -p /etc/odoo /var/lib/odoo"
+      "chown -Rh 1000:1000 /etc/odoo /var/lib/odoo"
+    ];
+    actual = setup { };
+  };
+  container-writable-root = {
+    expected = [
+      "mkdir -p /tmp /var/lib/odoo/data"
+      "chmod 1777 /tmp"
+      "mkdir -p /etc/odoo /var/lib/odoo"
+    ];
+    actual = setup { nonRoot = false; };
   };
   container-labels = {
     expected = [
