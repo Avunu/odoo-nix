@@ -79,9 +79,21 @@ PostGIS, for OCA's `base_geoengine`: `database.extensions = ps: [ ps.postgis ];`
 
 ## nginx
 
-`nginx.enable` puts an nginx virtual host in front of Odoo, with `proxy_mode` on, `/websocket` and `/longpolling` routed to the websocket port (`http.longpollingPort`) and a ten-day `expires` on `/web/static/`. It needs `nginx.domain`, unless it listens on a socket. The module configures no TLS: set `forceSSL` and `enableACME` on `services.nginx.virtualHosts.<DOMAIN>` yourself, or terminate TLS in front of it.
+`nginx.enable` puts an nginx virtual host in front of Odoo, with `proxy_mode` on, `/websocket` and `/longpolling` routed to the websocket process (`http.longpollingPort`) when there are workers, or to the threaded server itself when `workers = 0`, and a ten-day `expires` on `/web/static/`. It needs `nginx.domain`, unless it listens on a socket. The module configures no TLS: set `forceSSL` and `enableACME` on `services.nginx.virtualHosts.<DOMAIN>` yourself, or terminate TLS in front of it.
 
-- `nginx.socketPath` serves the virtual host on a unix socket instead of a TCP port, for a co-located reverse proxy or tunnel connector that terminates TLS. Odoo itself stays on loopback TCP, because its server cannot bind a unix socket. The public scheme is then https, and the client address is taken from `CF-Connecting-IP`. nginx makes its socket 0666, so the module creates the socket's directory 0770 for the service user and group, and that directory is the real gate. Give it a directory of its own, such as `/run/odoo/nginx.sock`.
+- `nginx.socketPath` serves the virtual host on a unix socket instead of a TCP port, for a co-located reverse proxy or tunnel connector that terminates TLS. The public scheme is then https, and the client address is taken from `CF-Connecting-IP`. nginx makes its socket 0666, so the module creates the socket's directory 0770 for the service user and group, and that directory is the real gate. Give it a directory of its own, such as `/run/odoo/nginx.sock`.
+- `http.socketPath` and `http.longpollingSocketPath` put Odoo itself on unix sockets, so nginx reaches it without TCP. The first is the HTTP server: the threaded server, which answers `/websocket` too, or the prefork workers. The second is the websocket process the prefork server starts, so it needs `workers > 0`. Odoo binds TCP only, so the `odoo_socket` graft in every odoo-nix environment binds the sockets in its place, on 18.0 through 20.0, when `odoo.service` names them. A unix-socket peer has no address, so Odoo takes the client's from `X-Forwarded-For`. The sockets are 0666 in a directory the module creates 0750 for the service user and group, which nginx traverses as a member of the group. Both can share one, such as `/run/odoo-http/`.
+
+  With all three, a tunnel connector reaches nginx's socket and nothing listens on TCP:
+
+  ```nix
+  services.odoo-nix = {
+    http.socketPath = "/run/odoo-http/http.sock";
+    http.longpollingSocketPath = "/run/odoo-http/websocket.sock";
+    nginx = { enable = true; socketPath = "/run/odoo/nginx.sock"; };
+  };
+  ```
+
 - `nginx.xSendfile` lets nginx send filestore attachments instead of an Odoo worker. Odoo still authorizes each download, then answers with an empty body and `X-Accel-Redirect`, and nginx serves the file from the filestore through an `internal` location; `/web/filestore/` from outside is a 404. nginx joins the service's group to read the filestore. It is off by default, because anything talking to Odoo's port directly gets empty bodies.
 - `nginx.clientMaxBodySize` is `64m`, above NixOS's 10m default.
 

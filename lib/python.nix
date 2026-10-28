@@ -258,22 +258,38 @@ let
   # odoo_journald goes the same way into every environment, the production
   # one included (zzz-odoo-journald.pth): Odoo's records reach the journal
   # with their syslog priority whenever stderr is the journal stream.
-  journaldGrafts = lib.optional (journald != null) journald;
+  #
+  # So does odoo_socket (zzz-odoo-socket.pth, lib/socket): Odoo's HTTP and
+  # websocket servers on unix sockets, when odoo.service names them
+  # (ODOO_NIX_HTTP_SOCKET, ODOO_NIX_GEVENT_SOCKET; services.odoo-nix's
+  # http.socketPath and http.longpollingSocketPath). Inert otherwise.
+  socketGraft = pythonLib.mkGraft {
+    inherit pkgs;
+    name = "odoo_socket";
+    # A store path of its own, so an unrelated odoo-nix edit does not rebuild
+    # every environment.
+    src = builtins.path {
+      path = ./socket/odoo_socket;
+      name = "odoo-socket-src";
+      filter = path: _type: baseNameOf path != "__pycache__";
+    };
+  };
+  productionGrafts = lib.optional (journald != null) journald ++ [ socketGraft ];
   withDevguard =
     env:
     pythonLib.withGrafts {
       inherit python env;
-      grafts = journaldGrafts ++ lib.optional (devguard != null) devguard;
+      grafts = productionGrafts ++ lib.optional (devguard != null) devguard;
     };
 
   # Production: real wheels for odoo + all modules — self-contained (no
-  # $REPO_ROOT), for builtOdoo / containers / NixOS. The journald graft, and
-  # never the devguard.
+  # $REPO_ROOT), for builtOdoo / containers / NixOS. The journald and socket
+  # grafts, and never the devguard.
   odooPythonEnv = lockAudit.assertCurrent (
     pythonLib.withGrafts {
       inherit python;
       env = pythonSet.mkVirtualEnv "${projectName}-odoo-env" (withLxmlHtmlClean workspace.deps.default);
-      grafts = journaldGrafts;
+      grafts = productionGrafts;
     }
   );
 
