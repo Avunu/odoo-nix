@@ -33,6 +33,15 @@ OWN_COMMANDS = {
 #: The dev shell's TUI (lib.tui.script, python-devops-nix): `odoo ui`, and a
 #: bare `odoo` in a terminal.
 TUI_ENV = "ODOO_NIX_TUI"
+#: What these, typed bare at a terminal in a shell with the menu, open
+#: instead: the menu for `odoo` (odoo-bin's server otherwise; `odoo server`
+#: still runs it), and the store alone as the picker for the module commands
+#: (their own prompts otherwise).
+_TUI_BARE = {
+    (): [],
+    ("module", "add"): ["--only", "store"],
+    ("module", "add-bundle"): ["--only", "store"],
+}
 _VALUE_OPTS = {
     "-c",
     "--config",
@@ -117,20 +126,25 @@ def tui(argv: list[str]) -> None:
     os.execv(path, [path, *argv])
 
 
+def tui_argv(argv: list[str], *, tty: bool, menu: bool) -> list[str] | None:
+    """The TUI's arguments when `argv` is the TUI's (`odoo ui …`, or one of
+    _TUI_BARE at a terminal in a shell with the menu), else None."""
+    if argv[:1] == ["ui"]:
+        return argv[1:]
+    if tty and menu:
+        return _TUI_BARE.get(tuple(argv))
+    return None
+
+
 def main() -> None:
     argv = sys.argv[1:]
-    if argv[:1] == ["ui"]:
-        tui(argv[1:])
-    # A bare `odoo` is odoo-bin's server, which the dev shell runs under
-    # `devenv up`: typed at a terminal there, it opens the menu instead
-    # (`odoo server` still runs it).
-    if (
-        not argv
-        and os.environ.get(TUI_ENV)
-        and sys.stdin.isatty()
-        and sys.stdout.isatty()
-    ):
-        tui([])
+    args = tui_argv(
+        argv,
+        tty=sys.stdin.isatty() and sys.stdout.isatty(),
+        menu=bool(os.environ.get(TUI_ENV)),
+    )
+    if args is not None:
+        tui(args)
     _setup_journald()
     if _first_command(argv) not in OWN_COMMANDS:
         raw = _raw_odoo_bin()

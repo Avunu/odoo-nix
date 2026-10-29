@@ -25,6 +25,7 @@ SPEC = json.loads(Path(sys.argv.pop(1)).read_text())
 from devtui import commands, plugin, spec
 from devtui.app import DevTui
 from devtui.store import StoreView
+from odoo_nix_cli.__main__ import tui_argv
 from textual.widgets import DataTable, Input
 
 MANIFEST = """{
@@ -149,6 +150,30 @@ class TuiTest(unittest.TestCase):
         self.assertTrue(server.raw and server.interactive)
 
 
+class DispatchTest(unittest.TestCase):
+    """What `odoo …` hands the TUI (odoo_nix_cli.__main__)."""
+
+    def test_ui(self):
+        self.assertEqual(tui_argv(["ui"], tty=False, menu=False), [])
+        self.assertEqual(
+            tui_argv(["ui", "--only", "store"], tty=False, menu=True),
+            ["--only", "store"],
+        )
+
+    def test_bare_at_a_terminal(self):
+        store = ["--only", "store"]
+        self.assertEqual(tui_argv([], tty=True, menu=True), [])
+        self.assertEqual(tui_argv(["module", "add"], tty=True, menu=True), store)
+        self.assertEqual(tui_argv(["module", "add-bundle"], tty=True, menu=True), store)
+
+    def test_not_the_tuis(self):
+        for argv in (["module", "add", "web_dark_mode"], ["module", "add", "--help"]):
+            self.assertIsNone(tui_argv(argv, tty=True, menu=True), argv)
+        for tty, menu in ((False, True), (True, False)):
+            for argv in ([], ["module", "add"], ["module", "add-bundle"]):
+                self.assertIsNone(tui_argv(argv, tty=tty, menu=menu), argv)
+
+
 class AppTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         # unittest runs the loop in debug mode, which logs every callback over
@@ -174,6 +199,25 @@ class AppTest(unittest.IsolatedAsyncioTestCase):
                 table.focus()
                 await pilot.press("space")
                 self.assertEqual(view.adds, ["web_dark_mode"])
+        finally:
+            shutil.rmtree(root)
+
+    async def test_store_alone(self):
+        # The picker a bare `odoo module add` opens (`--only store`).
+        root = Path(tempfile.mkdtemp())
+        try:
+            (root / "modules.txt").write_text("")
+            data = {k: v for k, v in SPEC.items() if k != "stack"}
+            app = DevTui(data, {"root": str(root)}, only="store")
+            async with app.run_test(size=(160, 50)) as pilot:
+                self.assertEqual(list(app.query("TabPane")), [])
+                table = app.query_one(StoreView).query_one("#store-table", DataTable)
+                for _ in range(100):
+                    await pilot.pause(0.05)
+                    if app.focused is table:
+                        break
+                self.assertIs(app.focused, table)
+                self.assertGreater(table.row_count, 100)
         finally:
             shutil.rmtree(root)
 

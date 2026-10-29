@@ -814,8 +814,9 @@
         )
         # `odoo ui` (python-devops-nix's lib.tui): the 19.0 fixture shell's
         # spec, the store's plugin over a workspace and the real OCA data, the
-        # command catalogs it builds, and the TUI headless; then the program
-        # itself, which refuses to start without a terminal.
+        # command catalogs it builds, the CLI's dispatch to it, and the TUI
+        # headless; then the program itself, which refuses to start without a
+        # terminal, with the tabs or the store alone.
         // lib.optionalAttrs isLinux {
           tui =
             let
@@ -846,6 +847,9 @@
               ${run.tui.python}/bin/python3 -I ${./tests/test_tui.py} ${run.tui.modules} ${run.spec}
               refute ${lib.getExe run} < /dev/null 2> err
               grep -qF 'the menu needs a terminal. Run `odoo --help`' err
+              # The store alone is there (no "has no store here"), and needs one too.
+              refute ${lib.getExe run} --only store < /dev/null 2> err
+              grep -qF 'the menu needs a terminal' err
             '';
         }
         // lib.optionalAttrs isLinux (
