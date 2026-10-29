@@ -3,7 +3,7 @@ title: The menu
 description: "odoo ui, the dev shell's interactive menu: the stack and its logs, every odoo command as a form, and a store for OCA modules, stacks and git repositories."
 order: 2
 tags: [cli, modules, tui]
-updated: 2026-10-27
+updated: 2026-10-28
 ---
 
 `odoo ui` opens the dev shell's menu. So does a bare `odoo` typed at a terminal in the dev shell; `odoo server` still runs the server in the foreground, and a bare `odoo` without a terminal (a script, a pipe) is still `odoo-bin`'s server.
@@ -20,6 +20,8 @@ The menu changes nothing itself. Everything it does is an `odoo …` command lin
 `ctrl+p` searches every action and command at once.
 
 ## The store
+
+A bare `odoo module add` or `odoo module add-bundle`, typed at a terminal in the dev shell, opens the store alone, without the tabs, as their picker. Everything below works the same there, and `q` leaves it.
 
 Type to search: every word must start a word of a module's name, title, repository or summary, so a repository's name lists its modules. The left column filters by stack or repository; `★` marks an application.
 

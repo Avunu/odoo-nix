@@ -50,8 +50,9 @@ def module_group():
 @module_group.command("add", context_settings=_RAW)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 def module_add(args):
-    """Pick OCA module(s) interactively, or add a git URL / owner/repo as a
-    submodule: `odoo module add [module …]` | `odoo module add <git-url-or-owner/repo> [branch] [path]`."""
+    """Add OCA module(s), or a git URL / owner/repo as a submodule:
+    `odoo module add [module …]` | `odoo module add <git-url-or-owner/repo> [branch] [path]`.
+    With no arguments at a terminal in the dev shell, opens the store to pick from."""
     from ..workspace.add import add
 
     _run(add, args)
@@ -60,7 +61,8 @@ def module_add(args):
 @module_group.command("add-bundle", context_settings=_RAW)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 def module_add_bundle(args):
-    """Add a curated OCA module bundle (data/oca-bundles.json)."""
+    """Add a curated OCA module bundle (data/oca-bundles.json). With no
+    arguments at a terminal in the dev shell, opens the store to pick from."""
     from ..workspace.add import add_bundle
 
     _run(add_bundle, args)

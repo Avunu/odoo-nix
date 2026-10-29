@@ -33,9 +33,9 @@ These need a git checkout and `modules.txt`, so they work only in the dev shell.
 
 | Command | What it does |
 | --- | --- |
-| `odoo module add [MODULE …]` | Pick OCA modules, add the repositories they need, record them in `modules.txt` and re-lock. |
+| `odoo module add [MODULE …]` | Add OCA modules and the repositories they need, record them in `modules.txt` and re-lock. With no modules, at a terminal in the dev shell, opens the [store](menu.md#the-store) to pick from. |
 | `odoo module add <GIT_URL \| OWNER/REPO> [BRANCH] [PATH]` | Add any git repository as a submodule and record its modules. |
-| `odoo module add-bundle [NAME …]` | Add a curated bundle of OCA modules. |
+| `odoo module add-bundle [NAME …]` | Add a curated bundle of OCA modules. With no names, at a terminal in the dev shell, opens the [store](menu.md#the-store). |
 | `odoo module remove [--force] [--keep-repos] <MODULE \| REPO> …` | Take modules out of `modules.txt`, and the repositories nothing needs any more out of the workspace. |
 | `odoo project update [--no-migrate]` | Pull every submodule to the tip of its pinned branch, regenerate the managed blocks of `pyproject.toml`, `uv lock`, then migrate every database matching `dbfilter` unless `--no-migrate`. |
 | `odoo project relock [UV_ARGS…]` | The project's one re-lock: regenerate the managed blocks of `pyproject.toml` from what is on disk, `uv lock` with the build-dependency block in step, pulling nothing. `UV_ARGS` go to `uv lock`. Outside the shell, `nix run .#relock [-- UV_ARGS…]` is the same. See [Re-locking a project](locks.md#re-locking-a-project). |
