@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.0](https://github.com/Avunu/odoo-nix/compare/v2.0.0...v2.1.0) (2026-10-29)
+
+
+### Features
+
+* **lock:** nix run .#relock re-locks a project outside its dev shell ([#115](https://github.com/Avunu/odoo-nix/issues/115)) ([f62db05](https://github.com/Avunu/odoo-nix/commit/f62db05f35e96584498ea868dde7da369283ba52))
+* **module:** a bare odoo module add opens the store as its picker ([#123](https://github.com/Avunu/odoo-nix/issues/123)) ([a0835ab](https://github.com/Avunu/odoo-nix/commit/a0835ab0fdf811dc0489d68654c6054627bb65b8))
+* **module:** add the OCA catalog for 20.0 ([#117](https://github.com/Avunu/odoo-nix/issues/117)) ([204b198](https://github.com/Avunu/odoo-nix/commit/204b198079881e1d95fe741ec7a3240573a7658b))
+
+
+### Bug Fixes
+
+* **cli:** name the program odoo in click's usage lines ([#113](https://github.com/Avunu/odoo-nix/issues/113)) ([65cfeca](https://github.com/Avunu/odoo-nix/commit/65cfecaf381acb45793e2508b96864e22891902d))
+* **cli:** run Odoo from a source tree without odoo-bin ([#116](https://github.com/Avunu/odoo-nix/issues/116)) ([ec21a41](https://github.com/Avunu/odoo-nix/commit/ec21a417652415e7479d35879a8c4f2c308d2442))
+
 ## [2.0.0](https://github.com/Avunu/odoo-nix/compare/v1.1.0...v2.0.0) (2026-10-28)
 
 
