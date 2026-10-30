@@ -49,6 +49,9 @@
   # inputs.python-devops-nix.lib.python: the shared package fixes
   # (overrides), the stale-lock audit (lockAudit) and withGrafts.
   pythonLib,
+  # lib/node.nix's builds, { <key> = built tree; }: a whool-packaged addon in
+  # one is built into its wheel from the built tree (nodeBuildsOverlay).
+  nodeBuilds ? { },
 }:
 
 let
@@ -185,7 +188,57 @@ let
       })
     ) (lib.filterAttrs (name: _: prev ? ${name}) pythonLibraries);
 
-  pythonSet =
+  # An addon whose JavaScript is built (lib/node.nix) reaches production
+  # twice: in builtOdoo's tree, and, when it is a whool package, as a wheel in
+  # site-packages, which Odoo finds first (odoo.addons.__path__ starts with
+  # the namespace package's own entries; addons_path is appended after). So
+  # the wheel is built from the built tree too, or it would serve no
+  # static/dist. whool copies the whole directory when the source is not a
+  # git checkout, as a store path is not, so the build's outputs are in it.
+  normalize = name: lib.toLower (lib.replaceStrings [ "_" "." ] [ "-" "-" ] name);
+  packagedIn =
+    key:
+    let
+      src = workspaceRoot + "/${key}";
+      isAddon = dir: builtins.pathExists (dir + "/__manifest__.py");
+      children = lib.attrNames (
+        lib.filterAttrs (n: t: t == "directory" && isAddon (src + "/${n}")) (builtins.readDir src)
+      );
+      here =
+        lib.optional (isAddon src) {
+          module = baseNameOf key;
+          dir = src;
+          sub = "";
+        }
+        ++ map (c: {
+          module = c;
+          dir = src + "/${c}";
+          sub = "/${c}";
+        }) children;
+    in
+    lib.filter (a: builtins.pathExists (a.dir + "/pyproject.toml")) here;
+  nodeBuildsOverlay =
+    _final: prev:
+    lib.listToAttrs (
+      lib.concatMap (
+        key:
+        lib.concatMap (
+          a:
+          let
+            attr = normalize "odoo-addon-${a.module}";
+          in
+          lib.optional (prev ? ${attr}) (
+            lib.nameValuePair attr (
+              prev.${attr}.overrideAttrs (_: {
+                src = "${nodeBuilds.${key}}${a.sub}";
+              })
+            )
+          )
+        ) (packagedIn key)
+      ) (lib.attrNames nodeBuilds)
+    );
+
+  pythonSetBase =
     (pkgs.callPackage pyproject-nix.build.packages {
       inherit python;
     }).overrideScope
@@ -204,6 +257,11 @@ let
           extraOverrides
         ]
       );
+
+  # Production and test: with the addons' JavaScript built into their wheels.
+  # Not the editable set the dev shell installs from, whose addons are the
+  # working tree's: entering the shell builds no JavaScript.
+  pythonSet = pythonSetBase.overrideScope nodeBuildsOverlay;
 
   # A dependency pyproject.toml declares and uv.lock predates (a module added
   # to modules.txt, whose install set lib/oca_sources.py writes into
@@ -232,7 +290,7 @@ let
 
   # Editable overlay (DEV): local path-source packages (every OCA module) install
   # editable, resolving against $REPO_ROOT at runtime so source edits are live.
-  editableSet = pythonSet.overrideScope (
+  editableSet = pythonSetBase.overrideScope (
     workspace.mkEditablePyprojectOverlay { root = "$REPO_ROOT"; }
   );
 

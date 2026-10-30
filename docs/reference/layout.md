@@ -3,7 +3,7 @@ title: Repository layout
 description: Where things live in the odoo-nix repository, the flake checks and what CI runs, how the pinned test fixtures, odoo-ls lock and OCA catalog are refreshed, and how these pages are checked.
 order: 5
 tags: [contributing, layout, checks, ci]
-updated: 2026-10-28
+updated: 2026-10-29
 ---
 
 ## Layout
@@ -20,7 +20,8 @@ lib/
   addons.nix                 # addons_path synthesis
   odoo-ini.nix               # odoo.conf's INI dialect, for the dev shell and the NixOS module
   python.nix                 # the uv2nix Python environments
-  odoo.nix                   # builtOdoo, the assembled tree
+  odoo.nix                   # builtOdoo, the assembled tree, with the addons' JavaScript builds laid over it
+  node.nix                   # the addons' JavaScript: python-devops-nix's lib.node, odoo-nix-node
   raw-odoo.nix               # runs a tree's odoo-bin, or `python -m odoo` without one
   cli.nix                    # wraps builtOdoo, or the live checkout, in the odoo command
   cli-package.nix            # the odoo_nix_cli package
@@ -29,14 +30,14 @@ lib/
   relock.nix                 # a project's `nix run .#relock`
   odoo_nix_cli/              # the odoo command (Python: click and rich)
     commands/                #   db, module, project, shell, test
-    workspace/               #   module add, add-bundle, remove; project update, relock (relock.py: also nix run .#relock; lock.py: the lock, shared with nix run .#relock-fixtures)
+    workspace/               #   module add, add-bundle, remove, build; project update, relock (relock.py: also nix run .#relock; lock.py: the lock, shared with nix run .#relock-fixtures)
     init/                    #   odoo-init, the scaffolder
     oca.py                   #   the OCA catalog and bundles
     migrate_plan.py          #   what odoo db migrate updates
     backups.py, backup_layout.py  # the remote backup store and its naming
   init.nix                   # packages the scaffolder
   oca_sources.py             # the managed blocks of pyproject.toml
-  odoo-presets.json          # series → Python and branch
+  odoo-presets.json          # series → Python, Node.js and branch
   devguard/odoo_devguard/    # the Odoo guards over python-devops-nix's core; dev environments only
   devguard.nix               # builds it with a project's settings baked in
   journald/odoo_journald/    # journald-native log lines for Odoo
@@ -70,6 +71,7 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | Checks | What they cover |
 | --- | --- |
 | `addons-*`, `odoo-ini-*`, `odoo-ini-render` | `lib/addons.nix` on synthetic trees and `lib/odoo-ini.nix`'s rendering. |
+| `node-*`, `node-built` | The addons' JavaScript (`lib/node.nix`) over `tests/fixtures/node-project`: which addons are targets, workspace members and builds, what is refused, and an offline npm, yarn and pnpm-workspace build laid into the assembled tree. |
 | `fixture-requires-python-<18\|19\|20>`, `built-odoo-addons-path-<18\|19\|20>`, `built-odoo-version-<18\|19\|20>`, `lock-audit-<18\|19\|20>`, `lock-fresh-<18\|19\|20>`, `build-deps-<18\|19\|20>` | Per series, without running Odoo: the fixture's `requires-python`, `builtOdoo`'s passthru, the fixture lock against the pinned OCB, the managed build-dependency block. |
 | `lock-audit-*` | The stale-lock audit. |
 | `built-odoo-<18\|19\|20>`, `odoo-init-<18\|19\|20>`, `odoo-test-<18\|19\|20>` | The assembled package, `-i base` against an in-sandbox PostgreSQL with no guard rails in production, and the fixture addon's Odoo tests including the guard rails. |

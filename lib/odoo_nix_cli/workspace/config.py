@@ -44,6 +44,9 @@ class WorkspaceConfig:
     # OCB's store path when it is a flake input (coreSource), else None:
     # <coreSrc> is then a symlink to it, shadowed for the lock.
     core_source: str | None
+    # odoo-nix-node (lib/node.nix, python-devops-nix's lib.node): the addons'
+    # JavaScript builds, which `odoo module build` runs. None without one.
+    node: str | None
 
 
 KEYS = {
@@ -57,9 +60,10 @@ KEYS = {
     "uv": "uv",
     "buildDeps": "build_deps",
     "coreSource": "core_source",
+    "node": "node",
 }
 #: Keys whose value may be null.
-NULLABLE = {"core_source"}
+NULLABLE = {"core_source", "node"}
 LAYOUT_KEYS = {
     "coreSrc": "core_src",
     "externalDir": "external_dir",
