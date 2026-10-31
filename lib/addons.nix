@@ -96,10 +96,44 @@ let
   componentsAbs = map toString extraAddonsAbs;
 
   addonsPathList = coreEntries ++ map rel componentsRel ++ componentsAbs;
+
+  # The directories that can be JavaScript targets (python-devops-nix
+  # docs/conventions.md, JavaScript), as [ { key; src; } ] with keys relative
+  # to the workspace: each module repository and the custom directory as
+  # roots (a workspace whose members are its addons), and every addon in
+  # them. Core OCB never: its own package.json is Odoo's tooling, not a
+  # build Odoo needs.
+  addonDirs =
+    dir:
+    lib.filter (
+      child: (readDir dir).${child} == "directory" && pathExists (dir + "/${child}/__manifest__.py")
+    ) (attrNames (readDir dir));
+  join = key: child: if key == "." then child else "${key}/${child}";
+  rootAndAddons =
+    key: dir:
+    [
+      {
+        inherit key;
+        src = dir;
+      }
+    ]
+    ++ map (child: {
+      key = join key child;
+      src = dir + "/${child}";
+    }) (addonDirs dir);
+  customKey = if layout.customDir == "." || layout.customDir == "" then "." else layout.customDir;
+  nodeCandidates =
+    lib.concatMap (
+      repo: rootAndAddons "${layout.externalDir}/${repo}" (externalRoot + "/${repo}")
+    ) externalRepos
+    ++ lib.optionals hasCustom (rootAndAddons customKey (workspaceRoot + "/${layout.customDir}"));
 in
 {
   # Discovered OCA repo dir names (e.g. [ "account-financial-tools" … ]).
   inherit externalRepos hasModule;
+
+  # The JavaScript target candidates: [ { key; src; } ] (lib/node.nix).
+  inherit nodeCandidates;
 
   # The ordered list of "./relative" addons_path entries.
   inherit addonsPathList;

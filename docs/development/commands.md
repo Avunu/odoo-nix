@@ -3,7 +3,7 @@ title: The odoo command
 description: The odoo command that the dev shell, services.odoo-nix and the container share, its database, module and project subcommands, and how everything else passes through to odoo-bin.
 order: 1
 tags: [cli, database, backup]
-updated: 2026-10-28
+updated: 2026-10-29
 ---
 
 The dev shell, `services.odoo-nix` and the container image share one `odoo` command. `db`, `module`, `project`, `shell` and `test` are odoo-nix's own subcommands. `ui` opens the dev shell's [menu](menu.md), and so does a bare `odoo` typed at a terminal there. Anything else, `server` (the default with no subcommand anywhere else), `scaffold`, `populate`, `cloc`, `deploy`, `neutralize` and the rest, passes straight through to the real `odoo-bin`, so nothing from Odoo is lost. A source tree without `odoo-bin`, as an Enterprise tree can be, runs Odoo the way `python -m odoo` does, with the same interpreter.
@@ -37,6 +37,7 @@ These need a git checkout and `modules.txt`, so they work only in the dev shell.
 | `odoo module add <GIT_URL \| OWNER/REPO> [BRANCH] [PATH]` | Add any git repository as a submodule and record its modules. |
 | `odoo module add-bundle [NAME …]` | Add a curated bundle of OCA modules. With no names, at a terminal in the dev shell, opens the [store](menu.md#the-store). |
 | `odoo module remove [--force] [--keep-repos] <MODULE \| REPO> …` | Take modules out of `modules.txt`, and the repositories nothing needs any more out of the workspace. |
+| `odoo module build [ADDON …]` | Run the build scripts of the addons that have a `package.json`, either all of them or the named ones, in the working tree. The Nix build runs the same scripts into `builtOdoo`. See [Addon frontends](frontend.md). |
 | `odoo project update [--no-migrate]` | Pull every submodule to the tip of its pinned branch, regenerate the managed blocks of `pyproject.toml`, `uv lock`, then migrate every database matching `dbfilter` unless `--no-migrate`. |
 | `odoo project relock [UV_ARGS…]` | The project's one re-lock: regenerate the managed blocks of `pyproject.toml` from what is on disk, `uv lock` with the build-dependency block in step, pulling nothing. `UV_ARGS` go to `uv lock`. Outside the shell, `nix run .#relock [-- UV_ARGS…]` is the same. See [Re-locking a project](locks.md#re-locking-a-project). |
 

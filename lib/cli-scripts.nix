@@ -4,7 +4,7 @@
 # (lib/odoo_nix_cli/workspace, Python): the series,
 # the OCA catalog, the layout, odoo-nix-sources, and what the re-lock runs
 # (lib/oca_sources.py, uv, odoo-nix-build-deps, and OCB's store path under
-# coreSource). Everything DB-shaped (provision/upgrade/migrate/backup/restore)
+# coreSource), and odoo-nix-node, which `odoo module build` runs. Everything DB-shaped (provision/upgrade/migrate/backup/restore)
 # is implemented directly against odoo.service.db / Registry.new in Python
 # (lib/odoo_nix_cli/).
 #
@@ -44,6 +44,9 @@
   buildDeps,
   # uv, for the re-lock.
   uv ? pkgs.uv,
+  # odoo-nix-node (lib/node.nix): what `odoo module build` runs. null in a
+  # stand-in configuration that has no addons' JavaScript to build.
+  nodeBin ? null,
 }:
 
 {
@@ -63,6 +66,7 @@
       uv = lib.getExe uv;
       buildDeps = lib.getExe buildDeps;
       coreSource = if coreSource == null then null else toString coreSource;
+      node = nodeBin;
     }
   );
 }

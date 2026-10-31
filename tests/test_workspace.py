@@ -19,6 +19,7 @@ import types
 import unittest
 import unittest.mock
 from pathlib import Path
+from typing import ClassVar
 
 sys.path.insert(0, os.path.abspath(sys.argv.pop(1)))
 DATA = Path(sys.argv.pop(1)).resolve()
@@ -38,6 +39,7 @@ GOOD = {
     "uv": "uv",
     "buildDeps": "odoo-nix-build-deps",
     "coreSource": None,
+    "node": None,
 }
 
 
@@ -605,6 +607,62 @@ class CoreSourceConfigTest(unittest.TestCase):
                 config.parse({**GOOD, "coreSource": bad})
         with self.assertRaises(config.ConfigError):
             config.parse({**GOOD, "python": None})
+
+
+class BuildTest(unittest.TestCase):
+    """`odoo module build`: names resolved against odoo-nix-node's targets."""
+
+    KEYS: ClassVar[list[str]] = [
+        "custom/acme_ui",
+        "modules/frontends",
+        "modules/frontends/acme_pos_ui",
+        "modules/x/acme_ui",
+    ]
+
+    def test_a_key_or_a_unique_last_segment(self):
+        from odoo_nix_cli.workspace.build import resolve
+
+        self.assertEqual(
+            resolve(self.KEYS, ["custom/acme_ui", "acme_pos_ui", "modules/frontends/"]),
+            ["custom/acme_ui", "modules/frontends/acme_pos_ui", "modules/frontends"],
+        )
+
+    def test_an_ambiguous_or_unknown_name_stops(self):
+        from odoo_nix_cli.workspace.add import Stop
+        from odoo_nix_cli.workspace.build import resolve
+
+        with self.assertRaises(Stop) as cm:
+            resolve(self.KEYS, ["acme_ui"])
+        self.assertIn("custom/acme_ui and modules/x/acme_ui", str(cm.exception))
+        with self.assertRaises(Stop) as cm:
+            resolve(self.KEYS, ["nope"])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_runs_the_node_command_with_the_keys(self):
+        from odoo_nix_cli.workspace.build import build
+
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d, "log")
+            node = Path(d, "node")
+            node.write_text(
+                "#!/bin/sh\n"
+                f'echo "$*" >> {log}\n'
+                'if [ "$1" = list ]; then echo \'{"custom/acme_ui": {}}\'; fi\n'
+            )
+            node.chmod(0o755)
+            cfg = config.parse({**GOOD, "node": str(node)})
+            self.assertEqual(build(cfg, ["acme_ui"]), 0)
+            self.assertEqual(
+                log.read_text().splitlines(), ["list --json", "build custom/acme_ui"]
+            )
+
+    def test_no_node_targets_is_nothing_to_do(self):
+        from odoo_nix_cli.workspace.add import Stop
+        from odoo_nix_cli.workspace.build import build
+
+        with self.assertRaises(Stop) as cm:
+            build(config.parse(GOOD), [])
+        self.assertEqual(cm.exception.code, 0)
 
 
 if __name__ == "__main__":

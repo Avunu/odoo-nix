@@ -3,7 +3,7 @@ title: Dev shell options
 description: Every perSystem.odoo-nix option that configures the development shell, the production packages and the container image, with types and defaults.
 order: 1
 tags: [reference, options, devenv]
-updated: 2026-10-23
+updated: 2026-10-29
 ---
 
 All of these are under `perSystem.odoo-nix`. Secrets are declared at the top level instead: see [Secrets options](secrets-options.md). Options renamed or removed are listed in [Upgrading odoo-nix](../development/upgrading.md).
@@ -18,7 +18,9 @@ All of these are under `perSystem.odoo-nix`. Secrets are declared at the top lev
 | `coreSource` | null or path | `null` | OCB from outside the workspace, typically a `flake = false` input, instead of the `odoo/` submodule. See [A repository of modules](../scaffolding/write-the-flake.md#a-repository-of-modules). |
 | `odooSeries` | string | `"18.0"` | The Odoo series: the OCB and OCA branch and the catalog filter. It does not pick a nixpkgs package. |
 | `python` | package | the series' preset: `python311` for 18.0, `python312` for 19.0, `python314` for 20.0 | The interpreter. Match the series' `requires-python`. |
-| `nodejs` | package | `pkgs.nodejs_22` | Node.js, for rtlcss and asset tooling. |
+| `nodejs` | package | the series' preset: `nodejs_22` for 18.0, `nodejs_24` for 19.0 and 20.0 | Node.js: for rtlcss, and for the addons' JavaScript builds and installs. |
+| `nodeExcludes` | list of strings | `[ ]` | Addons (or repository roots) with a `package.json` to leave alone, by path from the workspace root: not installed by the shell, not built by Nix. See [Addon frontends](../development/frontend.md). |
+| `nodeOverrides` | attrs of attrs | `{ }` | Attributes merged into an addon's node_modules derivation, by path: for a package that needs the install script the offline install skips. |
 | `pythonOverrides` | overlay | `_: _: { }` | A uv2nix package-set overlay, applied last. |
 | `pythonLibraries` | attrs of lists of packages | `{ }` | Native libraries for a Python package's build, by package name, e.g. `{ python-snappy = [ pkgs.snappy ]; }`. See [C extensions](../development/locks.md#c-extensions-that-need-a-library). |
 | `testBrowser` | null or package | `pkgs.chromium` | The browser Odoo's browser tours drive. `null` relies on one on `PATH`; without any, `odoo test` refuses to run. |
@@ -97,6 +99,7 @@ The derived ports are read by the rest of the module; pin one with `lib.mkForce`
 | `mailpit.port` | port | `ports.smtp` | The SMTP port. |
 | `mailpit.httpPort` | port | `ports.mailUi` | The web UI's port. |
 | `watch.python` | bool | `true` | Make Odoo's `--dev=reload` watcher work by providing `watchdog`. See [Live reload](../development/editors.md#live-reload). |
+| `watch.node` | bool | `true` | Run the `watch` script of every addon that has one, as the `node-watch` process. See [Addon frontends](../development/frontend.md#in-the-shell). |
 
 ## Guard rails: `devguard`
 

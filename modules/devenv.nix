@@ -174,8 +174,39 @@ in
 
         nodejs = mkOption {
           type = types.package;
-          default = pkgs.nodejs_22;
-          description = "Node.js package (for rtlcss / asset tooling).";
+          default = pkgs.${presets.${config.odoo-nix.odooSeries}.nodejs or "nodejs_22"};
+          defaultText = lib.literalMD ''
+            the series' Node.js from `lib/odoo-presets.json`
+            (`pkgs.nodejs_22` for 18.0, `pkgs.nodejs_24` for 19.0 and 20.0)
+          '';
+          description = ''
+            Node.js: for rtlcss, and for the addons' JavaScript builds and
+            installs (`nodeExcludes`, docs/development/frontend.md).
+          '';
+        };
+
+        nodeExcludes = mkOption {
+          type = types.listOf types.str;
+          default = [ ];
+          example = [ "modules/some-repo/some_addon" ];
+          description = ''
+            Addons (and repository roots) with a `package.json` to leave
+            alone, by path from the workspace root: not installed by the
+            shell, not built by Nix.
+          '';
+        };
+
+        nodeOverrides = mkOption {
+          type = types.attrsOf types.attrs;
+          default = { };
+          example = lib.literalExpression ''
+            { "custom/acme_ui".postInstall = "npm rebuild sharp"; }
+          '';
+          description = ''
+            Attributes merged into an addon's node_modules derivation, by its
+            path from the workspace root: for a package that cannot do without
+            the install script the offline install skips (`--ignore-scripts`).
+          '';
         };
 
         pythonOverrides = mkOption {
@@ -334,6 +365,17 @@ in
               Requires `settings.options.workers = 0` (the default) and a
               `devMode` with `reload` (or `all`): the shell warns
               otherwise. Was `dev.autoReload`.
+            '';
+          };
+
+          node = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Rebuild an addon's JavaScript on a change: under `devenv up`, a
+              `node-watch` process runs the `watch` script of every addon that
+              has one (`odoo-nix-node watch`, each line prefixed with the
+              addon). Nothing runs when none has one.
             '';
           };
         };
@@ -857,6 +899,20 @@ in
           inherit (inputs) pyproject-nix pyproject-build-systems uv2nix;
           inherit (cfg) pythonLibraries;
           extraOverrides = cfg.pythonOverrides;
+          nodeBuilds = nodeLib.builds;
+        };
+
+        # The addons' JavaScript (lib/node.nix, python-devops-nix's lib.node):
+        # each addon with a package.json, built by Nix when it has a build
+        # script, installed by the shell, watched under `devenv up`.
+        nodeLib = import ../lib/node.nix {
+          inherit pkgs lib;
+          base = inputs.python-devops-nix.lib;
+          inherit (cfg) workspaceRoot layout nodejs;
+          inherit (inputs) pnpm2nix;
+          excludes = cfg.nodeExcludes;
+          overrides = cfg.nodeOverrides;
+          inherit (cfg) python;
         };
 
         # Pure-Python, no propagated dependencies -- safe to drop on PYTHONPATH
@@ -926,6 +982,7 @@ in
           };
           python = cfg.python.interpreter;
           inherit (cfg) odooSeries layout coreSource;
+          nodeBin = lib.getExe nodeLib.command;
           ocaDataset = ../data/oca-modules.json;
           bundlesFile = ../data/oca-bundles.json;
         };
@@ -949,6 +1006,7 @@ in
             ;
           projectName = cfg.name;
           inherit (pythonEnvs) odooPythonEnv;
+          nodeBuilds = nodeLib.builds;
         };
 
         # The `odoo` CLI: db/module/project subcommands + odoo-bin passthrough
@@ -1556,8 +1614,11 @@ in
                   # before this was diagnosed.
                   (lib.hiPrio odooCliDev)
 
-                  # Odoo runtime / asset tooling
+                  # Odoo runtime / asset tooling, and the addons' JavaScript:
+                  # odoo-nix-node, and the package managers their lockfiles
+                  # name (npm is node's own).
                   cfg.nodejs
+                  nodeLib.command
                   rtlcss
                   wkhtmltopdf
 
@@ -1578,6 +1639,7 @@ in
                   jq
                   just
                 ]
+                ++ nodeLib.managers
                 ++ lib.optional (cfg.testBrowser != null) cfg.testBrowser
                 ++ lib.optional (cfg.ide.enable && cfg.ide.languageServer.enable) cfg.ide.languageServer.package
                 ++ secretsTools.packages
@@ -1685,6 +1747,12 @@ in
                     --dev=${cfg.devMode}
                 '';
 
+                # The addons' watch scripts (watch.node): `vite build --watch`
+                # into static/dist, which --dev=all serves without a restart.
+                node-watch = lib.mkIf (cfg.watch.node && nodeLib.hasWatch) {
+                  exec = ''cd "$DEVENV_ROOT" && exec ${lib.getExe nodeLib.command} watch'';
+                };
+
                 mailpit = lib.mkIf cfg.mailpit.enable {
                   exec = ''
                     exec ${pkgs.mailpit}/bin/mailpit \
@@ -1745,6 +1813,14 @@ in
                 # mode, where the job checks out what it needs.
                 ${ciMode.unlessCi ''
                   ${lib.getExe sources} enter --treeless ${lib.escapeShellArg cfg.layout.coreSrc} "$DEVENV_ROOT" || true
+                ''}
+                ${lib.optionalString nodeLib.hasTargets ''
+                  # The addons' node_modules, for editors, linters and watch
+                  # scripts: each addon's frozen install, by the manager its
+                  # lockfile names, when its manifests moved since the last
+                  # one (odoo-nix-node install; skipped in CI mode). Reported,
+                  # never fatal: the next entry tries again.
+                  (cd "$DEVENV_ROOT" && ${lib.getExe nodeLib.command} install) || true
                 ''}
 
                 # Symlink the Nix-synthesized odoo.conf into place (read-only store
