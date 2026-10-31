@@ -1,33 +1,64 @@
 name: Dependabot auto-merge
 
-# Dependabot pull requests, through python-devops-nix's reusable workflow (its
-# docs/conventions.md, CI) with its default policy: every update type auto-merges, and
-# github-actions bumps, which change what CI runs, are reviewed by a person. GitHub
+# Dependabot pull requests, through python-devops-nix's reusable workflows (its
+# docs/conventions.md, CI) with their default policy: every one auto-merges, whatever
+# its ecosystem or update type, github-actions bumps and the OCB pins included. GitHub
 # merges once the branch is mergeable and every *required* status check passes, so
 # auto-merge is only as safe as the checks marked required on `main` (check.yml's
-# jobs and pr-policy). Dependabot's github-actions entry moves the pin below.
+# `flake` and pr-policy); a pull request whose checks fail stays open. Dependabot's
+# github-actions entry moves the pins below.
 #
-# The OCB pins (the `ocb` group, dependabot/nix/ocb-*) are reviewed by a person too:
-# a bump can legitimately go red and need `nix run .#relock-fixtures` (.github/dependabot.yml),
-# and the one in #63 pinned odoo/odoo commits without OCB's pyproject.toml. With
-# nothing required on `main`, auto-merge merged it before its `flake` check failed.
-# The reusable workflow decides by ecosystem and update type, not by group, so that
-# exception is this job's `if`.
+# The OCB pins (the `ocb` group, dependabot/nix/ocb-*) were once reviewed by a person: a
+# bump can legitimately go red and need `nix run .#relock-fixtures` (.github/dependabot.yml),
+# and the one in #63 merged before its `flake` check failed, when nothing was required on
+# `main`. `flake` is required now, so a red OCB bump stays open until someone commits the
+# relock onto it, and a green one merges.
+#
+# update-branches brings each Dependabot pull request that falls behind `main` up to date,
+# after each push to `main` and daily: `@dependabot rebase` while it has only Dependabot's
+# commits, else the update-branch API.
+#
+# The org's GitHub App (the variable AVUNU_CI_APP_ID, or a Dependabot secret of that name,
+# and the secret AVUNU_CI_PRIVATE_KEY) enables auto-merge and updates the branches, so a
+# merge raises a push that starts check.yml and release.yml on `main`, and an updated branch
+# starts its checks. Without it, GITHUB_TOKEN, and check.yml and pr-policy.yml are
+# dispatched on an updated branch.
 #
 # Requires (one-time, in repo settings):
 #   • Settings → General → Pull Requests → "Allow auto-merge"
 #   • Settings → Branches → protect `main`, require the checks a merge must wait for
-on: pull_request
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
 
 permissions: {}
 
 jobs:
   auto-merge:
     # The PR's author, not github.actor (which a re-run by a person changes).
-    if: >-
-      github.event.pull_request.user.login == 'dependabot[bot]'
-      && !startsWith(github.head_ref, 'dependabot/nix/ocb-')
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
     permissions:
       contents: write # gh pr merge --auto
       pull-requests: write # gh pr merge --auto
-    uses: Avunu/python-devops-nix/.github/workflows/dependabot-auto-merge.yml@ef72bb9958c320def2f6a6658db587635e113c0a # main (no release yet)
+    uses: Avunu/python-devops-nix/.github/workflows/dependabot-auto-merge.yml@943029bfb2b56888c38514e4efce20d34eb9d2bc # python-devops-nix main, #52 (no release yet)
+    # A Dependabot run sees only Dependabot secrets: the App's ID may be one too.
+    secrets:
+      APP_ID: ${{ vars.AVUNU_CI_APP_ID || secrets.AVUNU_CI_APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.AVUNU_CI_PRIVATE_KEY }}
+
+  update-branches:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write # update-branch without the App
+      pull-requests: write # comment `@dependabot rebase`, update-branch
+      actions: write # without the App, dispatch the required checks on the new head
+    uses: Avunu/python-devops-nix/.github/workflows/dependabot-update-branches.yml@943029bfb2b56888c38514e4efce20d34eb9d2bc # python-devops-nix main, #52 (no release yet)
+    with:
+      dispatch: check.yml pr-policy.yml
+    secrets:
+      APP_ID: ${{ vars.AVUNU_CI_APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.AVUNU_CI_PRIVATE_KEY }}
