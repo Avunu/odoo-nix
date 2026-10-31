@@ -43,6 +43,14 @@
       inputs.uv2nix.follows = "uv2nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # An addon's pnpm-lock.yaml as one fetch per package, by the integrity
+    # hashes the lock carries (python-devops-nix's lib.node passes it to
+    # pnpm2nix's lockfile.nix). A source tree, not a flake: its own inputs
+    # would only add nodes to a consumer's lock.
+    pnpm2nix = {
+      url = "github:FliegendeWurst/pnpm2nix-nzbr";
+      flake = false;
+    };
 
     # ---------------------------------------------------------------------- #
     # THE OCB TREES THE TEST SUITE BUILDS.                                     #
@@ -304,6 +312,17 @@
           ) ocbInputs;
         in
         evalChecks "" evalTests.pairs
+        # The addons' JavaScript (lib/node.nix): discovery over a fixture
+        # workspace, and a real offline build of each into the assembled tree.
+        // (
+          let
+            nodeTests = import ./tests/node.nix {
+              inherit pkgs lib inputs;
+              scriptCheck = scriptCheck pkgs;
+            };
+          in
+          evalChecks "" nodeTests.pairs // { node-built = nodeTests.built; }
+        )
         // {
           # The rendered INI, not just the attrset: pkgs.formats.ini is part of
           # the contract (True/False literals, extra sections verbatim).

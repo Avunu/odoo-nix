@@ -3,18 +3,21 @@
     "label": "18.0 — current stable (python 3.11)",
     "branch": "18.0",
     "python": "python311",
+    "nodejs": "nodejs_22",
     "requiresPython": ">=3.11"
   },
   "19.0": {
     "label": "19.0 — stable (python 3.12)",
     "branch": "19.0",
     "python": "python312",
+    "nodejs": "nodejs_24",
     "requiresPython": ">=3.12"
   },
   "20.0": {
     "label": "20.0 — latest (python 3.14)",
     "branch": "20.0",
     "python": "python314",
+    "nodejs": "nodejs_24",
     "requiresPython": ">=3.12"
   }
 }

@@ -44,7 +44,8 @@ def _run(fn, args, *extra) -> None:
 
 @click.group("module")
 def module_group():
-    """Workspace addons: add OCA modules or third-party git repos, or remove them."""
+    """Workspace addons: add OCA modules or third-party git repos, remove them,
+    or build their JavaScript."""
 
 
 @module_group.command("add", context_settings=_RAW)
@@ -66,6 +67,17 @@ def module_add_bundle(args):
     from ..workspace.add import add_bundle
 
     _run(add_bundle, args)
+
+
+@module_group.command("build", context_settings=_RAW)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def module_build(args):
+    """Run the build script of each addon with a package.json (all of them, or
+    the ADDONS named), with the shell's node_modules: what the Nix build runs
+    into builtOdoo. `odoo module build [addon …]`."""
+    from ..workspace.build import build
+
+    _run(build, args)
 
 
 @module_group.command("remove", context_settings=_OWN_HELP)

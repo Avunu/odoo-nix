@@ -1,7 +1,9 @@
 # builtOdoo — the deployable Odoo artifact (analogue of frappe-nix's builtBench).
 #
-# Odoo compiles assets at runtime into the filestore/DB, so there is NO build
-# step: this is a pure source-tree assembly + the Nix Python env + a wrapper.
+# Odoo compiles assets at runtime into the filestore/DB, so its own assembly
+# is the source tree + the Nix Python env + a wrapper. The one build step is an
+# addon's own: one whose package.json has a build script (lib/node.nix) is
+# copied as its build left it, `nodeBuilds`, over the source.
 # It is consumed by the NixOS module and the container builder, which read the
 # absolute addons_path and interpreter from `passthru`.
 #
@@ -27,6 +29,9 @@
   odooPythonEnv,
   # OCB from outside the workspace (see modules/devenv.nix `coreSource`).
   coreSource ? null,
+  # { <key> = built tree; }: lib/node.nix's builds, keys relative to the
+  # workspace (`custom/acme_ui`, or a repository root for a workspace).
+  nodeBuilds ? { },
 }:
 
 let
@@ -65,6 +70,7 @@ let
           # root -> absolute comma-separated addons_path against an assembled tree.
           addonsPath = addons.addonsPathFor;
           odooVersion = odooSeries;
+          inherit nodeBuilds;
         };
         meta.description = "Assembled Odoo (OCB + OCA + custom) for ${projectName}";
       }
@@ -84,6 +90,14 @@ let
           repo: copyDir "${workspaceRoot}/${layout.externalDir}/${repo}" "$out/${layout.externalDir}/${repo}"
         ) addons.externalRepos}
         ${copyDir "${workspaceRoot}/${layout.customDir}" "$out/${layout.customDir}"}
+
+        # The addons' JavaScript builds, each over its source: a repository
+        # root before the addons in it.
+        ${lib.concatMapStrings (key: ''
+          mkdir -p "$out/${key}"
+          cp -rT ${nodeBuilds.${key}} "$out/${key}"
+          chmod -R u+w "$out/${key}"
+        '') (lib.sort (a: b: lib.stringLength a < lib.stringLength b) (lib.attrNames nodeBuilds))}
 
         # Drop any vendored VCS metadata to keep the closure lean.
         find $out -name .git -prune -exec rm -rf {} + 2>/dev/null || true
