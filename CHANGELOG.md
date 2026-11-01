@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.2.0](https://github.com/Avunu/odoo-nix/compare/v2.1.0...v2.2.0) (2026-10-31)
+
+
+### Features
+
+* **node:** addons with a package.json are built into builtOdoo ([#125](https://github.com/Avunu/odoo-nix/issues/125)) ([b15fd4e](https://github.com/Avunu/odoo-nix/commit/b15fd4ecd8adebc0bccd63e0cbed3dd6e8b6058a))
+
+
+### Bug Fixes
+
+* **deps:** bump https://github.com/astral-sh/ruff-pre-commit ([#129](https://github.com/Avunu/odoo-nix/issues/129)) ([39b42b5](https://github.com/Avunu/odoo-nix/commit/39b42b55c43b9267fda0c6e293fde4c2637c052c))
+* **deps:** bump the github-actions group across 1 directory with 2 updates ([#124](https://github.com/Avunu/odoo-nix/issues/124)) ([ecb7bac](https://github.com/Avunu/odoo-nix/commit/ecb7bac092ebc84624439bf6f6c33d7a718778bc))
+
 ## [2.1.0](https://github.com/Avunu/odoo-nix/compare/v2.0.0...v2.1.0) (2026-10-29)
 
 
