@@ -190,7 +190,10 @@ def update(pyproject, modules_txt, modules_dir, custom_dir, core_src, roots_loca
     indent = re.search(r"^([ \t]*)" + re.escape(DEP_BEGIN), text, re.MULTILINE)
     pad = indent.group(1) if indent else "    "
 
-    dep_body = pad + '"odoo",\n'
+    # `packaging`: Odoo parses a versioned external_dependencies entry
+    # (`paramiko<4`) with it and refuses the module without it, yet OCB does
+    # not declare it, so a lock only had it when something else pulled it in.
+    dep_body = pad + '"odoo",\n' + pad + '"packaging",\n'
     for m in local_roots:
         dep_body += f'{pad}"{_dist(m)}",\n'
     for req in extra_reqs:

@@ -9,8 +9,8 @@ name = "@PROJECT_NAME@"
 version = "0"
 requires-python = "@REQUIRES_PYTHON@"
 
-# Install roots (lib/oca_sources.py --roots=local): OCB `odoo`, and
-# each installable addon of this repository: as odoo-addon-<name> when it
+# Install roots (lib/oca_sources.py --roots=local): OCB `odoo`, `packaging`,
+# and each installable addon of this repository: as odoo-addon-<name> when it
 # is packaged, otherwise its external_dependencies.python and the packaged
 # modules its depends reach.
 dependencies = [

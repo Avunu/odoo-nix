@@ -614,6 +614,7 @@ class OcaSourcesTest(unittest.TestCase):
         text = Path("pyproject.toml").read_text()
         self.assertIn('"odoo-addon-queue_job",', text)
         self.assertIn('"xberg",', text)
+        self.assertIn('"packaging",', text)
         self.assertNotIn("nope", text)
         # Not in the store here, so editable; _in_store decides.
         self.assertIn(
