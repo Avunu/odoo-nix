@@ -160,7 +160,9 @@ def _custom_roots(custom_dir, local):
     return sorted(roots)
 
 
-def update(pyproject, modules_txt, modules_dir, custom_dir, core_src, roots_local=False):
+def update(
+    pyproject, modules_txt, modules_dir, custom_dir, core_src, roots_local=False
+):
     local = _local_modules(modules_dir, custom_dir)
     # Only packaged modules can be uv path sources; unpackaged ones are folded
     # into the install set by _expand_roots.

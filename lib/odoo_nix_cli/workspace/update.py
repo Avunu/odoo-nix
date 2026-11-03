@@ -94,7 +94,7 @@ def path_sources(cfg: WorkspaceConfig) -> int:
     status. Runs in the lock directory."""
     _say("==> Regenerating uv path-sources…")
     lay = cfg.layout
-    rel = lambda p: _from_lock_dir(cfg, p)  # noqa: E731
+    rel = lambda p: _from_lock_dir(cfg, p)
     return attempt(
         [
             cfg.python,

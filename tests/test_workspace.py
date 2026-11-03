@@ -529,7 +529,10 @@ class AddonsModeTest(Workspace):
                 "ocaSources": self.cfg.oca_sources,
                 "uv": self.cfg.uv,
                 "buildDeps": self.cfg.build_deps,
-                "externalSources": {"edi": str(store / "edi"), "queue": str(store / "queue")},
+                "externalSources": {
+                    "edi": str(store / "edi"),
+                    "queue": str(store / "queue"),
+                },
                 "pyprojectTemplate": str(template),
             }
         )
@@ -591,7 +594,9 @@ class OcaSourcesTest(unittest.TestCase):
         Path(path, "__manifest__.py").write_text(repr(manifest))
 
     def test_roots_local(self):
-        self.addon("ours_b", depends=["queue_job"], external_dependencies={"python": ["xberg"]})
+        self.addon(
+            "ours_b", depends=["queue_job"], external_dependencies={"python": ["xberg"]}
+        )
         self.addon("ours_a", depends=["base"])
         self.addon("ours_old", installable=False, depends=["nope"])
         self.addon(".odoo-nix/modules/queue/queue_job", depends=["base"])
@@ -606,9 +611,19 @@ class OcaSourcesTest(unittest.TestCase):
         )
         os.chdir("nix")
         out = subprocess.run(
-            [sys.executable, str(OCA_SOURCES), "update", "--roots=local", "pyproject.toml",
-             "../modules.txt", "../.odoo-nix/modules", "..", "../.odoo-nix/odoo"],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                str(OCA_SOURCES),
+                "update",
+                "--roots=local",
+                "pyproject.toml",
+                "../modules.txt",
+                "../.odoo-nix/modules",
+                "..",
+                "../.odoo-nix/odoo",
+            ],
+            capture_output=True,
+            text=True,
         )
         self.assertEqual(out.returncode, 0, out.stderr)
         text = Path("pyproject.toml").read_text()

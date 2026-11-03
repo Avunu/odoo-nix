@@ -49,7 +49,13 @@ def run(cfg: config.WorkspaceConfig, uv_args: Sequence[str] = ()) -> int:
         print(AFTER_FAILED, file=sys.stderr, flush=True)
     elif not r.status:
         lock_dir = cfg.lock_dir.rstrip("/")
-        done = DONE if lock_dir == "." else DONE.replace(" and ", f" and {lock_dir}/").replace("Commit ", f"Commit {lock_dir}/")
+        done = (
+            DONE
+            if lock_dir == "."
+            else DONE.replace(" and ", f" and {lock_dir}/").replace(
+                "Commit ", f"Commit {lock_dir}/"
+            )
+        )
         print(done, flush=True)
     return r.status
 
