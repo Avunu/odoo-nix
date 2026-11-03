@@ -201,6 +201,16 @@
       journaldGraft = pkgs: import ./lib/journald.nix { inherit pkgs base; };
       shellTools = pkgs: import ./lib/shell-tools.nix { inherit pkgs base; };
 
+      # odoo-nix-tools (py/odoo_nix_tools, its DESIGN.md), the standards tools,
+      # built against `python` with standards-core from the python-devops-nix
+      # input at its locked rev.
+      odooNixTools =
+        pkgs: python:
+        python.pkgs.callPackage ./lib/standards/package.nix {
+          inherit pkgs base;
+          coreRev = inputs.python-devops-nix.rev or null;
+        };
+
       relockFixtures =
         pkgs:
         import ./tests/relock-fixtures.nix {
@@ -263,6 +273,7 @@
       #                                                       python-devops-nix's conformance checks (all systems)
       #   option-paths, config-blocks                         the same over the modules' options (Linux only)
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
+      #   standards-unit, standards-version                   odoo-nix-tools' suites on python3 and python311; one version (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   odoo-db-compat                                      the CLI's one API over Odoo's two database-management APIs (all systems)
       #   raw-odoo                                            lib/raw-odoo.nix, with stand-in trees (all systems)
@@ -488,6 +499,37 @@
                 export HOME="$TMPDIR" GIT_CONFIG_GLOBAL=/dev/null
                 ${pkgs.python3.interpreter} -I ${./tests/test_pr_policy.py} ${./lib/pr_policy.py} ${./committed.toml}
               '';
+
+          # odoo-nix-tools' unittest suites: the package's check phase on
+          # python3, and again on python311, the core's floor.
+          standards-unit = scriptCheck pkgs "standards-unit" { } ''
+            echo "python3:   ${odooNixTools pkgs pkgs.python3}"
+            echo "python311: ${odooNixTools pkgs pkgs.python311}"
+          '';
+
+          # odoo-nix and odoo-nix-tools share one version: version.txt,
+          # py/odoo_nix_tools/pyproject.toml and __version__, which
+          # release-please moves together (release-please-config.json).
+          standards-version =
+            let
+              tools = ./py/odoo_nix_tools;
+              assigned = lib.findFirst (m: m != null) null (
+                map (builtins.match ''__version__ = "([^"]*)".*'') (
+                  lib.splitString "\n" (builtins.readFile (tools + "/odoo_nix_tools/__init__.py"))
+                )
+              );
+              version = lib.trim (builtins.readFile ./version.txt);
+            in
+            (checksFor pkgs).eval "standards-version" {
+              expected = {
+                pyproject = version;
+                "__version__" = version;
+              };
+              actual = {
+                pyproject = (lib.importTOML (tools + "/pyproject.toml")).project.version;
+                "__version__" = if assigned == null then null else lib.head assigned;
+              };
+            };
 
           # The workflows: actionlint (with shellcheck over each `run:`) and
           # zizmor offline, with .github/zizmor.yml (every `uses:` SHA-pinned).
@@ -927,6 +969,7 @@
             envVars.exceptions = [
               "ODOO_RC" # Odoo's own: the config file
               "ODOO_HTTP_SOCKET_FD" # Odoo's own: a 19.0 reload hands its socket on by it
+              "ODOO_NIX" # not a variable: odoo-nix-tools' env_prefix, which the core extends to ODOO_NIX_<X>
             ];
           }
           // lib.optionalAttrs isLinux (
@@ -1005,6 +1048,8 @@
           src = inputs.odoo-ls-src;
           typeshedSrc = inputs.odoo-ls-typeshed;
         };
+        # odoo-nix's standards tools as a Python package (no command yet).
+        odoo-nix-tools = odooNixTools pkgs pkgs.python3;
         default = odoo-init;
       });
 

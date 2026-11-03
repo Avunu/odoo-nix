@@ -6,7 +6,18 @@
   "packages": {
     ".": {
       "package-name": "odoo-nix",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "py/odoo_nix_tools/odoo_nix_tools/__init__.py"
+        },
+        {
+          "type": "toml",
+          "path": "py/odoo_nix_tools/pyproject.toml",
+          "jsonpath": "$.project.version"
+        }
+      ]
     }
   }
 }

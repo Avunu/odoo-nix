@@ -1,0 +1,31 @@
+# odoo-nix-tools: one self-contained distribution, import name odoo_nix_tools, console script
+# `odoo-nix`. It serves the Nix dev shell and odoo-init (lib/standards/package.nix) and the
+# no-Nix CI jobs, which install it with
+#   uv tool install "odoo-nix-tools @ git+https://github.com/Avunu/odoo-nix@<rev>#subdirectory=py/odoo_nix_tools"
+# Every file read at run time lives under odoo_nix_tools/data/.
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "odoo-nix-tools"
+# release-please moves this, version.txt and odoo_nix_tools/__init__.py together.
+version = "2.2.0"
+description = "odoo-nix's standards tools: managed files, profiles, gates and release steps for Odoo repositories"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    # The engine. Its sha equals flake.lock's python-devops-nix rev and every
+    # Avunu/python-devops-nix/...@sha in .github/** (checks.standards-core-pins).
+    "standards-core @ git+https://github.com/Avunu/python-devops-nix@97f7b5e7ba08c989ec6e4f6f0b027478013c0434#subdirectory=standards",
+]
+
+# [project.scripts] `odoo-nix = "odoo_nix_tools.cli:main"` arrives with cli.py (DESIGN.md §9, O3).
+
+[project.urls]
+Documentation = "https://github.com/Avunu/odoo-nix/tree/main/docs/standards"
+Source = "https://github.com/Avunu/odoo-nix/tree/main/py/odoo_nix_tools"
+
+[tool.flit.module]
+name = "odoo_nix_tools"
