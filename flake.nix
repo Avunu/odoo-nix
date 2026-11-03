@@ -275,6 +275,7 @@
       #   settings-*                                          the dev shell's odoo.conf, by section (Linux only)
       #   removed-*, identity-*                               removed dev-shell options; the identity (Linux only)
       #   {ports,mailpit,watch}-*, ci-mode, tree              the dev shell's option tree and its ports (Linux only)
+      #   addons-mode-*                                       a repository of addons (addons mode, externalSources) (Linux only)
       #   fixture-requires-python-<major>, built-odoo-{addons-path,version}-<major>,
       #   lock-audit-<major>, lock-fresh-<major>, build-deps-<major>
       #                                                       per-series, no Odoo run (all systems)
@@ -661,7 +662,7 @@
                   python = pkgs.${py};
                   extraPackages = ps: [ ps.click ];
                 }
-              }/bin/python3 -I ${./tests/test_workspace.py} ${cliPackage pkgs} ${./data}
+              }/bin/python3 -I ${./tests/test_workspace.py} ${cliPackage pkgs} ${./data} ${./lib/oca_sources.py}
             '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
           );
 
@@ -819,6 +820,14 @@
           evalChecks "" (
             import ./tests/relock-eval.nix {
               inherit pkgs inputs;
+              inherit (self.lib) mkFlake;
+            }
+          )
+        )
+        // lib.optionalAttrs isLinux (
+          evalChecks "" (
+            import ./tests/addons-mode-eval.nix {
+              inherit pkgs lib inputs;
               inherit (self.lib) mkFlake;
             }
           )

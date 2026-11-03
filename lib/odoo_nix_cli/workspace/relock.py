@@ -48,7 +48,9 @@ def run(cfg: config.WorkspaceConfig, uv_args: Sequence[str] = ()) -> int:
     if r.after:
         print(AFTER_FAILED, file=sys.stderr, flush=True)
     elif not r.status:
-        print(DONE, flush=True)
+        lock_dir = cfg.lock_dir.rstrip("/")
+        done = DONE if lock_dir == "." else DONE.replace(" and ", f" and {lock_dir}/").replace("Commit ", f"Commit {lock_dir}/")
+        print(done, flush=True)
     return r.status
 
 
@@ -64,9 +66,11 @@ def main(argv: Sequence[str]) -> int:
         print(f"{NAME}: {e}", file=sys.stderr)
         return 1
     root = os.environ.get("REPO_ROOT") or os.getcwd()
-    if not os.path.isfile(os.path.join(root, "pyproject.toml")):
+    pyproject = os.path.join(root, cfg.lock_dir, "pyproject.toml")
+    seeded = cfg.pyproject_template and os.path.isfile(os.path.join(root, "flake.nix"))
+    if not (os.path.isfile(pyproject) or seeded):
         print(
-            f"{NAME}: no pyproject.toml in {root}; run it from the project root.",
+            f"{NAME}: no {os.path.relpath(pyproject, root)} in {root}; run it from the project root.",
             file=sys.stderr,
         )
         return 1

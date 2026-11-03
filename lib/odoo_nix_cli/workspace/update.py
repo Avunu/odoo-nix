@@ -4,6 +4,10 @@ lib/cli-scripts.nix's regenerateAndLock and projectUpdate (bash).
 relock rewrites pyproject.toml's managed blocks from what is on disk
 (lib/oca_sources.py: OCB and every local module as uv path sources, the
 install set from modules.txt), then re-locks (odoo_nix_cli.workspace.lock).
+In a repository of addons (addons mode) pyproject.toml and uv.lock are in the
+lock directory (nix/), the install set is every installable local addon, and
+the flake inputs the shell links in (externalSources) are linked first, so a
+relock works in a clone whose shell has never started.
 update first moves every submodule to the tip of the branch .gitmodules pins
 it to, then does the same. ``module add``, ``add-bundle`` and ``remove``
 re-lock through ``regenerate``, as update does.
@@ -11,9 +15,11 @@ re-lock through ``regenerate``, as update does.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import shutil
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from odoo_nix_cli.init import ui
@@ -28,20 +34,78 @@ def _say(text: str) -> None:
     print(text, flush=True)
 
 
+def _from_lock_dir(cfg: WorkspaceConfig, path: str) -> str:
+    """PATH, relative to the root, as seen from the lock directory."""
+    return os.path.relpath(path, cfg.lock_dir) if cfg.lock_dir != "." else path
+
+
+def link_external_sources(cfg: WorkspaceConfig) -> None:
+    """<externalDir>/<name> -> its store path for every externalSources entry,
+    and no other store link there: what shell entry does (modules/devenv.nix),
+    for a relock in a clone whose shell has never started. A real directory
+    in the way is left alone (shell entry names it)."""
+    ext = cfg.layout.external_dir
+    if not cfg.external_sources and not os.path.isdir(ext):
+        return
+    os.makedirs(ext, exist_ok=True)
+    for name in sorted(os.listdir(ext)):
+        path = os.path.join(ext, name)
+        if (
+            name not in cfg.external_sources
+            and os.path.islink(path)
+            and os.readlink(path).startswith("/nix/store/")
+        ):
+            os.unlink(path)
+    for name, store in cfg.external_sources.items():
+        path = os.path.join(ext, name)
+        if os.path.lexists(path) and not os.path.islink(path):
+            continue
+        if not os.path.islink(path) or os.readlink(path) != store:
+            tmp = f"{path}.odoo-nix-tmp"
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            os.symlink(store, tmp)
+            os.replace(tmp, path)
+
+
+@contextlib.contextmanager
+def _lock_dir(cfg: WorkspaceConfig) -> Iterator[None]:
+    """In the lock directory for the duration; it and its pyproject.toml are
+    made from the template when missing (addons mode's first lock)."""
+    if cfg.lock_dir == ".":
+        yield
+        return
+    os.makedirs(cfg.lock_dir, exist_ok=True)
+    target = os.path.join(cfg.lock_dir, "pyproject.toml")
+    if cfg.pyproject_template and not os.path.exists(target):
+        shutil.copyfile(cfg.pyproject_template, target)
+        os.chmod(target, 0o644)
+        _say(f"==> Wrote {target} (commit it, with uv.lock)")
+    cwd = os.getcwd()
+    os.chdir(cfg.lock_dir)
+    try:
+        yield
+    finally:
+        os.chdir(cwd)
+
+
 def path_sources(cfg: WorkspaceConfig) -> int:
-    """pyproject.toml's managed blocks from what is on disk; oca_sources.py's status."""
+    """pyproject.toml's managed blocks from what is on disk; oca_sources.py's
+    status. Runs in the lock directory."""
     _say("==> Regenerating uv path-sources…")
     lay = cfg.layout
+    rel = lambda p: _from_lock_dir(cfg, p)  # noqa: E731
     return attempt(
         [
             cfg.python,
             cfg.oca_sources,
             "update",
+            *(["--roots=local"] if cfg.addons_mode else []),
             "pyproject.toml",
-            "modules.txt",
-            lay.external_dir,
-            lay.custom_dir,
-            lay.core_src,
+            rel("modules.txt"),
+            rel(lay.external_dir),
+            rel(lay.custom_dir),
+            rel(lay.core_src),
         ]
     )
 
@@ -64,11 +128,13 @@ def relock(cfg: WorkspaceConfig, uv_args: Sequence[str] = ()) -> Relocked:
     """The path sources, then the lock, through a writable shadow of a
     store-resident OCB (coreSource). UV_ARGS go to the first ``uv lock``. A
     failed lock is said here."""
-    rc = path_sources(cfg)
-    if rc != 0:
-        return Relocked(rc)
-    _say("==> Re-locking Python environment (uv lock)…")
-    with core_shadow(cfg.layout.core_src, cfg.core_source):
+    link_external_sources(cfg)
+    core_link = cfg.layout.core_src
+    with core_shadow(core_link, cfg.core_source), _lock_dir(cfg):
+        rc = path_sources(cfg)
+        if rc != 0:
+            return Relocked(rc)
+        _say("==> Re-locking Python environment (uv lock)…")
         first, after = lock(cfg.uv, cfg.build_deps, uv_args)
     if first != 0:
         sys.stdout.flush()
@@ -159,7 +225,13 @@ def pull(cfg: WorkspaceConfig) -> None:
 
 def update(cfg: WorkspaceConfig) -> int:
     """``odoo project update``'s code half: pull, then regenerate. Its status;
-    a step that stops it has said why."""
+    a step that stops it has said why. A repository of addons has nothing to
+    pull (its sources are flake inputs), so it is refused there."""
+    if cfg.addons_mode:
+        from odoo_nix_cli.workspace.config import ADDONS_MODE_REFUSAL
+
+        print(ADDONS_MODE_REFUSAL.format(command="project update"), file=sys.stderr)
+        return 2
     try:
         pull(cfg)
     except ui.Exit as e:

@@ -148,6 +148,94 @@ in
           '';
         };
 
+        externalSources = mkOption {
+          type = types.listOf (
+            types.submodule {
+              options = {
+                name = mkOption {
+                  type = types.strMatching "[A-Za-z0-9][A-Za-z0-9._-]*";
+                  example = "edi";
+                  description = ''
+                    The directory the repository is linked as, under
+                    `layout.externalDir`: what `<externalDir>/<name>` is on
+                    addons_path and in uv.lock. Keep it when the source moves
+                    (a fork, a pin), so the lock's paths stay put.
+                  '';
+                };
+                src = mkOption {
+                  type = types.path;
+                  example = lib.literalExpression "inputs.oca-edi";
+                  description = "The repository's source tree, typically a `flake = false` input.";
+                };
+                exclude = mkOption {
+                  type = types.listOf types.str;
+                  default = [ ];
+                  example = [ "edi_oca" ];
+                  description = ''
+                    Modules of the repository to leave out, because another root
+                    provides the copy to use. A module installable in two roots
+                    is an evaluation error naming both.
+                  '';
+                };
+              };
+            }
+          );
+          default = [ ];
+          example = lib.literalExpression ''
+            [
+              { name = "edi"; src = inputs.oca-edi; }
+              { name = "queue"; src = inputs.oca-queue; }
+            ]
+          '';
+          description = ''
+            Module repositories taken as flake inputs rather than git
+            submodules: each is an addons root after the ones on disk under
+            `layout.externalDir`, and the dev shell links it there as
+            `<externalDir>/<name>` (a link into the store) so uv, editors and
+            odoo-ls find it where a submodule would be. Addons mode's
+            .gitignore covers the links; a project adds
+            `/<externalDir>/<name>` to its own. Its
+            packaged modules are built as wheels from the store path, never
+            installed editable. Pins live in `flake.lock`: move one with
+            `nix flake update <input>`, then `odoo project relock`.
+          '';
+        };
+
+        addons = {
+          enable = mkEnableOption ''
+            addons mode: the repository is a library of addons rather than a
+            deployment. The repository root is the addons directory
+            (`layout.customDir = "."`), OCB comes from `coreSource` and every
+            other repository from `externalSources`, linked under
+            `runtimeDir`, the uv project is generated into `lockDir`, and
+            the install set (the lock's roots, `odoo db provision`) is every
+            installable addon in the repository, with no modules.txt. The
+            commands that manage submodules and modules.txt (`odoo module
+            add|add-bundle|remove`, `odoo project update`) refuse to run.
+            See docs/scaffolding/addons-repository.md
+          '';
+          lockDir = mkOption {
+            # A plain subdirectory: no "." or ".." segment, which the lock's
+            # relative paths (and the way back up to the root) would miscount.
+            type = types.strMatching "[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*";
+            default = "nix";
+            description = ''
+              Where the generated pyproject.toml and uv.lock live, from the
+              root. Commit both; `odoo project relock` (or `nix run
+              .#relock`) writes them.
+            '';
+          };
+          runtimeDir = mkOption {
+            type = types.str;
+            default = ".odoo-nix";
+            description = ''
+              The gitignored directory the dev shell links OCB
+              (`<runtimeDir>/odoo`) and the external sources
+              (`<runtimeDir>/modules/<name>`) into.
+            '';
+          };
+        };
+
         odooSeries = mkOption {
           type = types.str;
           default = "18.0";
@@ -879,6 +967,40 @@ in
           };
         };
 
+        # Addons mode and the external sources (`addons`, `externalSources`).
+        addonsMode =
+          if cfg.addons.enable && cfg.coreSource == null then
+            throw "odoo-nix: addons.enable needs coreSource (OCB as a flake input): a repository of addons has no odoo/ submodule."
+          else
+            cfg.addons.enable;
+        # `exclude` applied: the repository without those top-level folders.
+        externalSources = map (e: {
+          inherit (e) name;
+          src =
+            if e.exclude == [ ] then
+              e.src
+            else
+              builtins.path {
+                path = e.src;
+                name = "${e.name}-source";
+                filter = path: _type: !(dirOf path == toString e.src && lib.elem (baseNameOf path) e.exclude);
+              };
+        }) cfg.externalSources;
+        # The lock directory's way back up to the root ("../" for "nix").
+        lockUp = lib.optionalString addonsMode (
+          lib.concatMapStrings (_: "../") (lib.splitString "/" cfg.addons.lockDir)
+        );
+        # The first relock's pyproject.toml (templates/addons/nix).
+        addonsPyproject = pkgs.writeText "pyproject.toml" (
+          lib.replaceStrings
+            [ "@PROJECT_NAME@" "@REQUIRES_PYTHON@" ]
+            [
+              cfg.name
+              (presets.${cfg.odooSeries}.requiresPython or ">=3.11")
+            ]
+            (builtins.readFile ../templates/addons/nix/pyproject.toml)
+        );
+
         pythonEnvs = import ../lib/python.nix {
           inherit pkgs lib;
           inherit (cfg)
@@ -886,6 +1008,11 @@ in
             workspaceRoot
             coreSource
             ;
+          lockRoot = if addonsMode then cfg.workspaceRoot + "/${cfg.addons.lockDir}" else cfg.workspaceRoot;
+          editableRoot = "$REPO_ROOT" + lib.optionalString addonsMode "/${cfg.addons.lockDir}";
+          storeRoots = lib.listToAttrs (
+            map (e: lib.nameValuePair "${lockUp}${cfg.layout.externalDir}/${e.name}" e.src) externalSources
+          );
           projectName = cfg.name;
           devguard = if dg.enable then devguardPkg else null;
           # In every environment, the production one included: inert unless
@@ -920,7 +1047,7 @@ in
         watchdogFallback = "${cfg.python.pkgs.watchdog}/${cfg.python.sitePackages}";
 
         addons = import ../lib/addons.nix {
-          inherit lib;
+          inherit lib externalSources;
           inherit (cfg) workspaceRoot layout coreSource;
         };
 
@@ -985,6 +1112,10 @@ in
           nodeBin = lib.getExe nodeLib.command;
           ocaDataset = ../data/oca-modules.json;
           bundlesFile = ../data/oca-bundles.json;
+          inherit externalSources;
+          lockDir = if addonsMode then cfg.addons.lockDir else ".";
+          installSet = if addonsMode then "local" else "modules.txt";
+          pyprojectTemplate = if addonsMode then addonsPyproject else null;
         };
 
         # `nix run .#relock`: `odoo project relock` outside the shell, for a
@@ -1004,6 +1135,7 @@ in
             odooSeries
             coreSource
             ;
+          inherit externalSources;
           projectName = cfg.name;
           inherit (pythonEnvs) odooPythonEnv;
           nodeBuilds = nodeLib.builds;
@@ -1085,44 +1217,60 @@ in
                 command = builtins.elemAt c 0;
                 description = builtins.elemAt c 1;
               })
-              [
+              (
                 [
-                  "devenv up"
-                  "start postgres + odoo + mailpit"
+                  [
+                    "devenv up"
+                    "start postgres + odoo + mailpit"
+                  ]
+                  [
+                    "odoo db provision"
+                    (if addonsMode then "create DB + install this repo's addons" else "create DB + install modules.txt")
+                  ]
+                  [
+                    "odoo db migrate"
+                    "update changed modules, with progress"
+                  ]
                 ]
-                [
-                  "odoo db provision"
-                  "create DB + install modules.txt"
+                ++ (
+                  if addonsMode then
+                    [
+                      [
+                        "odoo project relock"
+                        "re-lock ${cfg.addons.lockDir}/ after an input or depends change"
+                      ]
+                    ]
+                  else
+                    [
+                      [
+                        "odoo module add"
+                        "pick + wire in more OCA modules"
+                      ]
+                      [
+                        "odoo module add-bundle"
+                        "add a curated OCA module bundle"
+                      ]
+                      [
+                        "odoo project update"
+                        "pull submodules + refresh deps"
+                      ]
+                    ]
+                )
+                ++ [
+                  [
+                    "odoo test <mod> [db]"
+                    "run a module's tests"
+                  ]
+                  [
+                    "odoo shell"
+                    "Odoo REPL"
+                  ]
+                  [
+                    "odoo ui"
+                    "the menu: stack, commands, OCA store (or just: odoo)"
+                  ]
                 ]
-                [
-                  "odoo db migrate"
-                  "update changed modules, with progress"
-                ]
-                [
-                  "odoo module add"
-                  "pick + wire in more OCA modules"
-                ]
-                [
-                  "odoo module add-bundle"
-                  "add a curated OCA module bundle"
-                ]
-                [
-                  "odoo project update"
-                  "pull submodules + refresh deps"
-                ]
-                [
-                  "odoo test <mod> [db]"
-                  "run a module's tests"
-                ]
-                [
-                  "odoo shell"
-                  "Odoo REPL"
-                ]
-                [
-                  "odoo ui"
-                  "the menu: stack, commands, OCA store (or just: odoo)"
-                ]
-              ];
+              );
           urls = [
             {
               label = "Odoo server";
@@ -1249,6 +1397,32 @@ in
           }
         );
 
+        # The menu's refresh: pull the submodules, or, in a repository of
+        # addons, whose sources are flake inputs, re-lock.
+        refreshAction =
+          if addonsMode then
+            {
+              label = "Re-lock the addons";
+              argv = [
+                "odoo"
+                "project"
+                "relock"
+              ];
+              help = "odoo project relock: ${cfg.addons.lockDir}/ regenerated from the addons and the inputs";
+              after = "rebuild";
+            }
+          else
+            {
+              label = "Pull and refresh the project";
+              argv = [
+                "odoo"
+                "project"
+                "update"
+              ];
+              help = "odoo project update: submodules on their branch, deps re-locked, then migrate";
+              after = "rebuild";
+            };
+
         tuiRun = tuiBase.script {
           inherit pkgs;
           tui = tuiCommand;
@@ -1273,16 +1447,7 @@ in
                 ];
                 help = "odoo db migrate: upgrade what changed since the last run";
               }
-              {
-                label = "Pull and refresh the project";
-                argv = [
-                  "odoo"
-                  "project"
-                  "update"
-                ];
-                help = "odoo project update: submodules on their branch, deps re-locked, then migrate";
-                after = "rebuild";
-              }
+              refreshAction
             ];
             actions = [
               {
@@ -1310,15 +1475,7 @@ in
                 ];
                 interactive = true;
               }
-              {
-                label = "Pull and refresh the project";
-                argv = [
-                  "odoo"
-                  "project"
-                  "update"
-                ];
-                after = "rebuild";
-              }
+              (removeAttrs refreshAction [ "help" ])
             ];
             commands = [
               { file = "${cliCatalog}"; }
@@ -1501,6 +1658,16 @@ in
       lib.mkMerge [
         { odoo-nix.removals = settingsRemovals; }
 
+        # Addons mode's layout: the repository root holds the addons, and the
+        # dev shell links OCB and the external sources under runtimeDir.
+        (lib.mkIf config.odoo-nix.addons.enable {
+          odoo-nix.layout = lib.mapAttrs (_: lib.mkDefault) {
+            coreSrc = "${config.odoo-nix.addons.runtimeDir}/odoo";
+            externalDir = "${config.odoo-nix.addons.runtimeDir}/modules";
+            customDir = ".";
+          };
+        })
+
         # odoo.conf's [options] from the shell's own options. Under
         # config.odoo-nix.enable, not cfg.enable: settingsRemovals reads
         # these definitions, and cfg waits for it.
@@ -1672,6 +1839,13 @@ in
                 ODOO_NIX_DEVGUARD = if cfg.devguard.enable then "1" else "0";
 
                 UV_PROJECT_ENVIRONMENT = config.env.DEVENV_STATE + "/uv-env";
+              }
+              // lib.optionalAttrs addonsMode {
+                # `odoo db provision` with no modules.txt installs every
+                # installable addon in this directory (from the root).
+                ODOO_NIX_LOCAL_ADDONS = cfg.layout.customDir;
+              }
+              // {
                 LD_LIBRARY_PATH = libraryPath;
               }
               // threadCaps
@@ -1790,14 +1964,41 @@ in
                   # submodule layout would have it (`uv lock` goes through a
                   # writable shadow of it, see lib/odoo_nix_cli/workspace/lock.py). A real directory
                   # there is a leftover submodule checkout — never clobber it silently.
-                  if [ "$(readlink "${cfg.layout.coreSrc}" 2>/dev/null)" != "${toString cfg.coreSource}" ]; then
-                    if [ -e "${cfg.layout.coreSrc}" ] && [ ! -L "${cfg.layout.coreSrc}" ]; then
+                  _core="$DEVENV_ROOT/${cfg.layout.coreSrc}"
+                  if [ "$(readlink "$_core" 2>/dev/null)" != "${toString cfg.coreSource}" ]; then
+                    if [ -e "$_core" ] && [ ! -L "$_core" ]; then
                       echo "odoo-nix: ${cfg.layout.coreSrc}/ exists but coreSource is set; remove the" >&2
                       echo "          checkout (git submodule deinit / rm -rf) so it can become a symlink." >&2
                     else
-                      ln -sfn "${toString cfg.coreSource}" "${cfg.layout.coreSrc}"
+                      mkdir -p "$(dirname "$_core")"
+                      ln -sfn "${toString cfg.coreSource}" "$_core"
                     fi
                   fi
+                  unset _core
+                ''}
+                ${lib.optionalString (addonsMode || externalSources != [ ]) ''
+                  # The external sources (externalSources), linked where a
+                  # submodule would be, for uv, editors and odoo-ls; addons_path
+                  # names the store paths themselves. A store link no entry
+                  # names any more is removed; a real directory is never touched.
+                  _ext="$DEVENV_ROOT/${cfg.layout.externalDir}"
+                  mkdir -p "$_ext"
+                  for _l in "$_ext"/*; do
+                    [ -L "$_l" ] || continue
+                    case "$(readlink "$_l")" in /nix/store/*) ;; *) continue ;; esac
+                    case " ${lib.concatMapStringsSep " " (e: e.name) externalSources} " in
+                      *" ''${_l##*/} "*) ;;
+                      *) rm -f "$_l" ;;
+                    esac
+                  done
+                  ${lib.concatMapStrings (e: ''
+                    if [ -e "$_ext/${e.name}" ] && [ ! -L "$_ext/${e.name}" ]; then
+                      echo "odoo-nix: ${cfg.layout.externalDir}/${e.name} is a directory, not a link; externalSources.${e.name} is not linked there." >&2
+                    elif [ "$(readlink "$_ext/${e.name}")" != "${toString e.src}" ]; then
+                      ln -sfn "${toString e.src}" "$_ext/${e.name}"
+                    fi
+                  '') externalSources}
+                  unset _ext _l
                 ''}
                 # Check out the git submodules this clone has never had -- a
                 # fresh clone's, on its first entry -- scoped to just those

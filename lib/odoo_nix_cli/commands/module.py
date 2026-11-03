@@ -18,7 +18,9 @@ _RAW = {"ignore_unknown_options": True}
 _OWN_HELP = {**_RAW, "help_option_names": []}
 
 
-def _run(fn, args, *extra) -> None:
+def _run(fn, args, *extra, command: str | None = None) -> None:
+    """FN(config, args, *EXTRA) from the root. COMMAND names a checkout
+    command, which a repository of addons refuses (addons mode)."""
     from ..init import ui
     from ..workspace import config
     from ..workspace.add import Stop
@@ -27,6 +29,8 @@ def _run(fn, args, *extra) -> None:
         cfg = config.load()
     except config.ConfigError as e:
         raise click.ClickException(str(e)) from None
+    if command and cfg.addons_mode:
+        raise click.ClickException(config.ADDONS_MODE_REFUSAL.format(command=command))
     os.chdir(odooenv.repo_root())
     try:
         rc = fn(cfg, list(args), *extra)
@@ -56,7 +60,7 @@ def module_add(args):
     With no arguments at a terminal in the dev shell, opens the store to pick from."""
     from ..workspace.add import add
 
-    _run(add, args)
+    _run(add, args, command="module add")
 
 
 @module_group.command("add-bundle", context_settings=_RAW)
@@ -66,7 +70,7 @@ def module_add_bundle(args):
     arguments at a terminal in the dev shell, opens the store to pick from."""
     from ..workspace.add import add_bundle
 
-    _run(add_bundle, args)
+    _run(add_bundle, args, command="module add-bundle")
 
 
 @module_group.command("build", context_settings=_RAW)
@@ -89,4 +93,4 @@ def module_remove(ctx, args):
     <module | repo> …` (--help for more)."""
     from ..workspace.remove import remove
 
-    _run(remove, args, ctx.obj or {})
+    _run(remove, args, ctx.obj or {}, command="module remove")

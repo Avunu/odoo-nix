@@ -47,6 +47,22 @@ class WorkspaceConfig:
     # odoo-nix-node (lib/node.nix, python-devops-nix's lib.node): the addons'
     # JavaScript builds, which `odoo module build` runs. None without one.
     node: str | None
+    # Where pyproject.toml and uv.lock live, from the root: "." for a
+    # project, "nix" for a repository of addons (addons mode).
+    lock_dir: str
+    # What the lock's install roots are: "modules.txt", or "local" (every
+    # installable addon of the custom directory: addons mode).
+    install_set: str
+    # externalSources: {name: store path}, each linked as <externalDir>/<name>
+    # before a lock, as shell entry links them.
+    external_sources: dict[str, str]
+    # The rendered pyproject.toml a relock writes into lock_dir when there is
+    # none yet (addons mode's first lock), else None.
+    pyproject_template: str | None
+
+    @property
+    def addons_mode(self) -> bool:
+        return self.install_set == "local"
 
 
 KEYS = {
@@ -61,14 +77,31 @@ KEYS = {
     "buildDeps": "build_deps",
     "coreSource": "core_source",
     "node": "node",
+    "lockDir": "lock_dir",
+    "installSet": "install_set",
+    "externalSources": "external_sources",
+    "pyprojectTemplate": "pyproject_template",
 }
 #: Keys whose value may be null.
-NULLABLE = {"core_source", "node"}
+NULLABLE = {"core_source", "node", "pyproject_template"}
+INSTALL_SETS = ("modules.txt", "local")
 LAYOUT_KEYS = {
     "coreSrc": "core_src",
     "externalDir": "external_dir",
     "customDir": "custom_dir",
 }
+
+
+#: What a checkout command (`odoo module add|add-bundle|remove`, `odoo
+#: project update`) says in a repository of addons, whose sources are flake
+#: inputs rather than submodules.
+ADDONS_MODE_REFUSAL = """\
+`odoo {command}` manages a project's git submodules and modules.txt. This is a
+repository of addons (odoo-nix addons mode): its dependencies are flake inputs.
+  - to depend on another repository: add it to flake.nix's inputs and to
+    odoo-nix.externalSources, then `nix flake lock` and `odoo project relock`;
+  - to move every pin: `nix flake update`, then `odoo project relock`;
+  - the install set is every installable addon in the repository."""
 
 
 def _strings(data: Any, keys: dict[str, str], where: str) -> dict[str, Any]:
@@ -88,8 +121,16 @@ def parse(data: Any) -> WorkspaceConfig:
     values["layout"] = Layout(
         **_strings(values["layout"], LAYOUT_KEYS, "config.layout")
     )
+    sources = values["external_sources"]
+    if not isinstance(sources, dict) or not all(
+        isinstance(k, str) and k and isinstance(v, str) and v
+        for k, v in sources.items()
+    ):
+        raise ConfigError(
+            f"config.externalSources: expected an object of non-empty strings, got {sources!r}"
+        )
     for k, v in values.items():
-        if k == "layout" or (k in NULLABLE and v is None):
+        if k in ("layout", "external_sources") or (k in NULLABLE and v is None):
             continue
         if not (isinstance(v, str) and v):
             raise ConfigError(f"config.{k}: expected a non-empty string, got {v!r}")
@@ -98,6 +139,10 @@ def parse(data: Any) -> WorkspaceConfig:
             raise ConfigError(
                 f"config.layout.{k}: expected a non-empty string, got {v!r}"
             )
+    if values["install_set"] not in INSTALL_SETS:
+        raise ConfigError(
+            f"config.installSet: expected one of {', '.join(INSTALL_SETS)}, got {values['install_set']!r}"
+        )
     return WorkspaceConfig(**values)
 
 

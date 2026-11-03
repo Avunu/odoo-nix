@@ -4,7 +4,7 @@ database or a remote: the configuration schema, remove's command line, which
 modules and repositories a removal takes, and the in-use check against
 databases, with odoo.sql_db and odooenv stood in.
 
-Run: python3 -I tests/test_workspace.py <dir holding odoo_nix_cli> <data dir>
+Run: python3 -I tests/test_workspace.py <dir holding odoo_nix_cli> <data dir> <oca_sources.py>
      (checks.odoo-module-unit)
 """
 
@@ -23,6 +23,7 @@ from typing import ClassVar
 
 sys.path.insert(0, os.path.abspath(sys.argv.pop(1)))
 DATA = Path(sys.argv.pop(1)).resolve()
+OCA_SOURCES = Path(sys.argv.pop(1)).resolve()
 
 from odoo_nix_cli.workspace import config, lock, relock, remove, update
 from odoo_nix_cli.workspace.add import Stop
@@ -40,6 +41,10 @@ GOOD = {
     "buildDeps": "odoo-nix-build-deps",
     "coreSource": None,
     "node": None,
+    "lockDir": ".",
+    "installSet": "modules.txt",
+    "externalSources": {},
+    "pyprojectTemplate": None,
 }
 
 
@@ -65,6 +70,9 @@ class ConfigTest(unittest.TestCase):
                 {**GOOD, "layout": {**GOOD["layout"], "customDir": 1}},
                 "config.layout.custom_dir",
             ),
+            ({**GOOD, "installSet": "all"}, "config.installSet"),
+            ({**GOOD, "externalSources": ["edi"]}, "config.externalSources"),
+            ({**GOOD, "externalSources": {"edi": ""}}, "config.externalSources"),
         ):
             with self.assertRaises(config.ConfigError) as ctx:
                 config.parse(data)
@@ -487,6 +495,157 @@ class RelockAppTest(Workspace):
         rc, _, err = self.main()
         self.assertEqual(rc, 1)
         self.assertIn(f"{relock.NAME}: ${config.ENV} is not set", err)
+
+
+ADDONS = {
+    **GOOD,
+    "layout": {
+        "coreSrc": ".odoo-nix/odoo",
+        "externalDir": ".odoo-nix/modules",
+        "customDir": ".",
+    },
+    "lockDir": "nix",
+    "installSet": "local",
+}
+
+
+class AddonsModeTest(Workspace):
+    """A repository of addons: the relock runs in nix/, links the external
+    sources first and seeds nix/pyproject.toml; the checkout commands refuse."""
+
+    calls = RelockTest.calls
+    quiet = RelockTest.quiet
+
+    def setUp(self):
+        super().setUp()
+        store = Path(".store").resolve()
+        (store / "edi").mkdir(parents=True)
+        (store / "queue").mkdir()
+        template = Path(".tools", "pyproject.toml")
+        template.write_text("[project]\n")
+        self.cfg = config.parse(
+            {
+                **ADDONS,
+                "ocaSources": self.cfg.oca_sources,
+                "uv": self.cfg.uv,
+                "buildDeps": self.cfg.build_deps,
+                "externalSources": {"edi": str(store / "edi"), "queue": str(store / "queue")},
+                "pyprojectTemplate": str(template),
+            }
+        )
+        self.store = store
+
+    def test_relock_in_the_lock_dir(self):
+        # A link from an earlier input that is gone, and a real directory.
+        ext = Path(".odoo-nix", "modules")
+        ext.mkdir(parents=True)
+        os.symlink("/nix/store/0000-gone-source", ext / "old")
+        (ext / "mine").mkdir()
+        with self.quiet() as (out, _):
+            r = update.relock(self.cfg)
+        self.assertEqual(r.status, 0)
+        self.assertTrue(self.cfg.addons_mode)
+        self.assertEqual(
+            self.calls()[0],
+            "oca_sources update --roots=local pyproject.toml ../modules.txt"
+            " ../.odoo-nix/modules .. ../.odoo-nix/odoo",
+        )
+        self.assertEqual(Path("nix", "pyproject.toml").read_text(), "[project]\n")
+        self.assertIn("Wrote nix/pyproject.toml", out.getvalue())
+        self.assertEqual(os.readlink(ext / "edi"), str(self.store / "edi"))
+        self.assertEqual(os.readlink(ext / "queue"), str(self.store / "queue"))
+        self.assertFalse(os.path.lexists(ext / "old"))
+        self.assertTrue((ext / "mine").is_dir())
+        self.assertNotEqual(Path.cwd().name, "nix")
+        # A second relock keeps the pyproject.toml it has.
+        Path("nix", "pyproject.toml").write_text("[project]\nname = 'x'\n")
+        with self.quiet():
+            update.relock(self.cfg)
+        self.assertIn("name = 'x'", Path("nix", "pyproject.toml").read_text())
+
+    def test_done_names_the_lock_dir(self):
+        with self.quiet() as (out, _):
+            self.assertEqual(relock.run(self.cfg), 0)
+        self.assertIn("Commit nix/pyproject.toml and nix/uv.lock", out.getvalue())
+
+    def test_project_update_is_refused(self):
+        with self.quiet() as (_, err):
+            self.assertEqual(update.update(self.cfg), 2)
+        self.assertIn("`odoo project update` manages", err.getvalue())
+        self.assertEqual(self.calls(), [])
+
+
+class OcaSourcesTest(unittest.TestCase):
+    """lib/oca_sources.py over a repository of addons: every installable local
+    addon is a root, a store-backed source is not editable."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        cwd = os.getcwd()
+        os.chdir(tmp.name)
+        self.addCleanup(os.chdir, cwd)
+
+    def addon(self, path, **manifest):
+        Path(path).mkdir(parents=True)
+        Path(path, "__manifest__.py").write_text(repr(manifest))
+
+    def test_roots_local(self):
+        self.addon("ours_b", depends=["queue_job"], external_dependencies={"python": ["xberg"]})
+        self.addon("ours_a", depends=["base"])
+        self.addon("ours_old", installable=False, depends=["nope"])
+        self.addon(".odoo-nix/modules/queue/queue_job", depends=["base"])
+        Path(".odoo-nix/modules/queue/queue_job/pyproject.toml").touch()
+        Path("nix").mkdir()
+        Path("nix/pyproject.toml").write_text(
+            "dependencies = [\n"
+            "    # >>> odoo-nix: install set (managed from modules.txt) >>>\n"
+            "    # <<< odoo-nix: install set <<<\n]\n[tool.uv.sources]\n"
+            "# >>> odoo-nix: module sources (managed) >>>\n"
+            "# <<< odoo-nix: module sources <<<\n"
+        )
+        os.chdir("nix")
+        out = subprocess.run(
+            [sys.executable, str(OCA_SOURCES), "update", "--roots=local", "pyproject.toml",
+             "../modules.txt", "../.odoo-nix/modules", "..", "../.odoo-nix/odoo"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(out.returncode, 0, out.stderr)
+        text = Path("pyproject.toml").read_text()
+        self.assertIn('"odoo-addon-queue_job",', text)
+        self.assertIn('"xberg",', text)
+        self.assertNotIn("nope", text)
+        # Not in the store here, so editable; _in_store decides.
+        self.assertIn(
+            '"odoo-addon-queue_job" = { path = "../.odoo-nix/modules/queue/queue_job", editable = true }',
+            text,
+        )
+
+    def test_an_installable_copy_wins(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("oca_sources", OCA_SOURCES)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.addon("modules/a/dup", version="18.0.1.0.0")
+        self.addon("modules/z/dup", installable=False)
+        self.addon("modules/a/only_old", installable=False)
+        found = mod._local_modules("modules", "custom")
+        self.assertEqual(found["dup"], "modules/a/dup")
+        self.assertEqual(found["only_old"], "modules/a/only_old")
+        # custom/ still wins over modules/ when both would install.
+        self.addon("custom/dup")
+        self.assertEqual(mod._local_modules("modules", "custom")["dup"], "custom/dup")
+
+    def test_store_paths_are_not_editable(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("oca_sources", OCA_SOURCES)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        os.symlink("/nix/store/0000-x-source", "linked")
+        self.assertTrue(mod._in_store("linked/queue_job"))
+        self.assertFalse(mod._in_store("."))
 
 
 class CoreShadowTest(unittest.TestCase):
