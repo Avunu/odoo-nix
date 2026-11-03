@@ -1,7 +1,8 @@
 """odoo-nix's product: every value standards-core reads (core DESIGN.md §3).
 
-Stage O5 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields carry
-their final values; discovery (``discover``), the template context and the gates
+Stage O6 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields carry
+their final values; sync's phase hooks (``bootstrap``: the project's submodules, the
+handovers to the locked engine's ``odoo-init``); discovery (``discover``), the template context and the gates
 (``context``), the branching models (``release.BRANCHING``), the managed files'
 handlers (``groups``, ``checks``), preflight, notices and whole-repo checks
 (``checks``), the first-opt-in files and the fixtures (``fixtures``) are wired in; the
@@ -33,6 +34,7 @@ from standards_core.product import (
 
 from odoo_nix_tools import (
     __version__,
+    bootstrap,
     checks,
     context,
     discover,
@@ -166,8 +168,13 @@ PRODUCT = Product(
         # Identity.config_paths, in the commit that pins a core with it.
     ),
     sync=SyncHooks(
+        # A project's submodules before phase A locks the flake (DESIGN.md §2.5).
+        phase_a_before=bootstrap.phase_a_before,
         # odoo-init has both on its PATH (DESIGN.md §5.1).
         required_tools=("uv", "npm"),
+        # The locked engine's odoo-init, not the project flake's .#odoo-init.
+        reexec_argv=bootstrap.reexec_argv,
+        reentry_argv=bootstrap.reentry_argv,
         # A new odoo-nix can change the install set (DESIGN.md §0.2 C3).
         rollout_steps=(("nix", "run", "--no-pure-eval", ".#relock"),),
     ),

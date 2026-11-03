@@ -6,7 +6,9 @@ name: release
 on:
   push:
     branches: [{{ branches.integration | json_string }}]
-  workflow_run:
+  # Only ci's runs on the integration branch, and odoo-release.yml checks out that
+  # branch, never a pull request's code.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: [ci]
     types: [completed]
     branches: [{{ branches.integration | json_string }}]

@@ -1,5 +1,6 @@
-"""templates/project: rendered into a staging directory, then installed into
-the project without overwriting anything that is already there.
+"""templates/project (templates/addons with --addons): rendered into a staging
+directory, then installed into the project without overwriting anything that is
+already there.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from odoo_nix_cli.init import ui
 from odoo_nix_cli.init.state import Run
 
 #: The files the tokens are substituted in.
-RENDERED = ("flake.nix", "pyproject.toml", "README.md")
+RENDERED = ("flake.nix", "pyproject.toml", "README.md", "nix/pyproject.toml")
 TOKEN = re.compile(r"@[A-Z_]+@")
 
 
@@ -26,6 +27,7 @@ def tokens(st: Run) -> dict[str, str]:
         "@SERIES@": st.version,
         "@PYTHON@": st.p.python,
         "@REQUIRES_PYTHON@": st.p.requires_python,
+        "@MAJOR@": st.config.odoo_nix_major,
     }
 
 
@@ -35,10 +37,13 @@ def substitute(text: str, values: dict[str, str]) -> str:
     return TOKEN.sub(lambda m: values.get(m.group(0), m.group(0)), text)
 
 
-def render(st: Run) -> Path:
-    """The template, rendered for ST, in a fresh staging directory."""
+def render(st: Run, template: str | None = None) -> Path:
+    """The template (the project's, unless TEMPLATE), rendered for ST, in a fresh
+    staging directory."""
     staging = Path(tempfile.mkdtemp(prefix="odoo-init-"))
-    shutil.copytree(st.config.template, staging, dirs_exist_ok=True, symlinks=True)
+    shutil.copytree(
+        template or st.config.template, staging, dirs_exist_ok=True, symlinks=True
+    )
     # The copy keeps the store's read-only modes, the staging directory's own
     # included.
     staging.chmod(staging.stat().st_mode | stat.S_IWUSR)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Write tests/fixtures/standards-locks/<fixture>/<profile>/{tools/uv.lock,package-lock.json}.
+"""Write tests/fixtures/standards-locks/<fixture>/<profile>/{tools/uv.lock,package-lock.json}
+and the manifests they lock (tools/pyproject.toml, package.json).
 
 Each fixture is synced under each profile that puts a tool in the tools project or turns
 js-xml on (``recommended``, ``example-org``; ``minimal`` has none), and the two lock
@@ -13,7 +14,7 @@ change, then ``scripts/gen_fixture_data.py``:
     PYTHONPATH=.:tests uv run --no-project --with-editable <standards-core> \\
         python scripts/relock_fixtures.py
 
-Stage O6 wraps it as ``nix run .#relock-standards-fixtures``.
+``nix run .#relock-standards-fixtures`` runs it, then ``scripts/gen_fixture_data.py``.
 """
 
 from __future__ import annotations
@@ -64,14 +65,19 @@ def relock(name: str, profile: str, work: Path) -> None:
         raise SystemExit(f"{name} × {profile}: sync exited {code}\n{out}{err}")
     target = REPO / LOCKS / name / profile
     shutil.rmtree(target, ignore_errors=True)
+    # Each lock with the manifest it was made from: the tools project as uv2nix
+    # and importNpmLock read it (the standards-prek-* checks build the tools from
+    # these directories, lib/standards/tools.nix). The tests copy the locks only.
     if (root / "tools/pyproject.toml").is_file():
         subprocess.run(["uv", "lock", "--project", "tools"], cwd=root, check=True)
         (target / "tools").mkdir(parents=True)
-        shutil.copy(root / "tools/uv.lock", target / "tools/uv.lock")
+        for rel in ("tools/pyproject.toml", "tools/uv.lock"):
+            shutil.copy(root / rel, target / rel)
     if (root / "package.json").is_file():
         subprocess.run(NPM, cwd=root, check=True)
         target.mkdir(parents=True, exist_ok=True)
-        shutil.copy(root / "package-lock.json", target / "package-lock.json")
+        for rel in ("package.json", "package-lock.json"):
+            shutil.copy(root / rel, target / rel)
     print(
         f"{name} × {profile}: {sorted(p.name for p in target.rglob('*') if p.is_file())}"
     )

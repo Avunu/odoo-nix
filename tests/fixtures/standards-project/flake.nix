@@ -26,7 +26,7 @@
   #   services.odoo-nix.package = projectFlake.packages.x86_64-linux.default;
 
   outputs =
-    { self, odoo-nix, ... }@inputs:
+    { odoo-nix, ... }@inputs:
     odoo-nix.lib.mkFlake { inherit inputs; } (
       { ... }:
       {

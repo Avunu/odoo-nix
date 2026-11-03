@@ -3,7 +3,7 @@ title: Scaffolder
 description: The flags and exit codes of odoo-init, the program behind nix run github:Avunu/odoo-nix that creates, migrates and repairs projects.
 order: 4
 tags: [reference, odoo-init, scaffolding]
-updated: 2026-10-23
+updated: 2026-11-03
 ---
 
 ```bash
@@ -18,6 +18,7 @@ nix run github:Avunu/odoo-nix -- [FLAGS] [TARGET_DIR]
 | --- | --- |
 | `--init` | Force scaffold mode. Needs an empty directory unless you add `--force`. |
 | `--migrate` | Force migration mode; also repairs an odoo-nix project. |
+| `--addons` | Bring a repository of addons into addons mode: `flake.nix`, `.odoo-series`, `nix/pyproject.toml`, `.envrc` and `.gitignore` where they are missing, then the first `nix run .#relock` (see [A repository of addons](../scaffolding/addons-repository.md)). The series comes from `--version`, `.odoo-series`, a series branch checked out, or the addons' manifests. Only the files it writes are staged. |
 | `--force` | Relax the mode guard. It never overwrites an existing file. |
 | `--dry-run` | Print the plan, including the files it would write, and exit without changing anything. |
 | `-y`, `--yes` | Assume yes. Required to migrate without a terminal. |
@@ -29,6 +30,23 @@ nix run github:Avunu/odoo-nix -- [FLAGS] [TARGET_DIR]
 | `--skip-lock` | Do not run `uv lock`. |
 | `--commit[=<MESSAGE>]` | Commit the result instead of only staging it. The message is only taken as `--commit=<MESSAGE>`, so `--commit <DIR>` is the flag and a target. |
 | `-h`, `--help` | Show the help. |
+
+### The standards flags
+
+`--sync`, `--check`, `--standards` and `--profile-path` make the run a standards run: odoo-nix's managed files, which `odoo-nix sync` writes and checks (py/odoo_nix_tools/DESIGN.md §5.5). The flags below are passed on one to one, `--force`, `--dry-run` and `--skip-lock` included.
+
+| Flag | Meaning |
+| --- | --- |
+| `--sync` | Write the managed files of the checkout in the current directory (or TARGET_DIR). |
+| `--check` | Report drift and write nothing. Cannot be combined with `--sync`. |
+| `--standards <PROFILE>` | Opt in: create the `[tool.odoo-nix]` table with this profile (`minimal`, `recommended`, `recommended@<minor>`, `github:<owner>/<repo>[/<ref>]`, `./<dir>`). Implies `--sync`. |
+| `--profile-path <DIR>` | Read the org profile from this directory instead of its locked input (profile authors). Implies `--sync`. |
+| `--offline` | Run no `nix`, `uv` or `npm` command; the locks they would make are reported. |
+| `--only <PATHS>` | Limit the run to these managed paths. Repeatable. |
+| `--format <text\|json\|github>` | The `--check` report's format. |
+| `--expect-rev <REV>` | With `--check`: the odoo-nix revision the tools were installed from, which must be the one `flake.lock` pins. |
+
+With `--addons` or `--migrate`, the scaffold runs to completion first and the standards run follows in the same process, so `odoo-init --addons --standards recommended` takes an addon repository from nothing to opted in. odoo-init carries uv and Node.js on its PATH, so the run's lock steps never need a dev shell.
 
 `--version` was `--series` before odoo-nix and frappe-nix agreed on one set of scaffolder flags. Since 2.0.0 the old name is a usage error that names `--version`. In `lib/odoo-presets.json` the key holding each preset's git branch is `branch` (it was `series`, which is refused since 2.0.0); the schema is the one both products share, `label`, `branch`, `python` and `requiresPython`, with `nodejs` and `overrideDependencies` optional.
 
@@ -48,4 +66,6 @@ They follow frappe-nix's table where it applies.
 | `8` | The tree is inside another git repository. `--force` creates a nested one anyway. |
 | `130` | Interrupted. |
 
-A failing `git` step exits with git's own status. frappe-nix's `3` belongs to its `--sync` and `--check`, which odoo-nix does not have.
+A failing `git` step exits with git's own status.
+
+A standards run exits with the table odoo-nix and frappe-nix share for `--sync` and `--check`: `0` clean, `1` drift, `2` a configuration it refuses, `3` an environment problem (a missing tool, version skew). With `--addons` or `--migrate`, a scaffold that fails exits with the codes above before the standards run starts.

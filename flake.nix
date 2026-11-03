@@ -119,7 +119,40 @@
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
-      odooInit = pkgs: import ./lib/init.nix { inherit pkgs base; };
+      # odoo-nix-tools, the `odoo-nix` command and odoo-init
+      # (lib/standards/packages.nix), with standards-core from the
+      # python-devops-nix input at its locked rev.
+      standardsPackages =
+        pkgs:
+        import ./lib/standards/packages.nix {
+          inherit pkgs base;
+          coreRev = inputs.python-devops-nix.rev or null;
+        };
+      odooInit = pkgs: (standardsPackages pkgs).odooInit;
+      # lib/standards/shell.nix over a checkout at `root` (a plain path): the
+      # lint shell CI builds, and what the standards checks evaluate. `tools`
+      # can be read from another directory holding the tool manifests and locks.
+      standardsShellFor =
+        pkgs:
+        {
+          root,
+          toolsRoot ? root,
+          addonsMode ? false,
+          configFile ? if addonsMode then "nix/pyproject.toml" else "pyproject.toml",
+        }:
+        import ./lib/standards/shell.nix {
+          inherit (pkgs) lib;
+          inherit pkgs addonsMode configFile;
+          workspaceRoot = root;
+          inherit (standardsPackages pkgs) odooNix odooInit;
+          tools = import ./lib/standards/tools.nix {
+            inherit pkgs base;
+            inherit (pkgs) lib;
+            inherit (inputs) uv2nix pyproject-nix pyproject-build-systems;
+            workspaceRoot = toolsRoot;
+            odooPython = pkgs.python311;
+          };
+        };
 
       # Series -> pinned OCB. The interpreter per series comes from the same
       # presets file odoo-init uses, so the fixtures cannot disagree with it.
@@ -205,23 +238,11 @@
       shellTools = pkgs: import ./lib/shell-tools.nix { inherit pkgs base; };
 
       # odoo-nix-tools (py/odoo_nix_tools, its DESIGN.md), the standards tools,
-      # built against `python` with standards-core from the python-devops-nix
-      # input at its locked rev.
-      odooNixTools =
-        pkgs: python:
-        python.pkgs.callPackage ./lib/standards/package.nix {
-          inherit pkgs base;
-          coreRev = inputs.python-devops-nix.rev or null;
-        };
+      # built against `python`.
+      odooNixTools = pkgs: (standardsPackages pkgs).tools;
 
       # The `odoo-nix` command: odoo-nix-tools behind a wrapper (lib/standards/cli.nix).
-      odooNixCli =
-        pkgs:
-        import ./lib/standards/cli.nix {
-          inherit pkgs;
-          inherit (pkgs) lib;
-          odooNixTools = odooNixTools pkgs pkgs.python3;
-        };
+      odooNixCli = pkgs: (standardsPackages pkgs).odooNix;
 
       relockFixtures =
         pkgs:
@@ -267,6 +288,15 @@
 
         # The odoo-ls (Odoo language server) package builder.
         odoo-ls = import ./lib/odoo-ls.nix;
+
+        # The standards' lint shell over a checkout, without evaluating its flake
+        # (py/odoo_nix_tools/DESIGN.md §5.2, §6.4): odoo-nix-lint.yml runs
+        #   nix develop --impure --expr 'let e = builtins.getFlake "github:<owner>/<repo>/<rev>";
+        #     in e.lib.standards.lintShell { system = builtins.currentSystem; root = /. + builtins.getEnv "PWD"; }'
+        # with the engine the checkout's flake.lock pins. `root` is read only at
+        # tools/{pyproject.toml,uv.lock} and {package.json,package-lock.json}.
+        standards.lintShell =
+          { system, root }: (standardsShellFor nixpkgs.legacyPackages.${system} { inherit root; }).lintShell;
       };
 
       # checks.<system> (names: python-devops-nix docs/conventions.md, Tests):
@@ -285,9 +315,13 @@
       #                                                       python-devops-nix's conformance checks (all systems)
       #   option-paths, config-blocks                         the same over the modules' options (Linux only)
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
+      #   standards-shell-eval-*                              the standards' dev-shell additions, opted in and not (Linux only)
       #   standards-unit, standards-version                   odoo-nix-tools' suites on python3 and python311; one version (all systems)
       #   standards-conformance                               odoo-nix-tools against the core's contract (all systems)
       #   standards-fixtures-{project,addons}                 each standards fixture synced offline under every profile (all systems)
+      #   standards-prek-{project,addons}, standards-prettier-stable
+      #                                                       the synced fixtures under their own locked hooks and prettier (all systems)
+      #   templates-nix-lint                                  odoo-init's flake templates, rendered, under nixfmt, statix and deadnix (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   odoo-db-compat                                      the CLI's one API over Odoo's two database-management APIs (all systems)
       #   raw-odoo                                            lib/raw-odoo.nix and its coverage hook, with stand-in trees (all systems)
@@ -513,6 +547,34 @@
             ignore = nixLintIgnore;
           };
 
+          # odoo-init's flake templates, rendered with sample values (their
+          # @PLACEHOLDERS@ do not parse, so nix-lint skips templates/), under
+          # nixfmt, statix and deadnix: what a new project or addon repository
+          # starts from is lint-clean (py/odoo_nix_tools/DESIGN.md §5.5).
+          templates-nix-lint =
+            scriptCheck pkgs "templates-nix-lint"
+              {
+                tools = [
+                  pkgs.gnused
+                  pkgs.nixfmt-rs
+                  pkgs.statix
+                  pkgs.deadnix
+                ];
+              }
+              ''
+                for shape in project addons; do
+                  mkdir -p "$shape"
+                  sed -e 's/@PROJECT_NAME@/acme/g; s/@SERIES@/18.0/g; s/@MAJOR@/2/g' \
+                    -e 's/@PYTHON@/python311/g; s/@DB_NAME@/acme/g; s/@REQUIRES_PYTHON@/>=3.11/g' \
+                    ${./templates}/"$shape"/flake.nix > "$shape/flake.nix"
+                  refute grep -q '@[A-Z_]*@' "$shape/flake.nix"
+                  echo "== templates/$shape/flake.nix"
+                  nixfmt --check "$shape/flake.nix"
+                  statix check --config ${./statix.toml} "$shape/flake.nix"
+                  deadnix --fail "$shape/flake.nix"
+                done
+              '';
+
           # .editorconfig, .pre-commit-config.yaml and ruff.toml carry the
           # base's settings (python-devops-nix docs/conventions.md, Repository files).
           shared-config = base.checks.sharedConfig {
@@ -560,15 +622,21 @@
 
           # Each standards fixture under each built-in profile and example-org,
           # synced offline and checked (tests/standards/fixtures.nix).
+          # The same synced under example-org with their tools linked: the managed
+          # files under their own hooks, and prettier's form (DESIGN.md §7.3).
           inherit
             (import ./tests/standards/fixtures.nix {
               inherit pkgs lib;
               scriptCheck = scriptCheck pkgs;
               odooNix = odooNixCli pkgs;
               odooNixTools = odooNixTools pkgs pkgs.python3;
+              standardsShell = standardsShellFor pkgs;
             })
             standards-fixtures-project
             standards-fixtures-addons
+            standards-prek-project
+            standards-prek-addons
+            standards-prettier-stable
             ;
 
           # odoo-nix and odoo-nix-tools share one version: version.txt,
@@ -619,9 +687,20 @@
               '';
 
           # The scaffolder, offline (odoo-nix-sources and uv stood in, git
-          # real): every flag and branch, its exit codes, and what it writes
+          # real): every flag and branch, its exit codes, and what it writes;
+          # addons mode, and the standards flags on the standards fixtures
           # (tests/odoo-init.sh).
           scaffold =
+            let
+              # The standards fixtures the standards flags run on.
+              fixtures = lib.fileset.toSource {
+                root = ./tests/fixtures;
+                fileset = lib.fileset.unions [
+                  ./tests/fixtures/standards-project
+                  ./tests/fixtures/standards-locks
+                ];
+              };
+            in
             scriptCheck pkgs "scaffold"
               {
                 tools = with pkgs; [
@@ -635,7 +714,7 @@
                 ];
               }
               ''
-                bash ${./tests/odoo-init.sh} ${(odooInit pkgs).script}
+                bash ${./tests/odoo-init.sh} ${(odooInit pkgs).script} ${fixtures}
               '';
 
           # Its pieces, without git remotes, uv or a terminal: the command
@@ -647,7 +726,7 @@
             lib.concatMapStrings
               (py: ''
                 ODOO_NIX_PRESETS=${./lib/odoo-presets.json} ${py.interpreter} -I ${./tests/test_odoo_init.py} \
-                  ${cliPackage pkgs} ${./data} ${./templates/project}
+                  ${cliPackage pkgs} ${./data} ${./templates/project} ${./templates/addons}
               '')
               (
                 lib.unique (
@@ -938,6 +1017,17 @@
             }
           )
         )
+        # The standards' shell additions (tests/standards/shell-eval.nix).
+        // lib.optionalAttrs isLinux (
+          evalChecks "" (
+            import ./tests/standards/shell-eval.nix {
+              inherit pkgs lib inputs;
+              inherit (self.lib) mkFlake;
+              inherit (self.lib.standards) lintShell;
+              standardsShell = standardsShellFor pkgs;
+            }
+          )
+        )
         // lib.optionalAttrs isLinux (
           evalChecks "" (
             import ./tests/shell-tree-eval.nix {
@@ -1116,6 +1206,9 @@
         # command (the package behind a wrapper).
         odoo-nix-tools = odooNixTools pkgs pkgs.python3;
         odoo-nix = odooNixCli pkgs;
+        # The engine's committed, for the pr-policy workflow: installed from the
+        # locked engine, never by evaluating a project's flake (DESIGN.md §6.4).
+        inherit (pkgs) committed;
         default = odoo-init;
       });
 
@@ -1166,6 +1259,20 @@
             type = "app";
             program = "${relockFixtures pkgs}/bin/odoo-nix-relock-fixtures";
             meta.description = "Re-lock the test fixtures against the pinned OCB inputs";
+          };
+          # `nix run .#relock-standards-fixtures`: rewrite
+          # tests/fixtures/standards-locks/ (each standards fixture under each
+          # profile with tools, 18.0) and odoo-nix-tools' shipped fixture data
+          # (needs network; never runs in a check).
+          relock-standards-fixtures = {
+            type = "app";
+            program = pkgs.lib.getExe (
+              import ./tests/standards/relock-fixtures.nix {
+                inherit pkgs;
+                standardsCore = base.standards.package { inherit pkgs; };
+              }
+            );
+            meta.description = "Re-lock the standards fixtures' tools (tools/uv.lock, package-lock.json)";
           };
           # `nix run .#relock-odoo-ls`: regenerate lib/odoo-ls-Cargo.lock against
           # the pinned odoo-ls-src input (needs network; never runs in a check).

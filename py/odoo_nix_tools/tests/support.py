@@ -89,6 +89,8 @@ CONFIG_FILES = {
 BUILTIN_PROFILES = ("minimal", "recommended", "recommended@2.3")
 ORG_PROFILES = "tests/fixtures/standards-profiles"
 LOCKS = "tests/fixtures/standards-locks"
+# What a lock directory holds beside the manifests the locks were made from.
+LOCK_FILES = ("tools/uv.lock", "package-lock.json")
 IN_REPO_PROFILE = ".standards-profile"
 
 
@@ -106,7 +108,8 @@ def fixture_files(
     """``tests/fixtures/<name>`` under ``profile``: a built-in named in the table, or an
     org profile of ``tests/fixtures/standards-profiles`` copied in as the in-repo
     profile ``./.standards-profile``; with ``locks``, that profile's locks of
-    ``tests/fixtures/standards-locks/<name>/<profile>/``."""
+    ``tests/fixtures/standards-locks/<name>/<profile>/`` (not the manifests beside
+    them, which sync renders)."""
     files = _tree(repo / "tests/fixtures" / name)
     config = CONFIG_FILES[name]
     text = files[config].decode()
@@ -120,8 +123,10 @@ def fixture_files(
         for rel, body in _tree(repo / ORG_PROFILES / profile).items():
             files[f"{IN_REPO_PROFILE}/{rel}"] = body
     lock_dir = repo / LOCKS / name / profile
-    if locks and lock_dir.is_dir():
-        files.update(_tree(lock_dir))
+    if locks:
+        for rel in LOCK_FILES:
+            if (lock_dir / rel).is_file():
+                files[rel] = (lock_dir / rel).read_bytes()
     return files
 
 

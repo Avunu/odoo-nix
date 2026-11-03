@@ -10,7 +10,8 @@
   repository at all rather than create ``[tool.odoo-nix]`` in a root ``pyproject.toml``;
   the CR1 stand-in (``ADDONS_PRODUCT``) opts the same tree in, into ``nix/pyproject.toml``.
 
-``odoo-init --addons --standards`` (scaffold, then sync, §5.5) is stage O6's.
+``odoo-init --addons --standards`` (scaffold, then sync, §5.5) is odoo-init's, which is
+not part of this package: tests/odoo-init.sh (checks.scaffold) runs it.
 """
 
 from __future__ import annotations
@@ -134,7 +135,10 @@ class OptIn(SyncCase):
         self.assertIn("create develop and make it the default branch", text)
         self.assert_untouched(root)
 
-    @unittest.skip("odoo-init --addons --standards (scaffold, then sync) is stage O6")
+    @unittest.skip(
+        "odoo-init --addons --standards (scaffold, then sync) is odoo-init's:"
+        " tests/odoo-init.sh (checks.scaffold) runs it"
+    )
     def test_addons_then_standards(self) -> None:  # pragma: no cover
         raise AssertionError
 
