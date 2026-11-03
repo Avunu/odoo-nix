@@ -437,11 +437,11 @@
     "ocb-19": {
       "flake": false,
       "locked": {
-        "lastModified": 1793143837,
-        "narHash": "sha256-MBUApYrSLLwlAQOOCF/bYWQGxsgIUQPOhYeqMVTw/p4=",
+        "lastModified": 1793125883,
+        "narHash": "sha256-CRE1nA6fXhZo61hUOVzUOjzJmIFkB7Krv1DLWPYfrZ0=",
         "owner": "OCA",
         "repo": "OCB",
-        "rev": "ae298c4d5654880bdc2557ee6e5be52b86044722",
+        "rev": "5c7defb49e020fec8b6bb82403a2f54eb79e92e1",
         "type": "github"
       },
       "original": {
