@@ -1,0 +1,14 @@
+# odoo-nix project
+
+# Store symlinks recreated on shell entry. No trailing slash: git records a
+# symlink as a file, so a "dir/" pattern would not match them.
+/odoo.conf
+/.venv
+/odools.toml
+
+# devenv-managed state: postgres cluster + Odoo filestore (.devenv/state/odoo)
+/.devenv/
+/.direnv/
+__pycache__/
+*.pyc
+.DS_Store

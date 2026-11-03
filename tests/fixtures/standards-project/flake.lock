@@ -1,0 +1,30 @@
+{
+  "nodes": {
+    "odoo-nix": {
+      "locked": {
+        "type": "github",
+        "owner": "avunu",
+        "repo": "odoo-nix",
+        "rev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "narHash": "sha256-x"
+      },
+      "original": {
+        "type": "github",
+        "owner": "avunu",
+        "repo": "odoo-nix",
+        "ref": "release-2"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": [
+          "odoo-nix",
+          "nixpkgs"
+        ],
+        "odoo-nix": "odoo-nix"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

@@ -28,12 +28,17 @@ manifest fragments) lives under `odoo_nix_tools/data/` and is read through
 | --- | --- | --- |
 | `sync` | core | write or check the managed files (`odoo-init --sync` runs it) |
 | `config`, `profile` | core | the resolved configuration; show, list and validate profiles |
-| `policy`, `ci` | core | commit and pull-request policy; the CI and release steps |
-| `repo` | core | apply, audit, roll out and doctor a fleet of repositories |
 | `data-path`, `pin-path` | core | a packaged data file; a locked flake input's tree |
-| `gate lint\|test` | odoo-nix | the lint and test gates CI runs |
-| `check manifests\|icons\|submodules` | odoo-nix | addon manifests, icons, submodule state |
-| `ratchet coverage` | odoo-nix | the coverage floor |
+| `policy`, `ci` | core | commit and pull-request policy; the CI and release steps (to come) |
+| `repo` | core | apply, audit, roll out and doctor a fleet of repositories (to come) |
+| `gate lint\|test` | odoo-nix | the lint and test gates CI runs (to come) |
+| `check manifests\|icons\|submodules` | odoo-nix | addon manifests, icons, submodule state (to come) |
+| `ratchet coverage` | odoo-nix | the coverage floor (to come) |
+
+`odoo-nix config shape`, `config series` and `profile show` read what discovery finds:
+the shape (`project` or `addons`), the Odoo series and the addons, from the tracked files
+(`odoo_nix_tools/discover.py`). The built-in profiles are `minimal` (the dev shell only)
+and `recommended` (`recommended@2.3`); `odoo-nix profile list` shows them.
 
 ## Exit codes
 
@@ -47,8 +52,11 @@ manifest fragments) lives under `odoo_nix_tools/data/` and is read through
 ## Development
 
 The tests are `unittest` suites under `tests/`; the Nix build runs them
-(`nix build .#checks.<system>.standards-unit`). By hand, from this directory, with the
-core on the path:
+(`nix build .#checks.<system>.standards-unit`), and `standards-conformance` checks the
+product against the core's contract. Some suites read odoo-nix files outside the package
+(`tests/fixtures/standards-*`, `version.txt`, `lib/odoo-presets.json`): from the working
+tree they are found two directories up, in the Nix build through `$ODOO_NIX_TOOLS_REPO`.
+By hand, from this directory, with the core on the path:
 
 ```
 PYTHONPATH=. uv run --no-project --with-editable <python-devops-nix>/standards \

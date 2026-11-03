@@ -21,7 +21,8 @@ dependencies = [
     "standards-core @ git+https://github.com/Avunu/python-devops-nix@97f7b5e7ba08c989ec6e4f6f0b027478013c0434#subdirectory=standards",
 ]
 
-# [project.scripts] `odoo-nix = "odoo_nix_tools.cli:main"` arrives with cli.py (DESIGN.md §9, O3).
+[project.scripts]
+odoo-nix = "odoo_nix_tools.cli:main"
 
 [project.urls]
 Documentation = "https://github.com/Avunu/odoo-nix/tree/main/docs/standards"

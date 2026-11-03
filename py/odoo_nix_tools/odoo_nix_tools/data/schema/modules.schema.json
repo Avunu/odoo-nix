@@ -1,0 +1,535 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "modules.schema.json",
+  "title": "odoo-nix's modules",
+  "$comment": "Module parameters (py/odoo_nix_tools/DESIGN.md §3.1, §4.3). Defaults equal recommended@2.3's values, so every profile resolves the same parameter values. Core modules list only odoo-nix's keys: the core merges its own under these (core DESIGN.md §4.1).",
+  "$defs": {
+    "module-name": {
+      "enum": [
+        "dev-shell",
+        "editorconfig",
+        "python-lint",
+        "pylint-odoo",
+        "addon-manifest",
+        "js-xml",
+        "ide",
+        "tests",
+        "workflow-lint",
+        "shell-lint",
+        "nix-lint",
+        "hygiene",
+        "commits",
+        "releases",
+        "packaging",
+        "dependabot",
+        "ci",
+        "repo-policy",
+        "readme",
+        "icons"
+      ]
+    },
+    "modules": {
+      "dev-shell": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The flake.nix inputs block, .envrc and the .gitignore block. Required: enable = false is exit 2.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "odoo-nix-url": {
+            "type": "string",
+            "default": "",
+            "description": "The odoo-nix flake URL the inputs block writes; \"\" means github:Avunu/odoo-nix/release-<major>."
+          }
+        }
+      },
+      "editorconfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": ".editorconfig: OCA's sections for the series, plus 2-space Nix and shell.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "python-lint": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "ruff, with OCA's per-series rules in .ruff.toml and the locked ruff in tools/.venv.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "extra-select": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": [],
+            "description": "Rule codes added to [lint] extend-select."
+          },
+          "ignore": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": [],
+            "description": "Rule codes added to [lint] ignore."
+          },
+          "per-file-ignores": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "default": {},
+            "description": "Merged into OCA's [lint.per-file-ignores]."
+          },
+          "extend-exclude": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": [],
+            "description": "Paths ruff skips, beside odoo/ and modules/ in a project."
+          }
+        }
+      },
+      "pylint-odoo": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "pylint-odoo with OCA's .pylintrc and .pylintrc-mandatory.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "optional-run": {
+            "type": "boolean",
+            "default": true,
+            "description": "Run the optional checks (.pylintrc) as an advisory hook (--exit-zero)."
+          }
+        }
+      },
+      "addon-manifest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Manifest rules: the required author, the allowed licenses, the website.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "author": {
+            "type": "string",
+            "default": "",
+            "description": "pylint-odoo's manifest-required-authors; \"\" requires none."
+          },
+          "licenses-allowed": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": [],
+            "description": "pylint-odoo's license-allowed; [] means [org.license] when set, else OCA's list."
+          },
+          "website": {
+            "type": "string",
+            "default": "",
+            "description": "A URL template ({repo}, {repo_name}) every manifest's website must equal; \"\" checks none."
+          }
+        }
+      },
+      "js-xml": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "prettier and eslint for JavaScript and XML, locked in package.json and package-lock.json.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": [],
+            "description": "Path prefixes prettier and eslint skip (carbon_ui/frontend/, static/dist/)."
+          }
+        }
+      },
+      "ide": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "VS Code settings and extension recommendations (.vscode, merged).",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "tests": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Odoo tests with coverage, checklog-odoo, and the coverage floor.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "initial-floor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 0,
+            "description": "fail_under, written once into tools/pyproject.toml; then the repository's."
+          },
+          "goal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 80,
+            "description": "The coverage the report shows as the goal; never a gate."
+          },
+          "checklog": {
+            "type": "boolean",
+            "default": true,
+            "description": "Fail the test gate on unexpected warnings and errors in Odoo's log."
+          }
+        }
+      },
+      "workflow-lint": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "actionlint and zizmor over .github.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "shell-lint": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "shellcheck, when the repository has shell scripts.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "nix-lint": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "nixfmt, statix and deadnix, when the repository has Nix files.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "hygiene": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "OCA's pre-commit-hooks checks, check-json/check-yaml, the forbidden-file rules and .git-blame-ignore-revs.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "forbid-contributing": {
+            "type": "boolean",
+            "default": true,
+            "description": "Keep OCA's rule that refuses a CONTRIBUTING.md."
+          }
+        }
+      },
+      "commits": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "committed.toml and the pull-request policy.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "convention": {
+            "enum": [
+              "conventional",
+              "odoo"
+            ],
+            "default": "conventional",
+            "description": "Conventional commits, or Odoo's [TAG] module: subjects."
+          },
+          "scopes": {
+            "enum": [
+              "addons",
+              "any"
+            ],
+            "default": "addons",
+            "description": "addons: the scopes are the addon names plus extra-scopes."
+          },
+          "extra-scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": [],
+            "description": "Scopes allowed beside the addon names."
+          },
+          "extra-types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": [],
+            "description": "Commit types allowed beside the conventional ones."
+          }
+        }
+      },
+      "releases": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The post-merge bump of each addon's version, and the series branch's fast-forward. Addon repositories only.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "version-scheme": {
+            "enum": [
+              "semver",
+              "odoo-series"
+            ],
+            "default": "odoo-series",
+            "description": "odoo-series: <series>.x.y.z per addon."
+          }
+        }
+      },
+      "packaging": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A whool pyproject.toml per addon (the whool-init hook). Addon repositories only.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "dependabot": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": ".github/dependabot.yml: GitHub Actions and Nix inputs, one entry per target branch.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "schedule": {
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "default": "weekly"
+          },
+          "cooldown-days": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 7
+          },
+          "target-branches": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": [],
+            "description": "The branches Dependabot updates; [] means the integration branch."
+          }
+        }
+      },
+      "ci": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The CI callers: one job per gate (pr-policy, lint, test), and the dependency workflow.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "runs-on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "default": [
+              "ubuntu-latest"
+            ]
+          },
+          "test-timeout-minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 60
+          },
+          "project-update": {
+            "type": "string",
+            "default": "0 6 * * 1",
+            "description": "A project's scheduled `odoo project update` (cron); \"\" means none."
+          },
+          "github-app": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "app-id",
+              "private-key"
+            ],
+            "default": {
+              "app-id": "",
+              "private-key": ""
+            },
+            "description": "The GitHub App the release and dependency workflows use: the Actions variable and secret names, never values. \"\" means none.",
+            "properties": {
+              "app-id": {
+                "type": "string",
+                "pattern": "^([A-Za-z_][A-Za-z0-9_]*)?$"
+              },
+              "private-key": {
+                "type": "string",
+                "pattern": "^([A-Za-z_][A-Za-z0-9_]*)?$"
+              }
+            }
+          }
+        }
+      },
+      "repo-policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Rulesets and repository settings, applied by `odoo-nix repo apply`.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "readme": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A README per addon, and an optional addons table in the root README.md.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "addons-table": {
+            "type": "boolean",
+            "default": false,
+            "description": "Keep a table of the addons in the root README.md."
+          },
+          "required": {
+            "type": "boolean",
+            "default": true,
+            "description": "Every installable addon has a README.md or README.rst."
+          }
+        }
+      },
+      "icons": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "static/description/icon.png per addon, checked by `odoo-nix check icons`.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "default": false
+          },
+          "min-size": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 128
+          },
+          "max-bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 102400
+          },
+          "src-icon": {
+            "type": "string",
+            "minLength": 1,
+            "default": "templates/addon-icon.png",
+            "description": "The icon `check icons --fix` copies, relative to the profile directory."
+          }
+        }
+      }
+    },
+    "org-extra": {
+      "properties": {}
+    },
+    "profile-extra": {
+      "properties": {}
+    },
+    "app-extra": {
+      "properties": {
+        "shape": {
+          "enum": [
+            "project",
+            "addons"
+          ],
+          "description": "Default: from the tracked files (flake.nix addons mode, root manifests; an odoo gitlink, modules.txt)."
+        },
+        "series": {
+          "type": "string",
+          "pattern": "^\\d+\\.0$",
+          "description": "Default: .odoo-series, flake.nix's odooSeries literal, the addons' versions, a <n>.0 integration branch."
+        },
+        "untested": {
+          "type": "array",
+          "default": [],
+          "description": "Installable addons the test gate does not install, each with the reason.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "addon",
+              "reason"
+            ],
+            "properties": {
+              "addon": {
+                "type": "string",
+                "pattern": "^[a-z0-9_]+$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 10
+              }
+            }
+          }
+        }
+      },
+      "required": []
+    }
+  }
+}

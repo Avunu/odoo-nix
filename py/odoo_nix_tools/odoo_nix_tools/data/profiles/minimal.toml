@@ -1,0 +1,49 @@
+# odoo-nix built-in profile `minimal`. Frozen for all of odoo-nix 2.x: it never turns a module on.
+schema = 1
+name = "minimal"
+description = "The odoo-nix dev shell only: the flake.nix inputs block, .envrc and the .gitignore block."
+
+[org]
+dev-docs-url = "https://github.com/Avunu/odoo-nix/tree/main/docs/standards"
+
+[dev-shell]
+enable = true
+
+[editorconfig]
+enable = false
+[python-lint]
+enable = false
+[pylint-odoo]
+enable = false
+[addon-manifest]
+enable = false
+[js-xml]
+enable = false
+[ide]
+enable = false
+[tests]
+enable = false
+[workflow-lint]
+enable = false
+[shell-lint]
+enable = false
+[nix-lint]
+enable = false
+[hygiene]
+enable = false
+[commits]
+enable = false
+[releases]
+enable = false
+[packaging]
+enable = false
+[dependabot]
+enable = false
+[ci]
+enable = false
+[repo-policy]
+enable = false
+[readme]
+enable = false
+[icons]
+enable = false

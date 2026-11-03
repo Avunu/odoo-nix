@@ -1,0 +1,18 @@
+usage: odoo-nix [-h] [--version] <command> ...
+
+odoo-nix's standards tools for Odoo projects and addon repositories. See
+https://github.com/Avunu/odoo-nix/tree/main/docs/standards.
+
+options:
+  -h, --help  show this help message and exit
+  --version   show program's version number and exit
+
+commands:
+  <command>
+    config    print a resolved configuration value (lists one item per line)
+    data-path
+              print the absolute path of a file shipped in the product's data
+    pin-path  print a directory holding a flake.lock input, fetched and narHash-verified
+    profile   show the resolved profile, validate an org profile, list the built-ins
+    sync      render, write or check the odoo-nix managed files of the checkout in the current
+              directory

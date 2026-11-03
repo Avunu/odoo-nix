@@ -211,6 +211,15 @@
           coreRev = inputs.python-devops-nix.rev or null;
         };
 
+      # The `odoo-nix` command: odoo-nix-tools behind a wrapper (lib/standards/cli.nix).
+      odooNixCli =
+        pkgs:
+        import ./lib/standards/cli.nix {
+          inherit pkgs;
+          inherit (pkgs) lib;
+          odooNixTools = odooNixTools pkgs pkgs.python3;
+        };
+
       relockFixtures =
         pkgs:
         import ./tests/relock-fixtures.nix {
@@ -274,6 +283,7 @@
       #   option-paths, config-blocks                         the same over the modules' options (Linux only)
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
       #   standards-unit, standards-version                   odoo-nix-tools' suites on python3 and python311; one version (all systems)
+      #   standards-conformance                               odoo-nix-tools against the core's contract (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   odoo-db-compat                                      the CLI's one API over Odoo's two database-management APIs (all systems)
       #   raw-odoo                                            lib/raw-odoo.nix and its coverage hook, with stand-in trees (all systems)
@@ -528,6 +538,16 @@
             echo "python3:   ${odooNixTools pkgs pkgs.python3}"
             echo "python311: ${odooNixTools pkgs pkgs.python311}"
           '';
+
+          # odoo-nix-tools against the core's contract (core DESIGN.md §11.4): the
+          # static part (modules schema, profiles, manifest, variable names); the
+          # render part joins once the product has fixtures (stage O4).
+          standards-conformance = base.standards.conformance {
+            inherit pkgs;
+            product = "odoo-nix";
+            package = odooNixTools pkgs pkgs.python3;
+            module = "odoo_nix_tools.product:PRODUCT";
+          };
 
           # odoo-nix and odoo-nix-tools share one version: version.txt,
           # py/odoo_nix_tools/pyproject.toml and __version__, which
@@ -1070,8 +1090,10 @@
           src = inputs.odoo-ls-src;
           typeshedSrc = inputs.odoo-ls-typeshed;
         };
-        # odoo-nix's standards tools as a Python package (no command yet).
+        # odoo-nix's standards tools: the Python package, and the `odoo-nix`
+        # command (the package behind a wrapper).
         odoo-nix-tools = odooNixTools pkgs pkgs.python3;
+        odoo-nix = odooNixCli pkgs;
         default = odoo-init;
       });
 
@@ -1092,6 +1114,13 @@
         {
           default = app;
           odoo-init = app;
+          # `nix run github:Avunu/odoo-nix#odoo-nix -- <command>`: the standards
+          # tools (sync, profile, config, …) without the dev shell.
+          odoo-nix = {
+            type = "app";
+            program = pkgs.lib.getExe (odooNixCli pkgs);
+            meta.description = "odoo-nix's standards tools: managed files, profiles and configuration";
+          };
           # `nix run github:Avunu/odoo-nix#bootstrap -- ROOT`: a fresh clone's
           # submodules, before its flake is evaluated (a project's .envrc).
           bootstrap = {

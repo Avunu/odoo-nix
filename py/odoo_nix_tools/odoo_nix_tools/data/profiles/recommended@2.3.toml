@@ -1,0 +1,113 @@
+# odoo-nix built-in profile `recommended@2.3`, the first `recommended` snapshot. Frozen once v2.3.0 is
+# tagged: a later minor that changes `recommended` adds recommended@2.<minor>.toml.
+schema = 1
+name = "recommended"
+description = "Vendor-neutral Odoo standards: OCA's per-series lint and format rules with locked tools, tests with coverage, Dependabot and CI. Nothing that needs an organisation's values, editor taste or repo admin."
+
+[org]
+publisher = ""
+email = ""
+copyright-holder = ""
+license = ""
+github-owner = ""
+docs-url = ""
+dev-docs-url = "https://github.com/Avunu/odoo-nix/tree/main/docs/standards"
+support-url = ""
+repo-url = "https://github.com/{repo}"
+
+[dev-shell]
+enable = true
+odoo-nix-url = ""
+
+[editorconfig]
+enable = true
+
+[python-lint]
+enable = true
+extra-select = []
+ignore = []
+per-file-ignores = {}
+extend-exclude = []
+
+[pylint-odoo]
+enable = true
+optional-run = true
+
+[addon-manifest]
+enable = true
+author = ""
+licenses-allowed = []
+website = ""
+
+[js-xml]
+enable = true
+exclude = []
+
+[ide]
+enable = false
+
+[tests]
+enable = true
+initial-floor = 0
+goal = 80
+checklog = true
+
+[workflow-lint]
+enable = true
+[shell-lint]
+enable = true
+[nix-lint]
+enable = true
+
+[hygiene]
+enable = true
+forbid-contributing = true
+
+[commits]
+enable = false
+convention = "conventional"
+scopes = "addons"
+extra-scopes = []
+extra-types = []
+allow-stacked = true
+pr-allowed-bases = []
+subject-length = 100
+
+[releases]
+enable = false
+branching = "develop+series"
+version-scheme = "odoo-series"
+
+[packaging]
+enable = false
+
+[dependabot]
+enable = true
+auto-merge = true
+auto-merge-policy = "decision-table"
+update-branches = false
+schedule = "weekly"
+cooldown-days = 7
+target-branches = []
+
+[ci]
+enable = true
+runs-on = ["ubuntu-latest"]
+test-timeout-minutes = 60
+project-update = "0 6 * * 1"
+github-app = { app-id = "", private-key = "" }
+schedules = {}
+
+[repo-policy]
+enable = false
+
+[readme]
+enable = false
+addons-table = false
+required = true
+
+[icons]
+enable = false
+min-size = 128
+max-bytes = 102400
+src-icon = "templates/addon-icon.png"

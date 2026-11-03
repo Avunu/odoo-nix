@@ -1,8 +1,9 @@
 """PRODUCT builds against the core's contract (DESIGN.md §7.2 test_product).
 
-Stage O1 asserts the build only: the core's ``Product.__post_init__`` refuses a product that
-breaks a §3.2 rule at import, so importing ``PRODUCT`` is the main assertion. The static
-conformance check (modules schema, profiles, manifest) needs the data stage O3 adds.
+The core's ``Product.__post_init__`` refuses a product that breaks a §3.2 rule at import,
+so importing ``PRODUCT`` is the main assertion; the static conformance check (modules
+schema, profiles, manifest) is the other. Its render part needs the fixtures and managed
+files of stage O4.
 """
 
 from __future__ import annotations
@@ -15,7 +16,8 @@ from pathlib import Path
 from odoo_nix_tools import __version__
 from odoo_nix_tools.product import LINT_MODULES, MODULES, PRODUCT
 from standards_core.product import Product
-from standards_core.scaffold.context import NS, Checkout
+from standards_core.scaffold.context import NS
+from standards_core.testing import conformance
 
 PACKAGE = Path(__file__).resolve().parent.parent
 
@@ -111,11 +113,19 @@ class ProductBuilds(unittest.TestCase):
         self.assertTrue((Path(PRODUCT.data_root) / "series" / "18.0.json").is_file())
         self.assertEqual(PRODUCT.roots[0], Path(PRODUCT.data_root))
 
-    def test_pending_hooks_name_their_stage(self) -> None:
-        with self.assertRaisesRegex(
-            NotImplementedError, r"hooks\.discover arrives in stage O3"
-        ):
-            PRODUCT.hooks.discover(Checkout(Path("."), "x", {}, []), {}, {})
+    def test_static_conformance(self) -> None:
+        self.assertEqual(conformance.check(PRODUCT, render=False), [])
+
+    def test_branching(self) -> None:
+        self.assertEqual(list(PRODUCT.branching), ["develop+series", "trunk"])
+        series = PRODUCT.branching["develop+series"]
+        self.assertEqual(series.integration({}), "develop")
+        self.assertEqual(
+            series.release_branch({}, {"shape": "addons", "series": "18.0"}), "18.0"
+        )
+        self.assertEqual(
+            series.release_branch({}, {"shape": "project", "series": "18.0"}), ""
+        )
 
     def test_version_matches_pyproject(self) -> None:
         # The flake's checks.standards-version compares version.txt too; this one runs

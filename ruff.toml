@@ -5,6 +5,10 @@
 # preset (python-devops-nix docs/library.md, Python versions).
 target-version = "py311"
 
+# The standards fixtures are checkouts of their own, with their own managed .ruff.toml
+# once synced (py/odoo_nix_tools/DESIGN.md §7.1).
+extend-exclude = ["tests/fixtures/standards-*"]
+
 # Odoo's own idioms: a manifest is a bare dict literal, and an addon's
 # __init__.py imports its submodules so that Odoo loads them.
 [lint.per-file-ignores]

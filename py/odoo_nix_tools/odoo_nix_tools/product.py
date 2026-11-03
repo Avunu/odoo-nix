@@ -1,19 +1,16 @@
 """odoo-nix's product: every value standards-core reads (core DESIGN.md §3).
 
-Stage O1 (DESIGN.md §9): identity, markers, engine and pins carry their final values, and so
-do the plain-data fields that need no other module (modules, paths, CI contexts, JSON style).
-The checkout hooks the core requires are placeholders that raise until the modules behind
-them land (``discover``, ``context``: O3), and every other hook keeps the core's neutral
-default until its stage.
+Stage O3 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields carry
+their final values; discovery (``discover``), the template context and the gates
+(``context``) and the branching models (``release.BRANCHING``) are wired in. Every other
+hook keeps the core's neutral default until its stage (DESIGN.md §14).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from importlib.resources import files
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, NoReturn
 
 from standards_core.product import (
     CiConfig,
@@ -30,7 +27,7 @@ from standards_core.product import (
     SyncHooks,
 )
 
-from odoo_nix_tools import __version__
+from odoo_nix_tools import __version__, context, discover, release
 
 DATA = Path(str(files("odoo_nix_tools") / "data"))
 DOCS = "https://github.com/Avunu/odoo-nix/tree/main/docs/standards"
@@ -57,36 +54,13 @@ MODULES = (
     "readme",
     "icons",
 )
-LINT_MODULES = (
-    "python-lint",
-    "pylint-odoo",
-    "addon-manifest",
-    "js-xml",
-    "workflow-lint",
-    "shell-lint",
-    "nix-lint",
-    "hygiene",
-    "packaging",
-    "icons",
-)
+LINT_MODULES = context.LINT_MODULES
 
 OPT_IN_HINT = (
     "this repository has not opted in to odoo-nix's standards: add a [tool.odoo-nix] table to "
     "pyproject.toml (a project) or nix/pyproject.toml (addons mode), or run "
     "`nix run github:Avunu/odoo-nix#odoo-init -- --sync --standards recommended`"
 )
-
-
-def _pending(hook: str, stage: str) -> Callable[..., NoReturn]:
-    """A required hook whose module has not landed: calling it names the stage that adds it."""
-
-    def hook_fn(*args: Any, **kwargs: Any) -> NoReturn:
-        raise NotImplementedError(
-            f"odoo-nix: hooks.{hook} arrives in stage {stage} (py/odoo_nix_tools/DESIGN.md §9)"
-        )
-
-    hook_fn.__name__ = hook_fn.__qualname__ = f"pending_{hook}"
-    return hook_fn
 
 
 PRODUCT = Product(
@@ -162,12 +136,18 @@ PRODUCT = Product(
     ),
     data_root=DATA,
     hooks=Hooks(
-        load_checkout=_pending("load_checkout", "O3"),
-        discover=_pending("discover", "O3"),
-        gates=_pending("gates", "O3"),
-        template_globals=_pending("template_globals", "O3"),
+        load_checkout=discover.load_checkout,
+        discover=discover.facts,
+        gates=context.gates,
+        template_globals=context.template_globals,
+        render_helpers=context.render_helpers,
+        derive=discover.derive,
+        url_placeholders=context.url_placeholders,
+        new_target_table=discover.new_target_table,
         # YAML/JSON whole files compare as data: prettier owns their layout.
         semantic_compare=lambda ctx: True,
+        # config_file=discover.config_file: CR1 (DESIGN.md §10), with
+        # Identity.config_paths, in the commit that pins a core with it.
     ),
     sync=SyncHooks(
         # odoo-init has both on its PATH (DESIGN.md §5.1).
@@ -224,6 +204,15 @@ PRODUCT = Product(
     jsonc_globs=(".vscode/*.json",),
     # prettier's form.
     json_style=JsonStyle(indent="  ", tab_width=2, width=80, trailing_commas="none"),
+    jinja_filters=MappingProxyType(
+        {
+            "regex_alt": context.regex_alt,
+            "path_prefix_regex": context.path_prefix_regex,
+        }
+    ),
+    # "develop+series" first (the default), then "trunk".
+    branching=release.BRANCHING,
     fleet_key="repos",
     self_repo="Avunu/odoo-nix",
+    help=context.HELP,
 )

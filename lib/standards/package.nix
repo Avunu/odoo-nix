@@ -8,7 +8,9 @@
 #
 # pythonRuntimeDepsCheck stays on: it fails the build when the standards-core
 # built here does not satisfy py/odoo_nix_tools/pyproject.toml. The unittest
-# suites in py/odoo_nix_tools/tests run as the check phase.
+# suites in py/odoo_nix_tools/tests run as the check phase, with the odoo-nix
+# files they read from outside the package (the standards fixtures,
+# version.txt, lib/odoo-presets.json) under $ODOO_NIX_TOOLS_REPO.
 {
   lib,
   base,
@@ -22,6 +24,17 @@
 }:
 let
   src = ../../py/odoo_nix_tools;
+  # The repository files the suites compare against, at their repository paths.
+  repoFiles = lib.fileset.toSource {
+    root = ../..;
+    fileset = lib.fileset.unions [
+      ../../version.txt
+      ../odoo-presets.json
+      ../../tests/fixtures/standards-project
+      ../../tests/fixtures/standards-addons
+      ../../tests/fixtures/standards-profiles
+    ];
+  };
   standardsCore = base.standards.package {
     inherit pkgs python;
     rev = coreRev;
@@ -58,15 +71,18 @@ buildPythonPackage {
   # The suites create throwaway repositories; git wants a home and no user config.
   preCheck = ''
     export HOME="$TMPDIR" GIT_CONFIG_GLOBAL=/dev/null
+    export ODOO_NIX_TOOLS_REPO=${repoFiles}
   '';
 
   pythonImportsCheck = [
     "odoo_nix_tools"
+    "odoo_nix_tools.cli"
     "odoo_nix_tools.product"
   ];
 
   meta = {
     description = "odoo-nix's standards tools";
     license = lib.licenses.mit;
+    mainProgram = "odoo-nix";
   };
 }
