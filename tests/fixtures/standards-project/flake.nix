@@ -5,7 +5,7 @@
     # odoo/ + modules/* are git submodules; expose their contents to the
     # flake source tree so the Nix engine can derive addons_path from them.
     self.submodules = true;
-    odoo-nix.url = "github:Avunu/odoo-nix";
+    odoo-nix.url = "github:Avunu/odoo-nix/release-2";
     # flake-parts resolves perSystem `pkgs` from an input literally named `nixpkgs`.
     nixpkgs.follows = "odoo-nix/nixpkgs";
   };

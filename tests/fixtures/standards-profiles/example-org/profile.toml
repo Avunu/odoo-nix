@@ -75,6 +75,7 @@ required-approvals = 0
 
 [readme]
 enable = true
+addons-table = true
 
 [icons]
 enable = true

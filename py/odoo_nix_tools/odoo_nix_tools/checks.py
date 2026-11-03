@@ -77,19 +77,16 @@ def _read(root: Path, rel: str) -> str | None:
 
 
 def preflight(checkout: Checkout, resolved: Resolved) -> None:
-    """Refuse (exit 2) what no managed file can serve (DESIGN.md §3.4)."""
+    """Refuse (exit 2) what no managed file can serve (DESIGN.md §3.4). The shape's own
+    files come first: an addon repository without its addons-mode files (``develop``
+    before the ``feat/dev-env`` merge) hears about ``odoo-init --addons``, the one fix,
+    before anything about where its table goes. Nothing is written before this runs, the
+    ``[tool.odoo-nix]`` table ``--standards`` creates included."""
     cfg = resolved.cfg
     modules = resolved.modules
     facts = _facts(checkout, resolved)
     shape = facts["shape"]
     series.load(facts["series"])
-    expected = discover.ADDONS_CONFIG if shape == "addons" else discover.PROJECT_CONFIG
-    if facts["config_file"] != expected:
-        raise ConfigError(
-            f"[tool.odoo-nix] is in {facts['config_file']}, but this repository is"
-            f" {'an addon repository' if shape == 'addons' else 'a project'}: move the"
-            f" table to {expected}"
-        )
     if "flake.nix" not in checkout.tracked:
         raise ConfigError(_no_flake(shape))
     if shape == "addons":
@@ -98,6 +95,23 @@ def preflight(checkout: Checkout, resolved: Resolved) -> None:
             block in text for block in ADDONS_BLOCKS
         ):
             raise ConfigError(_no_flake(shape))
+    expected = discover.ADDONS_CONFIG if shape == "addons" else discover.PROJECT_CONFIG
+    if facts["config_file"] != expected:
+        raise ConfigError(
+            f"[tool.odoo-nix] is in {facts['config_file']}, but this repository is"
+            f" {'an addon repository' if shape == 'addons' else 'a project'}: move the"
+            f" table to {expected}"
+        )
+    core_config = discover.checkout_extra(checkout)["core_config"]
+    if core_config != expected:
+        # Core CR1 (DESIGN.md §10): until hooks.config_file exists, the core reads and
+        # --standards writes the root pyproject.toml, which an addon repository has not.
+        raise ConfigError(
+            f"an addon repository keeps [tool.odoo-nix] in {expected}, and this"
+            f" odoo-nix-tools reads it from {core_config} only (its standards-core has"
+            " no per-checkout config file yet): nothing was written"
+        )
+    if shape == "addons":
         lock_dir = facts["flake"]["lock_dir_literal"]
         if lock_dir is not None and lock_dir != "nix":
             raise ConfigError(
@@ -149,9 +163,9 @@ def _no_flake(shape: str) -> str:
 
 
 def notices(plan: Plan) -> list[str]:
-    """Phase B's remarks (DESIGN.md §3.4). Two of the design's arrive with the core:
-    sync leaves a file you had changed unstaged itself (CR5), and the emptied
-    ``.gitignore`` comment paragraphs come with the dev-shell block (stage O5)."""
+    """Phase B's remarks (DESIGN.md §3.4). Two of the design's are the core's own now:
+    sync leaves a file you had changed unstaged and says so (CR5), and the ``.gitignore``
+    block's ``absorb`` takes a comment paragraph it leaves empty (CR4)."""
     out = []
     facts = plan.ctx.discover
     modules = plan.ctx.modules

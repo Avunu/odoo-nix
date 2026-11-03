@@ -20,8 +20,7 @@ from support import PACKAGE, SyncCase, need_root, product_for, run_cli
 
 FIXTURES = ("standards-project", "standards-addons")
 PROFILES = ("minimal", "recommended", "example-org")
-# What sync writes under an org profile that turns every module on, per fixture; the
-# sentinel blocks and the editor files arrive with stage O5.
+# What sync writes under an org profile that turns every module on, per fixture.
 WHOLE = {
     ".editorconfig",
     ".ruff.toml",
@@ -40,6 +39,16 @@ WHOLE = {
 MERGED = {"tools/pyproject.toml", "package.json"}
 LOCKS = {"tools/uv.lock", "package-lock.json"}
 SEEDS = {"checklog-odoo.cfg", ".git-blame-ignore-revs"}
+# The sentinel blocks: (path, begin marker). dev-shell's are in every profile.
+DEV_SHELL_BLOCKS = (
+    ("flake.nix", "# >>> odoo-nix: inputs (managed) >>>"),
+    (".gitignore", "# >>> odoo-nix: dev-shell (managed) >>>"),
+)
+README_BLOCK = ("README.md", "<!-- odoo-nix:begin addons-table -->")
+IDE_LEAF = '"python.languageServer": "None"'
+IDE_EXTENSION = "charliermarsh.ruff"
+# A leaf the dev shell seeds (data/ide/vscode.json), which the project fixture has.
+SEED_LEAF = '"python.defaultInterpreterPath"'
 
 
 def snapshot(root: Path) -> dict[str, bytes]:
@@ -68,6 +77,19 @@ class Matrix(SyncCase):
                     self.assertEqual(snapshot(root), before)
                     self.check(root, product=product)
                     files = set(before)
+                    for path, marker in DEV_SHELL_BLOCKS:
+                        self.assertIn(marker, before[path].decode(), path)
+                    has_readme_block = README_BLOCK[1] in before["README.md"].decode()
+                    self.assertEqual(has_readme_block, profile == "example-org")
+                    has_ide = (
+                        IDE_LEAF in before.get(".vscode/settings.json", b"").decode()
+                    )
+                    self.assertEqual(has_ide, profile == "example-org")
+                    if has_ide and name == "standards-project":
+                        # The fixture's Odoo.serverConfigPath is forbidden (bd59032).
+                        self.assertNotIn(
+                            b"Odoo.serverConfigPath", before[".vscode/settings.json"]
+                        )
                     if profile == "minimal":
                         self.assertFalse((WHOLE | MERGED | LOCKS) & files)
                     else:
@@ -167,10 +189,34 @@ class Matrix(SyncCase):
                     config.read_text().replace('"./.standards-profile"', '"minimal"')
                 )
                 self.write(root, product=product)
-                left = set(snapshot(root))
+                files = snapshot(root)
+                left = set(files)
                 self.assertFalse(
                     left & (WHOLE | MERGED | LOCKS), left & (WHOLE | MERGED | LOCKS)
                 )
+                # The README block and the editor leaves go; dev-shell's blocks and
+                # the leaves the dev shell seeds stay.
+                self.assertEqual(
+                    files["README.md"],
+                    (
+                        need_root(self) / "tests/fixtures" / name / "README.md"
+                    ).read_bytes(),
+                )
+                for path, marker in DEV_SHELL_BLOCKS:
+                    self.assertIn(marker, files[path].decode(), path)
+                if name == "standards-project":
+                    settings = files[".vscode/settings.json"].decode()
+                    self.assertNotIn(IDE_LEAF, settings)
+                    self.assertIn(SEED_LEAF, settings)
+                    extensions = files[".vscode/extensions.json"].decode()
+                    self.assertNotIn(IDE_EXTENSION, extensions)
+                    self.assertIn("Odoo.odoo", extensions)
+                else:
+                    # The editor files sync made for ide hold nothing of sync's now.
+                    for path in (".vscode/settings.json", ".vscode/extensions.json"):
+                        if path in files:
+                            self.assertNotIn(IDE_EXTENSION, files[path].decode())
+                            self.assertNotIn(IDE_LEAF, files[path].decode())
                 self.assertNotIn(".github/workflows/release.yml", left)
                 # The org profile's [[extra-files]] leave with it: switching to minimal
                 # leaves SECURITY.md, which no profile names any more.

@@ -2,7 +2,7 @@
   description = "fixture-addons — Odoo addons, developed with odoo-nix (addons mode)";
 
   inputs = {
-    odoo-nix.url = "github:Avunu/odoo-nix";
+    odoo-nix.url = "github:Avunu/odoo-nix/release-2";
     # flake-parts resolves perSystem `pkgs` from an input literally named `nixpkgs`.
     nixpkgs.follows = "odoo-nix/nixpkgs";
 

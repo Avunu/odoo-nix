@@ -1525,34 +1525,28 @@ in
         # modules alike.
         pythonpathRoot = "$DEVENV_STATE/pythonpath";
 
-        # No `Odoo.serverConfigPath` here: the Odoo.odoo extension hands it to
-        # its bundled server unexpanded, so "${workspaceFolder}/odools.toml"
-        # names no file and the server indexes nothing. Left unset, the
-        # server finds ./odools.toml by walking up from the workspace folder.
-        vscodeSettingsFile = pkgs.writeText "odoo-nix-vscode-settings.json" (
-          builtins.toJSON {
-            "python.defaultInterpreterPath" = "\${workspaceFolder}/.venv/bin/python";
-            "python.analysis.extraPaths" = [ ".devenv/state/pythonpath" ];
-            # The mirror re-exports ~2k module directories; keep the watcher
-            # and the search index off it (VS Code excludes neither by
-            # default, though Pylance already skips dot-directories).
-            "files.watcherExclude" = {
-              "**/.devenv/**" = true;
-              "**/.direnv/**" = true;
-            };
-            "search.exclude" = {
-              "**/.devenv/**" = true;
-              "**/.direnv/**" = true;
-            };
-          }
-        );
+        # The seed is odoo-nix-tools' data/ide/vscode.json, which the
+        # standards' `ide` module reads too: its managed leaves never repeat a
+        # seeded one, so turning `ide` off never deletes what this wrote
+        # (py/odoo_nix_tools/DESIGN.md §3.1). python.defaultInterpreterPath
+        # names the ./.venv link below, python.analysis.extraPaths the
+        # pythonpathRoot mirror (~2k module directories), which
+        # files.watcherExclude and search.exclude keep the watcher and the
+        # search index off (VS Code excludes neither by default, though
+        # Pylance already skips dot-directories). No
+        # `Odoo.serverConfigPath`: the Odoo.odoo extension hands it to its
+        # bundled server unexpanded, so "${workspaceFolder}/odools.toml" names
+        # no file and the server indexes nothing. Left unset, the server finds
+        # ./odools.toml by walking up from the workspace folder.
+        ideData = lib.importJSON ../py/odoo_nix_tools/odoo_nix_tools/data/ide/vscode.json;
+        vscodeSettingsFile = pkgs.writeText "odoo-nix-vscode-settings.json" (builtins.toJSON ideData.seed);
 
         # Recommends the Odoo.odoo VS Code extension (the odoo-ls client) --
         # seeded once, like vscodeSettingsFile, so VS Code prompts the
         # developer to install it without odoo-nix ever calling any
         # extension-management API itself.
         vscodeExtensionsFile = pkgs.writeText "odoo-nix-vscode-extensions.json" (
-          builtins.toJSON { recommendations = [ "Odoo.odoo" ]; }
+          builtins.toJSON { recommendations = ideData.seed_extensions; }
         );
 
         # Anchored on $DEVENV_ROOT, not $PWD: these paths have to be the

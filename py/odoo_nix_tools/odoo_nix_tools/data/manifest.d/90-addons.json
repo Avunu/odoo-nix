@@ -1,5 +1,19 @@
 {
-  "$comment": "Addon repositories (DESIGN.md §3.2): the files addons mode's externalSources replaces. The README addons table (readme) is a sentinel block (stage O5).",
+  "$comment": "readme (DESIGN.md §3.1): the optional addons table at the end of the root README.md, a sentinel block. Addon repositories (DESIGN.md §3.2): the files addons mode's externalSources replaces.",
+  "entries": [
+    {
+      "path": "README.md",
+      "template": "readme/addons-table.md.j2",
+      "strategy": "sentinel",
+      "module": "readme",
+      "when": "cfg.readme['addons-table']",
+      "block": "addons-table",
+      "anchor": "eof",
+      "comment": "html",
+      "uses": ["readme.addons-table"],
+      "overridable": true
+    }
+  ],
   "retire": [
     {
       "paths": ["oca_dependencies.txt", "test-requirements.txt"],

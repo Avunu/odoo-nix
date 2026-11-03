@@ -349,7 +349,7 @@ class ProjectFixture(Discovery):
         )
         flake = facts["flake"]
         self.assertTrue(flake["self_submodules"])
-        self.assertEqual(flake["inputs"]["odoo-nix"], "github:avunu/odoo-nix")
+        self.assertEqual(flake["inputs"]["odoo-nix"], "github:avunu/odoo-nix/release-2")
         self.assertEqual(flake["inputs"]["nixpkgs"], "follows:odoo-nix/nixpkgs")
         self.assertTrue(facts["has_py"] and facts["has_js"] and facts["has_xml"])
         self.assertTrue(facts["has_nix"])

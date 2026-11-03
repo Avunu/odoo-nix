@@ -1,0 +1,17 @@
+{
+  "$comment": "ide (DESIGN.md §3.1): the leaves odoo-nix manages in the editor's own files (jsonc-merge), from data/ide/vscode.json's managed spec. modules/devenv.nix seeds the same files from that file's seed.",
+  "entries": [
+    {
+      "path": ".vscode/settings.json",
+      "template": "ide/settings.json.j2",
+      "strategy": "jsonc-merge",
+      "module": "ide"
+    },
+    {
+      "path": ".vscode/extensions.json",
+      "template": "ide/extensions.json.j2",
+      "strategy": "jsonc-merge",
+      "module": "ide"
+    }
+  ]
+}

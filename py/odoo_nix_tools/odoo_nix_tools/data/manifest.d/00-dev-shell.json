@@ -1,6 +1,17 @@
 {
-  "$comment": "dev-shell (DESIGN.md §3.1): .envrc. The flake.nix inputs block and the .gitignore block are sentinel entries (stage O5).",
+  "$comment": "dev-shell (DESIGN.md §3.1): the flake.nix inputs block (it claims odoo-nix and standards-profile; no seed: preflight refuses a checkout without its flake.nix), .envrc, and the .gitignore block, which absorbs the same lines written by hand.",
   "entries": [
+    {
+      "path": "flake.nix",
+      "template": "flake/inputs.nix.j2",
+      "strategy": "sentinel",
+      "module": "dev-shell",
+      "block": "inputs",
+      "anchor": "nix-attrset inputs",
+      "claims": "nix-inputs",
+      "uses": ["dev-shell.odoo-nix-url"],
+      "phase": "a"
+    },
     {
       "path": ".envrc",
       "template": "envrc.j2",
@@ -9,6 +20,15 @@
       "header": "shell",
       "local_regions": ["envrc"],
       "phase": "a"
+    },
+    {
+      "path": ".gitignore",
+      "template": "gitignore/dev-shell.j2",
+      "strategy": "sentinel",
+      "module": "dev-shell",
+      "block": "dev-shell",
+      "anchor": "eof",
+      "absorb": true
     }
   ]
 }

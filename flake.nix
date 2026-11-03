@@ -133,14 +133,17 @@
       base = inputs.python-devops-nix.lib;
 
       # The repo's own Nix files, for `nix fmt` and checks.nix-lint alike:
-      # everything but templates/ (@PLACEHOLDERS@, not Nix that parses) and
-      # tests/fixtures/ (stand-ins for consumer projects).
+      # everything but templates/ (@PLACEHOLDERS@, not Nix that parses),
+      # tests/fixtures/ (stand-ins for consumer projects) and odoo-nix-tools'
+      # shapes (consumers' flake.nix files, kept byte for byte).
       nixLintIgnore = [
         "templates"
         "tests/fixtures"
+        "py/odoo_nix_tools/tests/shapes"
       ];
       nixFiles = pkgs: ''
         ${pkgs.findutils}/bin/find . \( -path ./templates -o -path ./tests/fixtures -o -path ./.git \
+          -o -path ./py/odoo_nix_tools/tests/shapes \
           -o -path ./.direnv -o -path ./.devenv -o -name result -o -name 'result-*' \) -prune \
           -o -name '*.nix' -type f -print0
       '';

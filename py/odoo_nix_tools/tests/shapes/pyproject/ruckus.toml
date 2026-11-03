@@ -1,0 +1,1237 @@
+[project]
+name = "odoo-ruckus"
+version = "0.1.0"
+description = "Odoo (OCB) + OCA project managed by odoo-nix"
+requires-python = ">=3.11"
+readme = "README.md"
+
+# Install roots: OCB `odoo` + the modules from modules.txt as odoo-addon-<name>.
+# This block is auto-generated from modules.txt by `odoo module add` /
+# `odoo module add-bundle` / `odoo project update` (lib/oca_sources.py) — do
+# not edit by hand.
+dependencies = [
+    # >>> odoo-nix: install set (managed from modules.txt) >>>
+    "odoo",
+    "odoo-addon-account_analytic_required",
+    "odoo-addon-account_asset_management",
+    "odoo-addon-account_chart_update",
+    "odoo-addon-account_financial_report",
+    "odoo-addon-account_journal_lock_date",
+    "odoo-addon-account_lock_date_update",
+    "odoo-addon-account_move_line_tax_editable",
+    "odoo-addon-account_reconcile_model_oca",
+    "odoo-addon-account_reconcile_oca",
+    "odoo-addon-account_statement_base",
+    "odoo-addon-account_usability",
+    "odoo-addon-auditlog",
+    "odoo-addon-base_name_search_improved",
+    "odoo-addon-base_search_mail_content",
+    "odoo-addon-currency_rate_update",
+    "odoo-addon-date_range",
+    "odoo-addon-date_range_account",
+    "odoo-addon-disable_odoo_online",
+    "odoo-addon-document_url",
+    "odoo-addon-mail_debrand",
+    "odoo-addon-mail_tracking",
+    "odoo-addon-mis_builder",
+    "odoo-addon-mis_builder_budget",
+    "odoo-addon-mis_builder_demo",
+    "odoo-addon-mrp_attachment_mgmt",
+    "odoo-addon-mrp_sale_info",
+    "odoo-addon-mrp_workorder_sequence",
+    "odoo-addon-partner_contact_access_link",
+    "odoo-addon-partner_firstname",
+    "odoo-addon-partner_statement",
+    "odoo-addon-partner_supplierinfo_smartbutton",
+    "odoo-addon-password_security",
+    "odoo-addon-portal_sale_order_search",
+    "odoo-addon-product_dimension",
+    "odoo-addon-product_supplier_code_purchase",
+    "odoo-addon-purchase_advance_payment",
+    "odoo-addon-purchase_cancel_reason",
+    "odoo-addon-purchase_commercial_partner",
+    "odoo-addon-purchase_default_terms_conditions",
+    "odoo-addon-purchase_last_price_info",
+    "odoo-addon-purchase_order_archive",
+    "odoo-addon-purchase_order_line_menu",
+    "odoo-addon-purchase_order_line_stock_available",
+    "odoo-addon-purchase_request",
+    "odoo-addon-purchase_tag",
+    "odoo-addon-queue_job",
+    "odoo-addon-remove_odoo_enterprise",
+    "odoo-addon-report_xlsx",
+    "odoo-addon-sale_cancel_reason",
+    "odoo-addon-sale_commercial_partner",
+    "odoo-addon-sale_delivery_state",
+    "odoo-addon-sale_fixed_discount",
+    "odoo-addon-sale_order_archive",
+    "odoo-addon-sale_order_line_delivery_state",
+    "odoo-addon-sale_order_line_input",
+    "odoo-addon-sale_order_line_menu",
+    "odoo-addon-sale_order_line_price_history",
+    "odoo-addon-sale_report_salesperson_from_partner",
+    "odoo-addon-sale_timesheet_line_exclude",
+    "odoo-addon-server_action_mass_edit",
+    "odoo-addon-web_dialog_size",
+    "odoo-addon-web_environment_ribbon",
+    "odoo-addon-web_favicon",
+    "odoo-addon-web_m2x_options",
+    "odoo-addon-web_no_bubble",
+    "odoo-addon-web_pivot_computed_measure",
+    "odoo-addon-web_refresher",
+    "odoo-addon-web_responsive",
+    "odoo-addon-web_search_with_and",
+    "odoo-addon-web_tree_many2one_clickable",
+    # <<< odoo-nix: install set <<<
+]
+
+[dependency-groups]
+# Development and test tooling. Resolved into the dev env only (python.nix
+# passes `workspace.deps.groups` to devPythonEnv and not to odooPythonEnv), so
+# none of this ships in a production image.
+#
+# Hand-edited on purpose: unlike [project].dependencies and [tool.uv.sources]
+# above, this block is not managed by oca_sources.py, so `odoo project update`
+# leaves it alone.
+dev = [
+    "debugpy",
+    "ruff",
+    # Odoo's --dev=reload watcher is a no-op unless it can import a filesystem
+    # watcher, and Odoo declares neither. watchdog rather than the `inotify`
+    # package (which Odoo would prefer if both were present): inotify is
+    # unmaintained and its watcher loop polls with timeout_s=0.
+    "watchdog",
+    # The two test dependencies Odoo needs but does not declare. Both live in
+    # OCB's tests_require, which uv does not install, so nothing pulls them in.
+    #
+    # freezegun: odoo.tests.common imports it unconditionally -- without it no
+    # Odoo test runs at all, which at least fails loudly.
+    "freezegun",
+    # websocket-client: Odoo drives headless Chrome over the devtools protocol
+    # for HttpCase browser tours and imports `websocket` to do it. This one
+    # fails quietly -- a missing import makes Odoo *skip* every tour, and the
+    # summary line reports a skip exactly like a pass. See the odoo-test script.
+    "websocket-client",
+]
+
+[tool.uv]
+# Single virtual project; the modules load via addons_path, but each is declared
+# as an editable path source below so uv resolves the full dependency graph
+# (every module's external_dependencies.python + Odoo's own requirements).
+package = false
+
+# gevent < 23.7 -- including 22.10.2, Odoo 18's own pin for Python 3.11 --
+# imports pkg_resources, and setuptools >= 81 no longer ships it, so the
+# `odoo-bin gevent` websocket worker dies at import while the dev shell
+# (workers = 0, websockets in-process) never notices. A fresh lock resolves a
+# current gevent and pulls in no setuptools at all, so this is inert until
+# something pins gevent back; it then keeps a working setuptools alongside.
+#
+# reportlab: OCB's setup.py leaves it unpinned, so uv resolves 5.x, whose
+# renderPM needs the separate rlPyCairo backend. Without it every report with a
+# barcode (e.g. the manufacturing order) fails to print. Match OCB's
+# requirements.txt pin for Python 3.11, which bundles its own renderPM.
+constraint-dependencies = ["setuptools<81", "reportlab==3.6.12"]
+
+# Editable path sources for OCB `odoo` + every local OCA/custom module. Modules
+# are modern whool packages whose metadata declares their deps; uv reads them.
+# Auto-generated (lib/oca_sources.py) — do not edit by hand.
+[tool.uv.sources]
+# >>> odoo-nix: module sources (managed) >>>
+    odoo = { path = "odoo" }
+    "odoo-addon-account_analytic_distribution_manual" = { path = "modules/account-analytic/account_analytic_distribution_manual", editable = true }
+    "odoo-addon-account_analytic_line_commercial_partner" = { path = "modules/account-analytic/account_analytic_line_commercial_partner", editable = true }
+    "odoo-addon-account_analytic_maintenance" = { path = "modules/account-analytic/account_analytic_maintenance", editable = true }
+    "odoo-addon-account_analytic_organization" = { path = "modules/account-analytic/account_analytic_organization", editable = true }
+    "odoo-addon-account_analytic_parent" = { path = "modules/account-analytic/account_analytic_parent", editable = true }
+    "odoo-addon-account_analytic_parent_plan_restrict" = { path = "modules/account-analytic/account_analytic_parent_plan_restrict", editable = true }
+    "odoo-addon-account_analytic_required" = { path = "modules/account-analytic/account_analytic_required", editable = true }
+    "odoo-addon-account_analytic_sequence" = { path = "modules/account-analytic/account_analytic_sequence", editable = true }
+    "odoo-addon-account_analytic_spread_by_tag" = { path = "modules/account-analytic/account_analytic_spread_by_tag", editable = true }
+    "odoo-addon-account_analytic_tag" = { path = "modules/account-analytic/account_analytic_tag", editable = true }
+    "odoo-addon-account_asset_compute_batch" = { path = "modules/account-financial-tools/account_asset_compute_batch", editable = true }
+    "odoo-addon-account_asset_force_account" = { path = "modules/account-financial-tools/account_asset_force_account", editable = true }
+    "odoo-addon-account_asset_low_value" = { path = "modules/account-financial-tools/account_asset_low_value", editable = true }
+    "odoo-addon-account_asset_management" = { path = "modules/account-financial-tools/account_asset_management", editable = true }
+    "odoo-addon-account_asset_number" = { path = "modules/account-financial-tools/account_asset_number", editable = true }
+    "odoo-addon-account_asset_transfer" = { path = "modules/account-financial-tools/account_asset_transfer", editable = true }
+    "odoo-addon-account_billing" = { path = "modules/account-invoicing/account_billing", editable = true }
+    "odoo-addon-account_cash_deposit" = { path = "modules/account-financial-tools/account_cash_deposit", editable = true }
+    "odoo-addon-account_chart_update" = { path = "modules/account-financial-tools/account_chart_update", editable = true }
+    "odoo-addon-account_chart_update_code_digits" = { path = "modules/account-financial-tools/account_chart_update_code_digits", editable = true }
+    "odoo-addon-account_chart_update_l10n_eu_oss_oca" = { path = "modules/account-financial-tools/account_chart_update_l10n_eu_oss_oca", editable = true }
+    "odoo-addon-account_check_deposit" = { path = "modules/account-financial-tools/account_check_deposit", editable = true }
+    "odoo-addon-account_dashboard_banner" = { path = "modules/account-financial-tools/account_dashboard_banner", editable = true }
+    "odoo-addon-account_dashboard_banner_mis_builder" = { path = "modules/account-financial-tools/account_dashboard_banner_mis_builder", editable = true }
+    "odoo-addon-account_financial_report" = { path = "modules/account-financial-reporting/account_financial_report", editable = true }
+    "odoo-addon-account_financial_report_sale" = { path = "modules/account-financial-reporting/account_financial_report_sale", editable = true }
+    "odoo-addon-account_fiscal_month" = { path = "modules/account-financial-tools/account_fiscal_month", editable = true }
+    "odoo-addon-account_fiscal_position_vat_check" = { path = "modules/account-financial-tools/account_fiscal_position_vat_check", editable = true }
+    "odoo-addon-account_fiscal_year" = { path = "modules/account-financial-tools/account_fiscal_year", editable = true }
+    "odoo-addon-account_fiscal_year_auto_create" = { path = "modules/account-financial-tools/account_fiscal_year_auto_create", editable = true }
+    "odoo-addon-account_global_discount" = { path = "modules/account-invoicing/account_global_discount", editable = true }
+    "odoo-addon-account_in_payment" = { path = "modules/account-reconcile/account_in_payment", editable = true }
+    "odoo-addon-account_invoice_advance_compensation" = { path = "modules/account-invoicing/account_invoice_advance_compensation", editable = true }
+    "odoo-addon-account_invoice_auto_send_by_email" = { path = "modules/account-invoicing/account_invoice_auto_send_by_email", editable = true }
+    "odoo-addon-account_invoice_check_picking_date" = { path = "modules/account-invoicing/account_invoice_check_picking_date", editable = true }
+    "odoo-addon-account_invoice_check_total" = { path = "modules/account-invoicing/account_invoice_check_total", editable = true }
+    "odoo-addon-account_invoice_clearing" = { path = "modules/account-invoicing/account_invoice_clearing", editable = true }
+    "odoo-addon-account_invoice_constraint_chronology" = { path = "modules/account-financial-tools/account_invoice_constraint_chronology", editable = true }
+    "odoo-addon-account_invoice_crm_tag" = { path = "modules/account-invoicing/account_invoice_crm_tag", editable = true }
+    "odoo-addon-account_invoice_currency_by_partner" = { path = "modules/account-invoicing/account_invoice_currency_by_partner", editable = true }
+    "odoo-addon-account_invoice_custom_rounding" = { path = "modules/account-invoicing/account_invoice_custom_rounding", editable = true }
+    "odoo-addon-account_invoice_date_due" = { path = "modules/account-invoicing/account_invoice_date_due", editable = true }
+    "odoo-addon-account_invoice_default_code_column" = { path = "modules/account-invoicing/account_invoice_default_code_column", editable = true }
+    "odoo-addon-account_invoice_discount_date" = { path = "modules/account-invoicing/account_invoice_discount_date", editable = true }
+    "odoo-addon-account_invoice_discount_display_amount" = { path = "modules/account-invoicing/account_invoice_discount_display_amount", editable = true }
+    "odoo-addon-account_invoice_fiscal_position_update" = { path = "modules/account-invoicing/account_invoice_fiscal_position_update", editable = true }
+    "odoo-addon-account_invoice_fixed_discount" = { path = "modules/account-invoicing/account_invoice_fixed_discount", editable = true }
+    "odoo-addon-account_invoice_line_sequence" = { path = "modules/account-invoicing/account_invoice_line_sequence", editable = true }
+    "odoo-addon-account_invoice_merge" = { path = "modules/account-invoicing/account_invoice_merge", editable = true }
+    "odoo-addon-account_invoice_payment_term_date_due" = { path = "modules/account-invoicing/account_invoice_payment_term_date_due", editable = true }
+    "odoo-addon-account_invoice_pricelist" = { path = "modules/account-invoicing/account_invoice_pricelist", editable = true }
+    "odoo-addon-account_invoice_pricelist_sale" = { path = "modules/account-invoicing/account_invoice_pricelist_sale", editable = true }
+    "odoo-addon-account_invoice_refund_line_selection" = { path = "modules/account-invoicing/account_invoice_refund_line_selection", editable = true }
+    "odoo-addon-account_invoice_refund_link" = { path = "modules/account-invoicing/account_invoice_refund_link", editable = true }
+    "odoo-addon-account_invoice_refund_link_sale" = { path = "modules/account-invoicing/account_invoice_refund_link_sale", editable = true }
+    "odoo-addon-account_invoice_refund_reason" = { path = "modules/account-invoicing/account_invoice_refund_reason", editable = true }
+    "odoo-addon-account_invoice_section_sale_order" = { path = "modules/account-invoicing/account_invoice_section_sale_order", editable = true }
+    "odoo-addon-account_invoice_send_template" = { path = "modules/account-invoicing/account_invoice_send_template", editable = true }
+    "odoo-addon-account_invoice_show_currency_rate" = { path = "modules/account-invoicing/account_invoice_show_currency_rate", editable = true }
+    "odoo-addon-account_invoice_subscription_per_contact" = { path = "modules/account-invoicing/account_invoice_subscription_per_contact", editable = true }
+    "odoo-addon-account_invoice_supplier_ref_unique" = { path = "modules/account-invoicing/account_invoice_supplier_ref_unique", editable = true }
+    "odoo-addon-account_invoice_supplierinfo_update" = { path = "modules/account-invoicing/account_invoice_supplierinfo_update", editable = true }
+    "odoo-addon-account_invoice_tax_note" = { path = "modules/account-invoicing/account_invoice_tax_note", editable = true }
+    "odoo-addon-account_invoice_tax_required" = { path = "modules/account-invoicing/account_invoice_tax_required", editable = true }
+    "odoo-addon-account_invoice_transmit_method" = { path = "modules/account-invoicing/account_invoice_transmit_method", editable = true }
+    "odoo-addon-account_invoice_transmit_method_substitution_rule" = { path = "modules/account-invoicing/account_invoice_transmit_method_substitution_rule", editable = true }
+    "odoo-addon-account_invoice_tree_currency" = { path = "modules/account-invoicing/account_invoice_tree_currency", editable = true }
+    "odoo-addon-account_invoice_triple_discount" = { path = "modules/account-invoicing/account_invoice_triple_discount", editable = true }
+    "odoo-addon-account_invoice_warn_message" = { path = "modules/account-invoicing/account_invoice_warn_message", editable = true }
+    "odoo-addon-account_journal_general_sequence" = { path = "modules/account-financial-tools/account_journal_general_sequence", editable = true }
+    "odoo-addon-account_journal_lock_date" = { path = "modules/account-financial-tools/account_journal_lock_date", editable = true }
+    "odoo-addon-account_journal_restrict_mode" = { path = "modules/account-financial-tools/account_journal_restrict_mode", editable = true }
+    "odoo-addon-account_loan" = { path = "modules/account-financial-tools/account_loan", editable = true }
+    "odoo-addon-account_lock_date_update" = { path = "modules/account-financial-tools/account_lock_date_update", editable = true }
+    "odoo-addon-account_lock_to_date" = { path = "modules/account-financial-tools/account_lock_to_date", editable = true }
+    "odoo-addon-account_mail_autosubscribe" = { path = "modules/account-invoicing/account_mail_autosubscribe", editable = true }
+    "odoo-addon-account_manual_currency" = { path = "modules/account-invoicing/account_manual_currency", editable = true }
+    "odoo-addon-account_mass_reconcile" = { path = "modules/account-reconcile/account_mass_reconcile", editable = true }
+    "odoo-addon-account_maturity_date_default" = { path = "modules/account-financial-tools/account_maturity_date_default", editable = true }
+    "odoo-addon-account_menu_invoice_refund" = { path = "modules/account-invoicing/account_menu_invoice_refund", editable = true }
+    "odoo-addon-account_move_analytic_link" = { path = "modules/account-analytic/account_move_analytic_link", editable = true }
+    "odoo-addon-account_move_auto_post_ref" = { path = "modules/account-invoicing/account_move_auto_post_ref", editable = true }
+    "odoo-addon-account_move_base_import" = { path = "modules/account-reconcile/account_move_base_import", editable = true }
+    "odoo-addon-account_move_cancel_confirm" = { path = "modules/account-invoicing/account_move_cancel_confirm", editable = true }
+    "odoo-addon-account_move_fiscal_year" = { path = "modules/account-financial-tools/account_move_fiscal_year", editable = true }
+    "odoo-addon-account_move_line_cumulated_balance" = { path = "modules/account-financial-reporting/account_move_line_cumulated_balance", editable = true }
+    "odoo-addon-account_move_line_mrp_info" = { path = "modules/manufacture/account_move_line_mrp_info", editable = true }
+    "odoo-addon-account_move_line_purchase_info" = { path = "modules/account-financial-tools/account_move_line_purchase_info", editable = true }
+    "odoo-addon-account_move_line_report_xls" = { path = "modules/account-financial-reporting/account_move_line_report_xls", editable = true }
+    "odoo-addon-account_move_line_sale_info" = { path = "modules/account-financial-tools/account_move_line_sale_info", editable = true }
+    "odoo-addon-account_move_line_tax_editable" = { path = "modules/account-financial-tools/account_move_line_tax_editable", editable = true }
+    "odoo-addon-account_move_name_sequence" = { path = "modules/account-financial-tools/account_move_name_sequence", editable = true }
+    "odoo-addon-account_move_pivot_view" = { path = "modules/account-invoicing/account_move_pivot_view", editable = true }
+    "odoo-addon-account_move_post_date_user" = { path = "modules/account-financial-tools/account_move_post_date_user", editable = true }
+    "odoo-addon-account_move_print" = { path = "modules/account-financial-tools/account_move_print", editable = true }
+    "odoo-addon-account_move_reconcile_forbid_cancel" = { path = "modules/account-reconcile/account_move_reconcile_forbid_cancel", editable = true }
+    "odoo-addon-account_move_reconcile_helper" = { path = "modules/account-reconcile/account_move_reconcile_helper", editable = true }
+    "odoo-addon-account_move_so_import" = { path = "modules/account-reconcile/account_move_so_import", editable = true }
+    "odoo-addon-account_move_template" = { path = "modules/account-financial-tools/account_move_template", editable = true }
+    "odoo-addon-account_move_tier_validation" = { path = "modules/account-invoicing/account_move_tier_validation", editable = true }
+    "odoo-addon-account_move_tier_validation_approver" = { path = "modules/account-invoicing/account_move_tier_validation_approver", editable = true }
+    "odoo-addon-account_move_update_analytic" = { path = "modules/account-analytic/account_move_update_analytic", editable = true }
+    "odoo-addon-account_netting" = { path = "modules/account-financial-tools/account_netting", editable = true }
+    "odoo-addon-account_partner_company_group" = { path = "modules/partner-contact/account_partner_company_group", editable = true }
+    "odoo-addon-account_partner_reconcile" = { path = "modules/account-reconcile/account_partner_reconcile", editable = true }
+    "odoo-addon-account_partner_required" = { path = "modules/account-financial-tools/account_partner_required", editable = true }
+    "odoo-addon-account_payment_state_keep_draft" = { path = "modules/account-invoicing/account_payment_state_keep_draft", editable = true }
+    "odoo-addon-account_payroll_sheet_import" = { path = "modules/account-financial-tools/account_payroll_sheet_import", editable = true }
+    "odoo-addon-account_portal_invoice_search" = { path = "modules/account-invoicing/account_portal_invoice_search", editable = true }
+    "odoo-addon-account_receipt_journal" = { path = "modules/account-invoicing/account_receipt_journal", editable = true }
+    "odoo-addon-account_receipt_send" = { path = "modules/account-invoicing/account_receipt_send", editable = true }
+    "odoo-addon-account_reconcile_analytic_tag" = { path = "modules/account-reconcile/account_reconcile_analytic_tag", editable = true }
+    "odoo-addon-account_reconcile_due_date" = { path = "modules/account-reconcile/account_reconcile_due_date", editable = true }
+    "odoo-addon-account_reconcile_model_oca" = { path = "modules/account-reconcile/account_reconcile_model_oca", editable = true }
+    "odoo-addon-account_reconcile_oca" = { path = "modules/account-reconcile/account_reconcile_oca", editable = true }
+    "odoo-addon-account_reconcile_oca_add_default_filters" = { path = "modules/account-reconcile/account_reconcile_oca_add_default_filters", editable = true }
+    "odoo-addon-account_reconcile_oca_queue" = { path = "modules/account-reconcile/account_reconcile_oca_queue", editable = true }
+    "odoo-addon-account_reconcile_restrict_partner_mismatch" = { path = "modules/account-reconcile/account_reconcile_restrict_partner_mismatch", editable = true }
+    "odoo-addon-account_reconcile_sale_order" = { path = "modules/account-reconcile/account_reconcile_sale_order", editable = true }
+    "odoo-addon-account_reconcile_wizard" = { path = "modules/account-reconcile/account_reconcile_wizard", editable = true }
+    "odoo-addon-account_sequence_option" = { path = "modules/account-financial-tools/account_sequence_option", editable = true }
+    "odoo-addon-account_spread_cost_revenue" = { path = "modules/account-financial-tools/account_spread_cost_revenue", editable = true }
+    "odoo-addon-account_statement_base" = { path = "modules/account-reconcile/account_statement_base", editable = true }
+    "odoo-addon-account_statement_reconcile_status" = { path = "modules/account-reconcile/account_statement_reconcile_status", editable = true }
+    "odoo-addon-account_tax_balance" = { path = "modules/account-financial-reporting/account_tax_balance", editable = true }
+    "odoo-addon-account_tax_group_widget_base_amount" = { path = "modules/account-invoicing/account_tax_group_widget_base_amount", editable = true }
+    "odoo-addon-account_tax_legal_notes_translate" = { path = "modules/account-invoicing/account_tax_legal_notes_translate", editable = true }
+    "odoo-addon-account_tax_one_vat" = { path = "modules/account-invoicing/account_tax_one_vat", editable = true }
+    "odoo-addon-account_tax_one_vat_purchase" = { path = "modules/account-invoicing/account_tax_one_vat_purchase", editable = true }
+    "odoo-addon-account_tax_one_vat_sale" = { path = "modules/account-invoicing/account_tax_one_vat_sale", editable = true }
+    "odoo-addon-account_usability" = { path = "modules/account-financial-tools/account_usability", editable = true }
+    "odoo-addon-account_warn_option" = { path = "modules/account-invoicing/account_warn_option", editable = true }
+    "odoo-addon-analytic_amount_security" = { path = "modules/account-analytic/analytic_amount_security", editable = true }
+    "odoo-addon-analytic_base_department" = { path = "modules/account-analytic/analytic_base_department", editable = true }
+    "odoo-addon-analytic_hr_department_restriction" = { path = "modules/account-analytic/analytic_hr_department_restriction", editable = true }
+    "odoo-addon-analytic_partner" = { path = "modules/account-analytic/analytic_partner", editable = true }
+    "odoo-addon-animal" = { path = "modules/partner-contact/animal", editable = true }
+    "odoo-addon-announcement" = { path = "modules/server-ux/announcement", editable = true }
+    "odoo-addon-attachment_delete_restrict" = { path = "modules/server-tools/attachment_delete_restrict", editable = true }
+    "odoo-addon-attachment_preview" = { path = "modules/knowledge/attachment_preview", editable = true }
+    "odoo-addon-attachment_queue" = { path = "modules/server-tools/attachment_queue", editable = true }
+    "odoo-addon-attachment_queue_email" = { path = "modules/server-tools/attachment_queue_email", editable = true }
+    "odoo-addon-attachment_synchronize" = { path = "modules/server-tools/attachment_synchronize", editable = true }
+    "odoo-addon-attachment_unindex_content" = { path = "modules/server-tools/attachment_unindex_content", editable = true }
+    "odoo-addon-attachment_zipped_download" = { path = "modules/knowledge/attachment_zipped_download", editable = true }
+    "odoo-addon-auditlog" = { path = "modules/server-tools/auditlog", editable = true }
+    "odoo-addon-auth_admin_passkey" = { path = "modules/server-auth/auth_admin_passkey", editable = true }
+    "odoo-addon-auth_api_key" = { path = "modules/server-auth/auth_api_key", editable = true }
+    "odoo-addon-auth_api_key_group" = { path = "modules/server-auth/auth_api_key_group", editable = true }
+    "odoo-addon-auth_api_key_server_env" = { path = "modules/server-auth/auth_api_key_server_env", editable = true }
+    "odoo-addon-auth_jwt" = { path = "modules/server-auth/auth_jwt", editable = true }
+    "odoo-addon-auth_jwt_demo" = { path = "modules/server-auth/auth_jwt_demo", editable = true }
+    "odoo-addon-auth_oauth_filter_by_domain" = { path = "modules/server-auth/auth_oauth_filter_by_domain", editable = true }
+    "odoo-addon-auth_oauth_login_field" = { path = "modules/server-auth/auth_oauth_login_field", editable = true }
+    "odoo-addon-auth_oauth_multi_token" = { path = "modules/server-auth/auth_oauth_multi_token", editable = true }
+    "odoo-addon-auth_oidc" = { path = "modules/server-auth/auth_oidc", editable = true }
+    "odoo-addon-auth_oidc_environment" = { path = "modules/server-auth/auth_oidc_environment", editable = true }
+    "odoo-addon-auth_saml" = { path = "modules/server-auth/auth_saml", editable = true }
+    "odoo-addon-auth_session_timeout" = { path = "modules/server-auth/auth_session_timeout", editable = true }
+    "odoo-addon-auth_signup_verify_email" = { path = "modules/server-auth/auth_signup_verify_email", editable = true }
+    "odoo-addon-auth_totp_enforce" = { path = "modules/server-auth/auth_totp_enforce", editable = true }
+    "odoo-addon-auth_user_case_insensitive" = { path = "modules/server-auth/auth_user_case_insensitive", editable = true }
+    "odoo-addon-auto_backup" = { path = "modules/server-tools/auto_backup", editable = true }
+    "odoo-addon-autovacuum_message_attachment" = { path = "modules/server-tools/autovacuum_message_attachment", editable = true }
+    "odoo-addon-barcode_action" = { path = "modules/server-ux/barcode_action", editable = true }
+    "odoo-addon-base_cancel_confirm" = { path = "modules/server-ux/base_cancel_confirm", editable = true }
+    "odoo-addon-base_comment_template" = { path = "modules/reporting-engine/base_comment_template", editable = true }
+    "odoo-addon-base_conditional_image" = { path = "modules/server-tools/base_conditional_image", editable = true }
+    "odoo-addon-base_country_state_translatable" = { path = "modules/partner-contact/base_country_state_translatable", editable = true }
+    "odoo-addon-base_cron_exclusion" = { path = "modules/server-tools/base_cron_exclusion", editable = true }
+    "odoo-addon-base_custom_filter" = { path = "modules/server-ux/base_custom_filter", editable = true }
+    "odoo-addon-base_exception" = { path = "modules/server-tools/base_exception", editable = true }
+    "odoo-addon-base_export_manager" = { path = "modules/server-ux/base_export_manager", editable = true }
+    "odoo-addon-base_fontawesome" = { path = "modules/server-tools/base_fontawesome", editable = true }
+    "odoo-addon-base_fontawesome_web_editor" = { path = "modules/server-tools/base_fontawesome_web_editor", editable = true }
+    "odoo-addon-base_force_record_noupdate" = { path = "modules/server-tools/base_force_record_noupdate", editable = true }
+    "odoo-addon-base_group_subcontractor" = { path = "modules/server-auth/base_group_subcontractor", editable = true }
+    "odoo-addon-base_import_async" = { path = "modules/queue/base_import_async", editable = true }
+    "odoo-addon-base_import_security_group" = { path = "modules/server-ux/base_import_security_group", editable = true }
+    "odoo-addon-base_location" = { path = "modules/partner-contact/base_location", editable = true }
+    "odoo-addon-base_location_geonames_import" = { path = "modules/partner-contact/base_location_geonames_import", editable = true }
+    "odoo-addon-base_location_nuts" = { path = "modules/partner-contact/base_location_nuts", editable = true }
+    "odoo-addon-base_m2m_custom_field" = { path = "modules/server-tools/base_m2m_custom_field", editable = true }
+    "odoo-addon-base_menu_visibility_restriction" = { path = "modules/server-ux/base_menu_visibility_restriction", editable = true }
+    "odoo-addon-base_model_restrict_update" = { path = "modules/server-tools/base_model_restrict_update", editable = true }
+    "odoo-addon-base_multi_image" = { path = "modules/server-tools/base_multi_image", editable = true }
+    "odoo-addon-base_name_search_improved" = { path = "modules/server-tools/base_name_search_improved", editable = true }
+    "odoo-addon-base_optional_quick_create" = { path = "modules/server-ux/base_optional_quick_create", editable = true }
+    "odoo-addon-base_partition" = { path = "modules/server-tools/base_partition", editable = true }
+    "odoo-addon-base_partner_company_group" = { path = "modules/partner-contact/base_partner_company_group", editable = true }
+    "odoo-addon-base_partner_merge_user_consolidation" = { path = "modules/partner-contact/base_partner_merge_user_consolidation", editable = true }
+    "odoo-addon-base_partner_sequence" = { path = "modules/partner-contact/base_partner_sequence", editable = true }
+    "odoo-addon-base_remote" = { path = "modules/server-tools/base_remote", editable = true }
+    "odoo-addon-base_revision" = { path = "modules/server-ux/base_revision", editable = true }
+    "odoo-addon-base_search_custom_field_filter" = { path = "modules/server-ux/base_search_custom_field_filter", editable = true }
+    "odoo-addon-base_search_fuzzy" = { path = "modules/server-tools/base_search_fuzzy", editable = true }
+    "odoo-addon-base_search_mail_content" = { path = "modules/mail/base_search_mail_content", editable = true }
+    "odoo-addon-base_sequence_option" = { path = "modules/server-tools/base_sequence_option", editable = true }
+    "odoo-addon-base_sparse_field_list_support" = { path = "modules/server-tools/base_sparse_field_list_support", editable = true }
+    "odoo-addon-base_substate" = { path = "modules/server-ux/base_substate", editable = true }
+    "odoo-addon-base_technical_features" = { path = "modules/server-ux/base_technical_features", editable = true }
+    "odoo-addon-base_technical_user" = { path = "modules/server-tools/base_technical_user", editable = true }
+    "odoo-addon-base_temporary_action" = { path = "modules/server-tools/base_temporary_action", editable = true }
+    "odoo-addon-base_tier_validation" = { path = "modules/server-ux/base_tier_validation", editable = true }
+    "odoo-addon-base_tier_validation_confirm_auth" = { path = "modules/server-ux/base_tier_validation_confirm_auth", editable = true }
+    "odoo-addon-base_tier_validation_correction" = { path = "modules/server-ux/base_tier_validation_correction", editable = true }
+    "odoo-addon-base_tier_validation_formula" = { path = "modules/server-ux/base_tier_validation_formula", editable = true }
+    "odoo-addon-base_tier_validation_forward" = { path = "modules/server-ux/base_tier_validation_forward", editable = true }
+    "odoo-addon-base_tier_validation_server_action" = { path = "modules/server-ux/base_tier_validation_server_action", editable = true }
+    "odoo-addon-base_time_parameter" = { path = "modules/server-tools/base_time_parameter", editable = true }
+    "odoo-addon-base_time_window" = { path = "modules/server-tools/base_time_window", editable = true }
+    "odoo-addon-base_transaction_id" = { path = "modules/account-reconcile/base_transaction_id", editable = true }
+    "odoo-addon-base_url" = { path = "modules/server-tools/base_url", editable = true }
+    "odoo-addon-base_user_empty_password" = { path = "modules/server-auth/base_user_empty_password", editable = true }
+    "odoo-addon-base_user_locale" = { path = "modules/server-ux/base_user_locale", editable = true }
+    "odoo-addon-base_user_show_email" = { path = "modules/server-auth/base_user_show_email", editable = true }
+    "odoo-addon-base_user_signature" = { path = "modules/mail/base_user_signature", editable = true }
+    "odoo-addon-base_view_inheritance_extension" = { path = "modules/server-tools/base_view_inheritance_extension", editable = true }
+    "odoo-addon-base_warn_option" = { path = "modules/server-ux/base_warn_option", editable = true }
+    "odoo-addon-bi_sql_editor" = { path = "modules/reporting-engine/bi_sql_editor", editable = true }
+    "odoo-addon-bus_alt_connection" = { path = "modules/server-tools/bus_alt_connection", editable = true }
+    "odoo-addon-chained_swapper" = { path = "modules/server-ux/chained_swapper", editable = true }
+    "odoo-addon-crm_partner_company_group" = { path = "modules/partner-contact/crm_partner_company_group", editable = true }
+    "odoo-addon-crm_timesheet" = { path = "modules/timesheet/crm_timesheet", editable = true }
+    "odoo-addon-cross_connect_client" = { path = "modules/server-auth/cross_connect_client", editable = true }
+    "odoo-addon-cross_connect_server" = { path = "modules/server-auth/cross_connect_server", editable = true }
+    "odoo-addon-currency_old_rate_notify" = { path = "modules/currency/currency_old_rate_notify", editable = true }
+    "odoo-addon-currency_rate_update" = { path = "modules/currency/currency_rate_update", editable = true }
+    "odoo-addon-currency_rate_update_xe" = { path = "modules/currency/currency_rate_update_xe", editable = true }
+    "odoo-addon-database_autovacuum_tuning" = { path = "modules/server-tools/database_autovacuum_tuning", editable = true }
+    "odoo-addon-database_cleanup" = { path = "modules/server-tools/database_cleanup", editable = true }
+    "odoo-addon-database_size" = { path = "modules/server-tools/database_size", editable = true }
+    "odoo-addon-date_range" = { path = "modules/server-ux/date_range", editable = true }
+    "odoo-addon-date_range_account" = { path = "modules/server-ux/date_range_account", editable = true }
+    "odoo-addon-dbfilter_from_header" = { path = "modules/server-tools/dbfilter_from_header", editable = true }
+    "odoo-addon-default_multi_user" = { path = "modules/server-ux/default_multi_user", editable = true }
+    "odoo-addon-developer_menu" = { path = "modules/server-ux/developer_menu", editable = true }
+    "odoo-addon-disable_odoo_online" = { path = "modules/server-brand/disable_odoo_online", editable = true }
+    "odoo-addon-document_knowledge" = { path = "modules/knowledge/document_knowledge", editable = true }
+    "odoo-addon-document_page" = { path = "modules/knowledge/document_page", editable = true }
+    "odoo-addon-document_page_access_group" = { path = "modules/knowledge/document_page_access_group", editable = true }
+    "odoo-addon-document_page_access_group_user_role" = { path = "modules/knowledge/document_page_access_group_user_role", editable = true }
+    "odoo-addon-document_page_approval" = { path = "modules/knowledge/document_page_approval", editable = true }
+    "odoo-addon-document_page_group" = { path = "modules/knowledge/document_page_group", editable = true }
+    "odoo-addon-document_page_partner" = { path = "modules/knowledge/document_page_partner", editable = true }
+    "odoo-addon-document_page_product" = { path = "modules/knowledge/document_page_product", editable = true }
+    "odoo-addon-document_page_project" = { path = "modules/knowledge/document_page_project", editable = true }
+    "odoo-addon-document_page_project_task" = { path = "modules/knowledge/document_page_project_task", editable = true }
+    "odoo-addon-document_page_reference" = { path = "modules/knowledge/document_page_reference", editable = true }
+    "odoo-addon-document_page_tag" = { path = "modules/knowledge/document_page_tag", editable = true }
+    "odoo-addon-document_quick_access" = { path = "modules/server-ux/document_quick_access", editable = true }
+    "odoo-addon-document_quick_access_folder_auto_classification" = { path = "modules/server-ux/document_quick_access_folder_auto_classification", editable = true }
+    "odoo-addon-document_url" = { path = "modules/knowledge/document_url", editable = true }
+    "odoo-addon-excel_import_export" = { path = "modules/server-tools/excel_import_export", editable = true }
+    "odoo-addon-fetchmail_attach_from_folder" = { path = "modules/server-tools/fetchmail_attach_from_folder", editable = true }
+    "odoo-addon-fetchmail_incoming_test" = { path = "modules/mail/fetchmail_incoming_test", editable = true }
+    "odoo-addon-fetchmail_notify_error_to_sender" = { path = "modules/server-tools/fetchmail_notify_error_to_sender", editable = true }
+    "odoo-addon-field_vector" = { path = "modules/server-tools/field_vector", editable = true }
+    "odoo-addon-filter_multi_user" = { path = "modules/server-ux/filter_multi_user", editable = true }
+    "odoo-addon-hr_employee_cost_history" = { path = "modules/timesheet/hr_employee_cost_history", editable = true }
+    "odoo-addon-hr_expense_analytic_tag" = { path = "modules/account-analytic/hr_expense_analytic_tag", editable = true }
+    "odoo-addon-hr_timesheet_amount_security" = { path = "modules/timesheet/hr_timesheet_amount_security", editable = true }
+    "odoo-addon-hr_timesheet_analytic_tag" = { path = "modules/account-analytic/hr_timesheet_analytic_tag", editable = true }
+    "odoo-addon-hr_timesheet_autofill_project_off" = { path = "modules/timesheet/hr_timesheet_autofill_project_off", editable = true }
+    "odoo-addon-hr_timesheet_begin_end" = { path = "modules/timesheet/hr_timesheet_begin_end", editable = true }
+    "odoo-addon-hr_timesheet_calendar" = { path = "modules/timesheet/hr_timesheet_calendar", editable = true }
+    "odoo-addon-hr_timesheet_date_order_desc" = { path = "modules/timesheet/hr_timesheet_date_order_desc", editable = true }
+    "odoo-addon-hr_timesheet_day_week" = { path = "modules/timesheet/hr_timesheet_day_week", editable = true }
+    "odoo-addon-hr_timesheet_editable_top" = { path = "modules/timesheet/hr_timesheet_editable_top", editable = true }
+    "odoo-addon-hr_timesheet_employee_analytic_tag" = { path = "modules/timesheet/hr_timesheet_employee_analytic_tag", editable = true }
+    "odoo-addon-hr_timesheet_name_customer" = { path = "modules/timesheet/hr_timesheet_name_customer", editable = true }
+    "odoo-addon-hr_timesheet_portal" = { path = "modules/timesheet/hr_timesheet_portal", editable = true }
+    "odoo-addon-hr_timesheet_report" = { path = "modules/timesheet/hr_timesheet_report", editable = true }
+    "odoo-addon-hr_timesheet_sheet" = { path = "modules/timesheet/hr_timesheet_sheet", editable = true }
+    "odoo-addon-hr_timesheet_sheet_attendance" = { path = "modules/timesheet/hr_timesheet_sheet_attendance", editable = true }
+    "odoo-addon-hr_timesheet_sheet_autodraft" = { path = "modules/timesheet/hr_timesheet_sheet_autodraft", editable = true }
+    "odoo-addon-hr_timesheet_sheet_policy_department_manager" = { path = "modules/timesheet/hr_timesheet_sheet_policy_department_manager", editable = true }
+    "odoo-addon-hr_timesheet_sheet_policy_project_manager" = { path = "modules/timesheet/hr_timesheet_sheet_policy_project_manager", editable = true }
+    "odoo-addon-hr_timesheet_sheet_warning" = { path = "modules/timesheet/hr_timesheet_sheet_warning", editable = true }
+    "odoo-addon-hr_timesheet_task_domain" = { path = "modules/timesheet/hr_timesheet_task_domain", editable = true }
+    "odoo-addon-hr_timesheet_task_required" = { path = "modules/timesheet/hr_timesheet_task_required", editable = true }
+    "odoo-addon-hr_timesheet_task_stage" = { path = "modules/timesheet/hr_timesheet_task_stage", editable = true }
+    "odoo-addon-hr_timesheet_time_control_begin_end" = { path = "modules/timesheet/hr_timesheet_time_control_begin_end", editable = true }
+    "odoo-addon-hr_timesheet_time_type" = { path = "modules/timesheet/hr_timesheet_time_type", editable = true }
+    "odoo-addon-hr_timesheet_type_non_billable" = { path = "modules/timesheet/hr_timesheet_type_non_billable", editable = true }
+    "odoo-addon-hr_timesheet_unusual_days" = { path = "modules/timesheet/hr_timesheet_unusual_days", editable = true }
+    "odoo-addon-html_text" = { path = "modules/server-tools/html_text", editable = true }
+    "odoo-addon-iap_alternative_provider" = { path = "modules/server-tools/iap_alternative_provider", editable = true }
+    "odoo-addon-impersonate_login" = { path = "modules/server-auth/impersonate_login", editable = true }
+    "odoo-addon-jsonifier" = { path = "modules/server-tools/jsonifier", editable = true }
+    "odoo-addon-kpi" = { path = "modules/reporting-engine/kpi", editable = true }
+    "odoo-addon-mail_activity_board" = { path = "modules/mail/mail_activity_board", editable = true }
+    "odoo-addon-mail_activity_dashboard" = { path = "modules/mail/mail_activity_dashboard", editable = true }
+    "odoo-addon-mail_activity_done" = { path = "modules/mail/mail_activity_done", editable = true }
+    "odoo-addon-mail_activity_plan_domain" = { path = "modules/mail/mail_activity_plan_domain", editable = true }
+    "odoo-addon-mail_activity_reminder" = { path = "modules/mail/mail_activity_reminder", editable = true }
+    "odoo-addon-mail_activity_team" = { path = "modules/mail/mail_activity_team", editable = true }
+    "odoo-addon-mail_attach_existing_attachment" = { path = "modules/mail/mail_attach_existing_attachment", editable = true }
+    "odoo-addon-mail_attach_existing_attachment_account" = { path = "modules/mail/mail_attach_existing_attachment_account", editable = true }
+    "odoo-addon-mail_autogenerated_header" = { path = "modules/mail/mail_autogenerated_header", editable = true }
+    "odoo-addon-mail_autosubscribe" = { path = "modules/mail/mail_autosubscribe", editable = true }
+    "odoo-addon-mail_cleanup" = { path = "modules/server-tools/mail_cleanup", editable = true }
+    "odoo-addon-mail_composer_cc_bcc" = { path = "modules/mail/mail_composer_cc_bcc", editable = true }
+    "odoo-addon-mail_composer_cc_bcc_mail_tracking" = { path = "modules/mail/mail_composer_cc_bcc_mail_tracking", editable = true }
+    "odoo-addon-mail_debrand" = { path = "modules/mail/mail_debrand", editable = true }
+    "odoo-addon-mail_drop_target" = { path = "modules/mail/mail_drop_target", editable = true }
+    "odoo-addon-mail_extra_header" = { path = "modules/mail/mail_extra_header", editable = true }
+    "odoo-addon-mail_force_email_notification" = { path = "modules/mail/mail_force_email_notification", editable = true }
+    "odoo-addon-mail_forward" = { path = "modules/mail/mail_forward", editable = true }
+    "odoo-addon-mail_inline_css" = { path = "modules/mail/mail_inline_css", editable = true }
+    "odoo-addon-mail_layout_force" = { path = "modules/mail/mail_layout_force", editable = true }
+    "odoo-addon-mail_layout_preview" = { path = "modules/mail/mail_layout_preview", editable = true }
+    "odoo-addon-mail_message_destiny_link_template" = { path = "modules/server-ux/mail_message_destiny_link_template", editable = true }
+    "odoo-addon-mail_message_search" = { path = "modules/mail/mail_message_search", editable = true }
+    "odoo-addon-mail_no_user_assign_notification" = { path = "modules/mail/mail_no_user_assign_notification", editable = true }
+    "odoo-addon-mail_notification_clean_status_error" = { path = "modules/mail/mail_notification_clean_status_error", editable = true }
+    "odoo-addon-mail_notification_custom_subject" = { path = "modules/mail/mail_notification_custom_subject", editable = true }
+    "odoo-addon-mail_optional_autofollow" = { path = "modules/mail/mail_optional_autofollow", editable = true }
+    "odoo-addon-mail_optional_follower_notification" = { path = "modules/mail/mail_optional_follower_notification", editable = true }
+    "odoo-addon-mail_outbound_static" = { path = "modules/mail/mail_outbound_static", editable = true }
+    "odoo-addon-mail_partner_forwarding" = { path = "modules/mail/mail_partner_forwarding", editable = true }
+    "odoo-addon-mail_partner_opt_out" = { path = "modules/mail/mail_partner_opt_out", editable = true }
+    "odoo-addon-mail_post_defer" = { path = "modules/mail/mail_post_defer", editable = true }
+    "odoo-addon-mail_quoted_reply" = { path = "modules/mail/mail_quoted_reply", editable = true }
+    "odoo-addon-mail_recipient_blocklist" = { path = "modules/mail/mail_recipient_blocklist", editable = true }
+    "odoo-addon-mail_restrict_follower_selection" = { path = "modules/mail/mail_restrict_follower_selection", editable = true }
+    "odoo-addon-mail_restrict_send_button" = { path = "modules/mail/mail_restrict_send_button", editable = true }
+    "odoo-addon-mail_send_confirmation" = { path = "modules/mail/mail_send_confirmation", editable = true }
+    "odoo-addon-mail_show_follower" = { path = "modules/mail/mail_show_follower", editable = true }
+    "odoo-addon-mail_suggested_recipient_unchecked" = { path = "modules/mail/mail_suggested_recipient_unchecked", editable = true }
+    "odoo-addon-mail_template_attachment_per_lang" = { path = "modules/server-tools/mail_template_attachment_per_lang", editable = true }
+    "odoo-addon-mail_template_domain" = { path = "modules/mail/mail_template_domain", editable = true }
+    "odoo-addon-mail_template_substitute" = { path = "modules/mail/mail_template_substitute", editable = true }
+    "odoo-addon-mail_tracking" = { path = "modules/mail/mail_tracking", editable = true }
+    "odoo-addon-mail_tracking_mailgun" = { path = "modules/mail/mail_tracking_mailgun", editable = true }
+    "odoo-addon-mail_tracking_mass_mailing" = { path = "modules/mail/mail_tracking_mass_mailing", editable = true }
+    "odoo-addon-mis_builder" = { path = "modules/mis-builder/mis_builder", editable = true }
+    "odoo-addon-mis_builder_budget" = { path = "modules/mis-builder/mis_builder_budget", editable = true }
+    "odoo-addon-mis_builder_cash_flow" = { path = "modules/account-financial-reporting/mis_builder_cash_flow", editable = true }
+    "odoo-addon-mis_builder_demo" = { path = "modules/mis-builder/mis_builder_demo", editable = true }
+    "odoo-addon-mis_template_financial_report" = { path = "modules/account-financial-reporting/mis_template_financial_report", editable = true }
+    "odoo-addon-module_analysis" = { path = "modules/server-tools/module_analysis", editable = true }
+    "odoo-addon-module_auto_update" = { path = "modules/server-tools/module_auto_update", editable = true }
+    "odoo-addon-module_change_auto_install" = { path = "modules/server-tools/module_change_auto_install", editable = true }
+    "odoo-addon-mrp_attachment_mgmt" = { path = "modules/manufacture/mrp_attachment_mgmt", editable = true }
+    "odoo-addon-mrp_bom_assign_auto" = { path = "modules/manufacture/mrp_bom_assign_auto", editable = true }
+    "odoo-addon-mrp_bom_attribute_match" = { path = "modules/manufacture/mrp_bom_attribute_match", editable = true }
+    "odoo-addon-mrp_bom_component_menu" = { path = "modules/manufacture/mrp_bom_component_menu", editable = true }
+    "odoo-addon-mrp_bom_hierarchy" = { path = "modules/manufacture/mrp_bom_hierarchy", editable = true }
+    "odoo-addon-mrp_bom_image" = { path = "modules/manufacture/mrp_bom_image", editable = true }
+    "odoo-addon-mrp_bom_line_formula_quantity" = { path = "modules/manufacture/mrp_bom_line_formula_quantity", editable = true }
+    "odoo-addon-mrp_bom_line_uom_rounding" = { path = "modules/manufacture/mrp_bom_line_uom_rounding", editable = true }
+    "odoo-addon-mrp_bom_location" = { path = "modules/manufacture/mrp_bom_location", editable = true }
+    "odoo-addon-mrp_bom_note" = { path = "modules/manufacture/mrp_bom_note", editable = true }
+    "odoo-addon-mrp_bom_select_product_variant" = { path = "modules/manufacture/mrp_bom_select_product_variant", editable = true }
+    "odoo-addon-mrp_bom_tracking" = { path = "modules/manufacture/mrp_bom_tracking", editable = true }
+    "odoo-addon-mrp_bom_version" = { path = "modules/manufacture/mrp_bom_version", editable = true }
+    "odoo-addon-mrp_bom_warn_message_oca" = { path = "modules/manufacture/mrp_bom_warn_message_oca", editable = true }
+    "odoo-addon-mrp_bom_widget_section_and_note_one2many" = { path = "modules/manufacture/mrp_bom_widget_section_and_note_one2many", editable = true }
+    "odoo-addon-mrp_byproduct_auto_create_lot" = { path = "modules/manufacture/mrp_byproduct_auto_create_lot", editable = true }
+    "odoo-addon-mrp_lot_number_propagation" = { path = "modules/manufacture/mrp_lot_number_propagation", editable = true }
+    "odoo-addon-mrp_lot_production_date" = { path = "modules/manufacture/mrp_lot_production_date", editable = true }
+    "odoo-addon-mrp_mass_production_order" = { path = "modules/manufacture/mrp_mass_production_order", editable = true }
+    "odoo-addon-mrp_multi_level" = { path = "modules/manufacture/mrp_multi_level", editable = true }
+    "odoo-addon-mrp_multi_level_consume_safety_stock" = { path = "modules/manufacture/mrp_multi_level_consume_safety_stock", editable = true }
+    "odoo-addon-mrp_multi_level_estimate" = { path = "modules/manufacture/mrp_multi_level_estimate", editable = true }
+    "odoo-addon-mrp_package_propagation" = { path = "modules/manufacture/mrp_package_propagation", editable = true }
+    "odoo-addon-mrp_packaging_default" = { path = "modules/manufacture/mrp_packaging_default", editable = true }
+    "odoo-addon-mrp_production_allow_recursive" = { path = "modules/manufacture/mrp_production_allow_recursive", editable = true }
+    "odoo-addon-mrp_production_auto_validate" = { path = "modules/manufacture/mrp_production_auto_validate", editable = true }
+    "odoo-addon-mrp_production_back_to_draft" = { path = "modules/manufacture/mrp_production_back_to_draft", editable = true }
+    "odoo-addon-mrp_production_check_bom_alignment" = { path = "modules/manufacture/mrp_production_check_bom_alignment", editable = true }
+    "odoo-addon-mrp_production_date_planned_finished" = { path = "modules/manufacture/mrp_production_date_planned_finished", editable = true }
+    "odoo-addon-mrp_production_location_picking_type" = { path = "modules/manufacture/mrp_production_location_picking_type", editable = true }
+    "odoo-addon-mrp_production_note" = { path = "modules/manufacture/mrp_production_note", editable = true }
+    "odoo-addon-mrp_production_picking_type_from_route" = { path = "modules/manufacture/mrp_production_picking_type_from_route", editable = true }
+    "odoo-addon-mrp_production_putaway_strategy" = { path = "modules/manufacture/mrp_production_putaway_strategy", editable = true }
+    "odoo-addon-mrp_propagate_lot_info" = { path = "modules/manufacture/mrp_propagate_lot_info", editable = true }
+    "odoo-addon-mrp_repair_order" = { path = "modules/manufacture/mrp_repair_order", editable = true }
+    "odoo-addon-mrp_restrict_lot" = { path = "modules/manufacture/mrp_restrict_lot", editable = true }
+    "odoo-addon-mrp_sale_info" = { path = "modules/manufacture/mrp_sale_info", editable = true }
+    "odoo-addon-mrp_stock_analytic" = { path = "modules/account-analytic/mrp_stock_analytic", editable = true }
+    "odoo-addon-mrp_stock_move_actual_date" = { path = "modules/manufacture/mrp_stock_move_actual_date", editable = true }
+    "odoo-addon-mrp_stock_move_line_qty_picked" = { path = "modules/manufacture/mrp_stock_move_line_qty_picked", editable = true }
+    "odoo-addon-mrp_subcontracting_inhibit" = { path = "modules/manufacture/mrp_subcontracting_inhibit", editable = true }
+    "odoo-addon-mrp_subcontracting_purchase_link" = { path = "modules/manufacture/mrp_subcontracting_purchase_link", editable = true }
+    "odoo-addon-mrp_subcontracting_skip_no_negative" = { path = "modules/manufacture/mrp_subcontracting_skip_no_negative", editable = true }
+    "odoo-addon-mrp_tag" = { path = "modules/manufacture/mrp_tag", editable = true }
+    "odoo-addon-mrp_unbuild_move_link" = { path = "modules/manufacture/mrp_unbuild_move_link", editable = true }
+    "odoo-addon-mrp_unbuild_valuation_layer_link" = { path = "modules/manufacture/mrp_unbuild_valuation_layer_link", editable = true }
+    "odoo-addon-mrp_warehouse_calendar" = { path = "modules/manufacture/mrp_warehouse_calendar", editable = true }
+    "odoo-addon-mrp_workcenter_scrap_reason" = { path = "modules/manufacture/mrp_workcenter_scrap_reason", editable = true }
+    "odoo-addon-mrp_workorder_blocking_time" = { path = "modules/manufacture/mrp_workorder_blocking_time", editable = true }
+    "odoo-addon-mrp_workorder_sequence" = { path = "modules/manufacture/mrp_workorder_sequence", editable = true }
+    "odoo-addon-multi_step_wizard" = { path = "modules/server-ux/multi_step_wizard", editable = true }
+    "odoo-addon-nutritional_info" = { path = "modules/product-attribute/nutritional_info", editable = true }
+    "odoo-addon-nutritional_info_stock_lot" = { path = "modules/product-attribute/nutritional_info_stock_lot", editable = true }
+    "odoo-addon-odoo_test_xmlrunner" = { path = "modules/server-tools/odoo_test_xmlrunner", editable = true }
+    "odoo-addon-onchange_helper" = { path = "modules/server-tools/onchange_helper", editable = true }
+    "odoo-addon-outgoing_email_by_model" = { path = "modules/mail/outgoing_email_by_model", editable = true }
+    "odoo-addon-partner_accreditation" = { path = "modules/partner-contact/partner_accreditation", editable = true }
+    "odoo-addon-partner_address_split" = { path = "modules/partner-contact/partner_address_split", editable = true }
+    "odoo-addon-partner_address_street3" = { path = "modules/partner-contact/partner_address_street3", editable = true }
+    "odoo-addon-partner_affiliate" = { path = "modules/partner-contact/partner_affiliate", editable = true }
+    "odoo-addon-partner_archive_propagate" = { path = "modules/partner-contact/partner_archive_propagate", editable = true }
+    "odoo-addon-partner_bank_acc_holder_name" = { path = "modules/partner-contact/partner_bank_acc_holder_name", editable = true }
+    "odoo-addon-partner_bank_code" = { path = "modules/partner-contact/partner_bank_code", editable = true }
+    "odoo-addon-partner_capital" = { path = "modules/partner-contact/partner_capital", editable = true }
+    "odoo-addon-partner_category_description" = { path = "modules/partner-contact/partner_category_description", editable = true }
+    "odoo-addon-partner_category_security" = { path = "modules/partner-contact/partner_category_security", editable = true }
+    "odoo-addon-partner_category_type" = { path = "modules/partner-contact/partner_category_type", editable = true }
+    "odoo-addon-partner_company_default" = { path = "modules/partner-contact/partner_company_default", editable = true }
+    "odoo-addon-partner_company_group" = { path = "modules/partner-contact/partner_company_group", editable = true }
+    "odoo-addon-partner_company_type" = { path = "modules/partner-contact/partner_company_type", editable = true }
+    "odoo-addon-partner_contact_access_link" = { path = "modules/partner-contact/partner_contact_access_link", editable = true }
+    "odoo-addon-partner_contact_address_default" = { path = "modules/partner-contact/partner_contact_address_default", editable = true }
+    "odoo-addon-partner_contact_age_range" = { path = "modules/partner-contact/partner_contact_age_range", editable = true }
+    "odoo-addon-partner_contact_birthdate" = { path = "modules/partner-contact/partner_contact_birthdate", editable = true }
+    "odoo-addon-partner_contact_birthplace" = { path = "modules/partner-contact/partner_contact_birthplace", editable = true }
+    "odoo-addon-partner_contact_department" = { path = "modules/partner-contact/partner_contact_department", editable = true }
+    "odoo-addon-partner_contact_gender" = { path = "modules/partner-contact/partner_contact_gender", editable = true }
+    "odoo-addon-partner_contact_job_position" = { path = "modules/partner-contact/partner_contact_job_position", editable = true }
+    "odoo-addon-partner_contact_lang" = { path = "modules/partner-contact/partner_contact_lang", editable = true }
+    "odoo-addon-partner_contact_nationality" = { path = "modules/partner-contact/partner_contact_nationality", editable = true }
+    "odoo-addon-partner_contact_personal_information_page" = { path = "modules/partner-contact/partner_contact_personal_information_page", editable = true }
+    "odoo-addon-partner_contact_role" = { path = "modules/partner-contact/partner_contact_role", editable = true }
+    "odoo-addon-partner_contact_tags_in_popup" = { path = "modules/partner-contact/partner_contact_tags_in_popup", editable = true }
+    "odoo-addon-partner_contact_type_end_user" = { path = "modules/partner-contact/partner_contact_type_end_user", editable = true }
+    "odoo-addon-partner_country_lang" = { path = "modules/partner-contact/partner_country_lang", editable = true }
+    "odoo-addon-partner_country_state_required" = { path = "modules/partner-contact/partner_country_state_required", editable = true }
+    "odoo-addon-partner_deduplicate_acl" = { path = "modules/partner-contact/partner_deduplicate_acl", editable = true }
+    "odoo-addon-partner_deduplicate_by_ref" = { path = "modules/partner-contact/partner_deduplicate_by_ref", editable = true }
+    "odoo-addon-partner_deduplicate_by_website" = { path = "modules/partner-contact/partner_deduplicate_by_website", editable = true }
+    "odoo-addon-partner_deduplicate_filter" = { path = "modules/partner-contact/partner_deduplicate_filter", editable = true }
+    "odoo-addon-partner_disable_gravatar" = { path = "modules/partner-contact/partner_disable_gravatar", editable = true }
+    "odoo-addon-partner_duns" = { path = "modules/partner-contact/partner_duns", editable = true }
+    "odoo-addon-partner_email_check" = { path = "modules/partner-contact/partner_email_check", editable = true }
+    "odoo-addon-partner_email_duplicate_warn" = { path = "modules/partner-contact/partner_email_duplicate_warn", editable = true }
+    "odoo-addon-partner_employee_quantity" = { path = "modules/partner-contact/partner_employee_quantity", editable = true }
+    "odoo-addon-partner_external_map" = { path = "modules/partner-contact/partner_external_map", editable = true }
+    "odoo-addon-partner_fax" = { path = "modules/partner-contact/partner_fax", editable = true }
+    "odoo-addon-partner_firstname" = { path = "modules/partner-contact/partner_firstname", editable = true }
+    "odoo-addon-partner_firstname_auth_signup" = { path = "modules/partner-contact/partner_firstname_auth_signup", editable = true }
+    "odoo-addon-partner_firstname_portal" = { path = "modules/partner-contact/partner_firstname_portal", editable = true }
+    "odoo-addon-partner_identification" = { path = "modules/partner-contact/partner_identification", editable = true }
+    "odoo-addon-partner_identification_eori" = { path = "modules/partner-contact/partner_identification_eori", editable = true }
+    "odoo-addon-partner_identification_gln" = { path = "modules/partner-contact/partner_identification_gln", editable = true }
+    "odoo-addon-partner_identification_unique_by_category" = { path = "modules/partner-contact/partner_identification_unique_by_category", editable = true }
+    "odoo-addon-partner_industry_parent" = { path = "modules/partner-contact/partner_industry_parent", editable = true }
+    "odoo-addon-partner_industry_secondary" = { path = "modules/partner-contact/partner_industry_secondary", editable = true }
+    "odoo-addon-partner_interest_group" = { path = "modules/partner-contact/partner_interest_group", editable = true }
+    "odoo-addon-partner_invoicing_mode" = { path = "modules/account-invoicing/partner_invoicing_mode", editable = true }
+    "odoo-addon-partner_invoicing_mode_at_shipping" = { path = "modules/account-invoicing/partner_invoicing_mode_at_shipping", editable = true }
+    "odoo-addon-partner_invoicing_mode_monthly" = { path = "modules/account-invoicing/partner_invoicing_mode_monthly", editable = true }
+    "odoo-addon-partner_is_company_auth_signup" = { path = "modules/partner-contact/partner_is_company_auth_signup", editable = true }
+    "odoo-addon-partner_label" = { path = "modules/partner-contact/partner_label", editable = true }
+    "odoo-addon-partner_manual_rank" = { path = "modules/partner-contact/partner_manual_rank", editable = true }
+    "odoo-addon-partner_middlename" = { path = "modules/partner-contact/partner_middlename", editable = true }
+    "odoo-addon-partner_mobile_duplicate_warn" = { path = "modules/partner-contact/partner_mobile_duplicate_warn", editable = true }
+    "odoo-addon-partner_multi_relation" = { path = "modules/partner-contact/partner_multi_relation", editable = true }
+    "odoo-addon-partner_multi_relation_archive_propagate" = { path = "modules/partner-contact/partner_multi_relation_archive_propagate", editable = true }
+    "odoo-addon-partner_multi_relation_function" = { path = "modules/partner-contact/partner_multi_relation_function", editable = true }
+    "odoo-addon-partner_noncommercial" = { path = "modules/partner-contact/partner_noncommercial", editable = true }
+    "odoo-addon-partner_phone_secondary" = { path = "modules/partner-contact/partner_phone_secondary", editable = true }
+    "odoo-addon-partner_phonecall_schedule" = { path = "modules/partner-contact/partner_phonecall_schedule", editable = true }
+    "odoo-addon-partner_pricelist_search" = { path = "modules/partner-contact/partner_pricelist_search", editable = true }
+    "odoo-addon-partner_pricelist_tracking" = { path = "modules/partner-contact/partner_pricelist_tracking", editable = true }
+    "odoo-addon-partner_priority" = { path = "modules/partner-contact/partner_priority", editable = true }
+    "odoo-addon-partner_property" = { path = "modules/partner-contact/partner_property", editable = true }
+    "odoo-addon-partner_prospect" = { path = "modules/sale-workflow/partner_prospect", editable = true }
+    "odoo-addon-partner_purchase_manager" = { path = "modules/partner-contact/partner_purchase_manager", editable = true }
+    "odoo-addon-partner_rank_commercial_entity" = { path = "modules/partner-contact/partner_rank_commercial_entity", editable = true }
+    "odoo-addon-partner_rank_single" = { path = "modules/partner-contact/partner_rank_single", editable = true }
+    "odoo-addon-partner_readonly_security" = { path = "modules/partner-contact/partner_readonly_security", editable = true }
+    "odoo-addon-partner_ref_unique" = { path = "modules/partner-contact/partner_ref_unique", editable = true }
+    "odoo-addon-partner_sale_pivot" = { path = "modules/sale-workflow/partner_sale_pivot", editable = true }
+    "odoo-addon-partner_search_alias" = { path = "modules/partner-contact/partner_search_alias", editable = true }
+    "odoo-addon-partner_second_lastname" = { path = "modules/partner-contact/partner_second_lastname", editable = true }
+    "odoo-addon-partner_shipping_policy" = { path = "modules/partner-contact/partner_shipping_policy", editable = true }
+    "odoo-addon-partner_stage" = { path = "modules/partner-contact/partner_stage", editable = true }
+    "odoo-addon-partner_statement" = { path = "modules/account-financial-reporting/partner_statement", editable = true }
+    "odoo-addon-partner_store" = { path = "modules/partner-contact/partner_store", editable = true }
+    "odoo-addon-partner_street_city_search" = { path = "modules/partner-contact/partner_street_city_search", editable = true }
+    "odoo-addon-partner_subject_to_vat" = { path = "modules/partner-contact/partner_subject_to_vat", editable = true }
+    "odoo-addon-partner_supplier_ref" = { path = "modules/partner-contact/partner_supplier_ref", editable = true }
+    "odoo-addon-partner_supplier_ref_sequence" = { path = "modules/partner-contact/partner_supplier_ref_sequence", editable = true }
+    "odoo-addon-partner_supplierinfo_smartbutton" = { path = "modules/purchase-workflow/partner_supplierinfo_smartbutton", editable = true }
+    "odoo-addon-partner_tier_validation" = { path = "modules/partner-contact/partner_tier_validation", editable = true }
+    "odoo-addon-partner_title_active" = { path = "modules/partner-contact/partner_title_active", editable = true }
+    "odoo-addon-partner_title_order" = { path = "modules/partner-contact/partner_title_order", editable = true }
+    "odoo-addon-partner_type_base" = { path = "modules/partner-contact/partner_type_base", editable = true }
+    "odoo-addon-partner_tz" = { path = "modules/partner-contact/partner_tz", editable = true }
+    "odoo-addon-partner_vat_unique" = { path = "modules/partner-contact/partner_vat_unique", editable = true }
+    "odoo-addon-password_security" = { path = "modules/server-auth/password_security", editable = true }
+    "odoo-addon-pdf_xml_attachment" = { path = "modules/reporting-engine/pdf_xml_attachment", editable = true }
+    "odoo-addon-portal_account_personal_data_only" = { path = "modules/account-invoicing/portal_account_personal_data_only", editable = true }
+    "odoo-addon-portal_odoo_debranding" = { path = "modules/server-brand/portal_odoo_debranding", editable = true }
+    "odoo-addon-portal_sale_list_extra_info" = { path = "modules/sale-workflow/portal_sale_list_extra_info", editable = true }
+    "odoo-addon-portal_sale_order_search" = { path = "modules/sale-workflow/portal_sale_order_search", editable = true }
+    "odoo-addon-portal_sale_personal_data_only" = { path = "modules/sale-workflow/portal_sale_personal_data_only", editable = true }
+    "odoo-addon-pos_analytic_by_config" = { path = "modules/account-analytic/pos_analytic_by_config", editable = true }
+    "odoo-addon-pos_product_cost_security" = { path = "modules/product-attribute/pos_product_cost_security", editable = true }
+    "odoo-addon-pricelist_cache" = { path = "modules/sale-workflow/pricelist_cache", editable = true }
+    "odoo-addon-pricelist_cache_rest" = { path = "modules/sale-workflow/pricelist_cache_rest", editable = true }
+    "odoo-addon-printing_auto_mrp" = { path = "modules/manufacture/printing_auto_mrp", editable = true }
+    "odoo-addon-procurement_purchase_no_grouping" = { path = "modules/purchase-workflow/procurement_purchase_no_grouping", editable = true }
+    "odoo-addon-procurement_purchase_sale_no_grouping" = { path = "modules/purchase-workflow/procurement_purchase_sale_no_grouping", editable = true }
+    "odoo-addon-product_abc_classification" = { path = "modules/product-attribute/product_abc_classification", editable = true }
+    "odoo-addon-product_abc_classification_sale_stock" = { path = "modules/product-attribute/product_abc_classification_sale_stock", editable = true }
+    "odoo-addon-product_analytic" = { path = "modules/account-analytic/product_analytic", editable = true }
+    "odoo-addon-product_assortment" = { path = "modules/product-attribute/product_assortment", editable = true }
+    "odoo-addon-product_attachment_zipped_download" = { path = "modules/product-attribute/product_attachment_zipped_download", editable = true }
+    "odoo-addon-product_attribute_archive" = { path = "modules/product-attribute/product_attribute_archive", editable = true }
+    "odoo-addon-product_attribute_line_template" = { path = "modules/product-attribute/product_attribute_line_template", editable = true }
+    "odoo-addon-product_attribute_value_avoid_auto_fill" = { path = "modules/product-attribute/product_attribute_value_avoid_auto_fill", editable = true }
+    "odoo-addon-product_attribute_value_dependent_mixin" = { path = "modules/product-attribute/product_attribute_value_dependent_mixin", editable = true }
+    "odoo-addon-product_attribute_value_menu" = { path = "modules/product-attribute/product_attribute_value_menu", editable = true }
+    "odoo-addon-product_barcode_required" = { path = "modules/product-attribute/product_barcode_required", editable = true }
+    "odoo-addon-product_catalog_stock" = { path = "modules/product-attribute/product_catalog_stock", editable = true }
+    "odoo-addon-product_category_active" = { path = "modules/product-attribute/product_category_active", editable = true }
+    "odoo-addon-product_category_code" = { path = "modules/product-attribute/product_category_code", editable = true }
+    "odoo-addon-product_category_name_translatable" = { path = "modules/product-attribute/product_category_name_translatable", editable = true }
+    "odoo-addon-product_category_product_link" = { path = "modules/product-attribute/product_category_product_link", editable = true }
+    "odoo-addon-product_category_tag" = { path = "modules/product-attribute/product_category_tag", editable = true }
+    "odoo-addon-product_category_tax" = { path = "modules/account-financial-tools/product_category_tax", editable = true }
+    "odoo-addon-product_category_type" = { path = "modules/product-attribute/product_category_type", editable = true }
+    "odoo-addon-product_category_uom" = { path = "modules/product-attribute/product_category_uom", editable = true }
+    "odoo-addon-product_code_mandatory" = { path = "modules/product-attribute/product_code_mandatory", editable = true }
+    "odoo-addon-product_code_unique" = { path = "modules/product-attribute/product_code_unique", editable = true }
+    "odoo-addon-product_company_default" = { path = "modules/product-attribute/product_company_default", editable = true }
+    "odoo-addon-product_cost_security" = { path = "modules/product-attribute/product_cost_security", editable = true }
+    "odoo-addon-product_cost_security_stock_account" = { path = "modules/product-attribute/product_cost_security_stock_account", editable = true }
+    "odoo-addon-product_customerinfo" = { path = "modules/product-attribute/product_customerinfo", editable = true }
+    "odoo-addon-product_customerinfo_elaboration" = { path = "modules/sale-workflow/product_customerinfo_elaboration", editable = true }
+    "odoo-addon-product_customerinfo_invoice" = { path = "modules/account-invoicing/product_customerinfo_invoice", editable = true }
+    "odoo-addon-product_customerinfo_sale" = { path = "modules/sale-workflow/product_customerinfo_sale", editable = true }
+    "odoo-addon-product_dimension" = { path = "modules/product-attribute/product_dimension", editable = true }
+    "odoo-addon-product_drained_weight" = { path = "modules/product-attribute/product_drained_weight", editable = true }
+    "odoo-addon-product_eprel" = { path = "modules/product-attribute/product_eprel", editable = true }
+    "odoo-addon-product_form_account_move_line_link" = { path = "modules/account-invoicing/product_form_account_move_line_link", editable = true }
+    "odoo-addon-product_form_pricelist" = { path = "modules/product-attribute/product_form_pricelist", editable = true }
+    "odoo-addon-product_form_sale_link" = { path = "modules/sale-workflow/product_form_sale_link", editable = true }
+    "odoo-addon-product_get_price_helper" = { path = "modules/product-attribute/product_get_price_helper", editable = true }
+    "odoo-addon-product_ingredient" = { path = "modules/product-attribute/product_ingredient", editable = true }
+    "odoo-addon-product_list_price_from_pricelist" = { path = "modules/product-attribute/product_list_price_from_pricelist", editable = true }
+    "odoo-addon-product_logistics_uom" = { path = "modules/product-attribute/product_logistics_uom", editable = true }
+    "odoo-addon-product_lot_sequence" = { path = "modules/product-attribute/product_lot_sequence", editable = true }
+    "odoo-addon-product_main_seller" = { path = "modules/purchase-workflow/product_main_seller", editable = true }
+    "odoo-addon-product_main_supplierinfo" = { path = "modules/product-attribute/product_main_supplierinfo", editable = true }
+    "odoo-addon-product_manufacturer" = { path = "modules/product-attribute/product_manufacturer", editable = true }
+    "odoo-addon-product_medical" = { path = "modules/product-attribute/product_medical", editable = true }
+    "odoo-addon-product_mrp_info" = { path = "modules/manufacture/product_mrp_info", editable = true }
+    "odoo-addon-product_multi_category" = { path = "modules/product-attribute/product_multi_category", editable = true }
+    "odoo-addon-product_multi_price" = { path = "modules/product-attribute/product_multi_price", editable = true }
+    "odoo-addon-product_net_weight" = { path = "modules/product-attribute/product_net_weight", editable = true }
+    "odoo-addon-product_next_reception_date" = { path = "modules/product-attribute/product_next_reception_date", editable = true }
+    "odoo-addon-product_origin" = { path = "modules/product-attribute/product_origin", editable = true }
+    "odoo-addon-product_packaging_archive" = { path = "modules/product-attribute/product_packaging_archive", editable = true }
+    "odoo-addon-product_packaging_calculator" = { path = "modules/product-attribute/product_packaging_calculator", editable = true }
+    "odoo-addon-product_packaging_calculator_packaging_level" = { path = "modules/product-attribute/product_packaging_calculator_packaging_level", editable = true }
+    "odoo-addon-product_packaging_dimension" = { path = "modules/product-attribute/product_packaging_dimension", editable = true }
+    "odoo-addon-product_packaging_level" = { path = "modules/product-attribute/product_packaging_level", editable = true }
+    "odoo-addon-product_packaging_level_salable" = { path = "modules/product-attribute/product_packaging_level_salable", editable = true }
+    "odoo-addon-product_packaging_level_vendor" = { path = "modules/product-attribute/product_packaging_level_vendor", editable = true }
+    "odoo-addon-product_packaging_unit_price_calculator" = { path = "modules/product-attribute/product_packaging_unit_price_calculator", editable = true }
+    "odoo-addon-product_price_category" = { path = "modules/sale-workflow/product_price_category", editable = true }
+    "odoo-addon-product_pricelist_alternative" = { path = "modules/product-attribute/product_pricelist_alternative", editable = true }
+    "odoo-addon-product_pricelist_assortment" = { path = "modules/product-attribute/product_pricelist_assortment", editable = true }
+    "odoo-addon-product_pricelist_by_contact" = { path = "modules/product-attribute/product_pricelist_by_contact", editable = true }
+    "odoo-addon-product_pricelist_direct_print" = { path = "modules/product-attribute/product_pricelist_direct_print", editable = true }
+    "odoo-addon-product_pricelist_direct_print_company_group" = { path = "modules/product-attribute/product_pricelist_direct_print_company_group", editable = true }
+    "odoo-addon-product_pricelist_direct_print_website_sale" = { path = "modules/product-attribute/product_pricelist_direct_print_website_sale", editable = true }
+    "odoo-addon-product_pricelist_direct_print_xlsx" = { path = "modules/product-attribute/product_pricelist_direct_print_xlsx", editable = true }
+    "odoo-addon-product_pricelist_discount_by_range" = { path = "modules/product-attribute/product_pricelist_discount_by_range", editable = true }
+    "odoo-addon-product_pricelist_fixed_currency_rate" = { path = "modules/product-attribute/product_pricelist_fixed_currency_rate", editable = true }
+    "odoo-addon-product_pricelist_item_list_view" = { path = "modules/product-attribute/product_pricelist_item_list_view", editable = true }
+    "odoo-addon-product_pricelist_margin" = { path = "modules/product-attribute/product_pricelist_margin", editable = true }
+    "odoo-addon-product_pricelist_product_price_history" = { path = "modules/product-attribute/product_pricelist_product_price_history", editable = true }
+    "odoo-addon-product_pricelist_revision" = { path = "modules/product-attribute/product_pricelist_revision", editable = true }
+    "odoo-addon-product_pricelist_simulation" = { path = "modules/product-attribute/product_pricelist_simulation", editable = true }
+    "odoo-addon-product_pricelist_supplierinfo" = { path = "modules/product-attribute/product_pricelist_supplierinfo", editable = true }
+    "odoo-addon-product_print_category" = { path = "modules/product-attribute/product_print_category", editable = true }
+    "odoo-addon-product_product_template_link" = { path = "modules/product-attribute/product_product_template_link", editable = true }
+    "odoo-addon-product_profile" = { path = "modules/product-attribute/product_profile", editable = true }
+    "odoo-addon-product_readonly_security" = { path = "modules/product-attribute/product_readonly_security", editable = true }
+    "odoo-addon-product_restricted_type" = { path = "modules/product-attribute/product_restricted_type", editable = true }
+    "odoo-addon-product_route_mto" = { path = "modules/product-attribute/product_route_mto", editable = true }
+    "odoo-addon-product_sale_description" = { path = "modules/product-attribute/product_sale_description", editable = true }
+    "odoo-addon-product_sale_manufactured_for" = { path = "modules/product-attribute/product_sale_manufactured_for", editable = true }
+    "odoo-addon-product_sale_team" = { path = "modules/product-attribute/product_sale_team", editable = true }
+    "odoo-addon-product_secondary_unit" = { path = "modules/product-attribute/product_secondary_unit", editable = true }
+    "odoo-addon-product_sequence" = { path = "modules/product-attribute/product_sequence", editable = true }
+    "odoo-addon-product_set" = { path = "modules/product-attribute/product_set", editable = true }
+    "odoo-addon-product_set_sell_only_by_packaging" = { path = "modules/sale-workflow/product_set_sell_only_by_packaging", editable = true }
+    "odoo-addon-product_simple_seasonality" = { path = "modules/product-attribute/product_simple_seasonality", editable = true }
+    "odoo-addon-product_sold_by_delivery_week" = { path = "modules/sale-reporting/product_sold_by_delivery_week", editable = true }
+    "odoo-addon-product_state" = { path = "modules/product-attribute/product_state", editable = true }
+    "odoo-addon-product_state_active" = { path = "modules/product-attribute/product_state_active", editable = true }
+    "odoo-addon-product_state_sale" = { path = "modules/product-attribute/product_state_sale", editable = true }
+    "odoo-addon-product_state_stock_base" = { path = "modules/product-attribute/product_state_stock_base", editable = true }
+    "odoo-addon-product_status" = { path = "modules/product-attribute/product_status", editable = true }
+    "odoo-addon-product_sticker" = { path = "modules/product-attribute/product_sticker", editable = true }
+    "odoo-addon-product_stock_state" = { path = "modules/product-attribute/product_stock_state", editable = true }
+    "odoo-addon-product_supplier_code_purchase" = { path = "modules/purchase-workflow/product_supplier_code_purchase", editable = true }
+    "odoo-addon-product_supplierinfo_archive" = { path = "modules/product-attribute/product_supplierinfo_archive", editable = true }
+    "odoo-addon-product_supplierinfo_comment" = { path = "modules/product-attribute/product_supplierinfo_comment", editable = true }
+    "odoo-addon-product_supplierinfo_disable_autocreation" = { path = "modules/purchase-workflow/product_supplierinfo_disable_autocreation", editable = true }
+    "odoo-addon-product_supplierinfo_import" = { path = "modules/product-attribute/product_supplierinfo_import", editable = true }
+    "odoo-addon-product_supplierinfo_import_margin" = { path = "modules/product-attribute/product_supplierinfo_import_margin", editable = true }
+    "odoo-addon-product_supplierinfo_purchase_contact" = { path = "modules/purchase-workflow/product_supplierinfo_purchase_contact", editable = true }
+    "odoo-addon-product_supplierinfo_qty_multiplier" = { path = "modules/purchase-workflow/product_supplierinfo_qty_multiplier", editable = true }
+    "odoo-addon-product_supplierinfo_revision" = { path = "modules/product-attribute/product_supplierinfo_revision", editable = true }
+    "odoo-addon-product_supplierinfo_stock_picking_type" = { path = "modules/product-attribute/product_supplierinfo_stock_picking_type", editable = true }
+    "odoo-addon-product_supplierinfo_update_price" = { path = "modules/purchase-workflow/product_supplierinfo_update_price", editable = true }
+    "odoo-addon-product_tag_view" = { path = "modules/product-attribute/product_tag_view", editable = true }
+    "odoo-addon-product_tags_code" = { path = "modules/product-attribute/product_tags_code", editable = true }
+    "odoo-addon-product_tier_validation" = { path = "modules/product-attribute/product_tier_validation", editable = true }
+    "odoo-addon-product_total_weight_from_packaging" = { path = "modules/product-attribute/product_total_weight_from_packaging", editable = true }
+    "odoo-addon-product_uom_updatable" = { path = "modules/product-attribute/product_uom_updatable", editable = true }
+    "odoo-addon-product_usability" = { path = "modules/product-attribute/product_usability", editable = true }
+    "odoo-addon-product_variant_route_mto" = { path = "modules/product-attribute/product_variant_route_mto", editable = true }
+    "odoo-addon-project_task_analytic_propagation" = { path = "modules/timesheet/project_task_analytic_propagation", editable = true }
+    "odoo-addon-project_timesheet_holidays_dynamic_description" = { path = "modules/timesheet/project_timesheet_holidays_dynamic_description", editable = true }
+    "odoo-addon-project_timesheet_holidays_editable" = { path = "modules/timesheet/project_timesheet_holidays_editable", editable = true }
+    "odoo-addon-purchase_advance_payment" = { path = "modules/purchase-workflow/purchase_advance_payment", editable = true }
+    "odoo-addon-purchase_all_shipments" = { path = "modules/purchase-workflow/purchase_all_shipments", editable = true }
+    "odoo-addon-purchase_allowed_product" = { path = "modules/purchase-workflow/purchase_allowed_product", editable = true }
+    "odoo-addon-purchase_analytic" = { path = "modules/account-analytic/purchase_analytic", editable = true }
+    "odoo-addon-purchase_analytic_distribution_model_warehouse" = { path = "modules/account-analytic/purchase_analytic_distribution_model_warehouse", editable = true }
+    "odoo-addon-purchase_analytic_global" = { path = "modules/purchase-workflow/purchase_analytic_global", editable = true }
+    "odoo-addon-purchase_analytic_tag" = { path = "modules/account-analytic/purchase_analytic_tag", editable = true }
+    "odoo-addon-purchase_blanket_order" = { path = "modules/purchase-workflow/purchase_blanket_order", editable = true }
+    "odoo-addon-purchase_cancel_confirm" = { path = "modules/purchase-workflow/purchase_cancel_confirm", editable = true }
+    "odoo-addon-purchase_cancel_reason" = { path = "modules/purchase-workflow/purchase_cancel_reason", editable = true }
+    "odoo-addon-purchase_commercial_partner" = { path = "modules/purchase-workflow/purchase_commercial_partner", editable = true }
+    "odoo-addon-purchase_container" = { path = "modules/purchase-workflow/purchase_container", editable = true }
+    "odoo-addon-purchase_default_terms_conditions" = { path = "modules/purchase-workflow/purchase_default_terms_conditions", editable = true }
+    "odoo-addon-purchase_delivery_split_date" = { path = "modules/purchase-workflow/purchase_delivery_split_date", editable = true }
+    "odoo-addon-purchase_deposit" = { path = "modules/purchase-workflow/purchase_deposit", editable = true }
+    "odoo-addon-purchase_exception" = { path = "modules/purchase-workflow/purchase_exception", editable = true }
+    "odoo-addon-purchase_fop_shipping" = { path = "modules/purchase-workflow/purchase_fop_shipping", editable = true }
+    "odoo-addon-purchase_force_invoiced" = { path = "modules/purchase-workflow/purchase_force_invoiced", editable = true }
+    "odoo-addon-purchase_force_invoiced_quantity" = { path = "modules/purchase-workflow/purchase_force_invoiced_quantity", editable = true }
+    "odoo-addon-purchase_invoice_method" = { path = "modules/purchase-workflow/purchase_invoice_method", editable = true }
+    "odoo-addon-purchase_invoice_plan" = { path = "modules/purchase-workflow/purchase_invoice_plan", editable = true }
+    "odoo-addon-purchase_invoice_status_line" = { path = "modules/purchase-workflow/purchase_invoice_status_line", editable = true }
+    "odoo-addon-purchase_last_price_info" = { path = "modules/purchase-workflow/purchase_last_price_info", editable = true }
+    "odoo-addon-purchase_line_procurement_group" = { path = "modules/purchase-workflow/purchase_line_procurement_group", editable = true }
+    "odoo-addon-purchase_line_reassign" = { path = "modules/purchase-workflow/purchase_line_reassign", editable = true }
+    "odoo-addon-purchase_line_vendor_comment" = { path = "modules/purchase-workflow/purchase_line_vendor_comment", editable = true }
+    "odoo-addon-purchase_location_by_line" = { path = "modules/purchase-workflow/purchase_location_by_line", editable = true }
+    "odoo-addon-purchase_lot" = { path = "modules/purchase-workflow/purchase_lot", editable = true }
+    "odoo-addon-purchase_manual_currency" = { path = "modules/purchase-workflow/purchase_manual_currency", editable = true }
+    "odoo-addon-purchase_manual_delivery" = { path = "modules/purchase-workflow/purchase_manual_delivery", editable = true }
+    "odoo-addon-purchase_no_rfq" = { path = "modules/purchase-workflow/purchase_no_rfq", editable = true }
+    "odoo-addon-purchase_open_qty" = { path = "modules/purchase-workflow/purchase_open_qty", editable = true }
+    "odoo-addon-purchase_order_approval_block" = { path = "modules/purchase-workflow/purchase_order_approval_block", editable = true }
+    "odoo-addon-purchase_order_approved" = { path = "modules/purchase-workflow/purchase_order_approved", editable = true }
+    "odoo-addon-purchase_order_archive" = { path = "modules/purchase-workflow/purchase_order_archive", editable = true }
+    "odoo-addon-purchase_order_date_approve_editable" = { path = "modules/purchase-workflow/purchase_order_date_approve_editable", editable = true }
+    "odoo-addon-purchase_order_etd_eta" = { path = "modules/purchase-workflow/purchase_order_etd_eta", editable = true }
+    "odoo-addon-purchase_order_general_discount" = { path = "modules/purchase-workflow/purchase_order_general_discount", editable = true }
+    "odoo-addon-purchase_order_internal_note" = { path = "modules/purchase-workflow/purchase_order_internal_note", editable = true }
+    "odoo-addon-purchase_order_line_description" = { path = "modules/purchase-workflow/purchase_order_line_description", editable = true }
+    "odoo-addon-purchase_order_line_effective_date" = { path = "modules/purchase-workflow/purchase_order_line_effective_date", editable = true }
+    "odoo-addon-purchase_order_line_menu" = { path = "modules/purchase-workflow/purchase_order_line_menu", editable = true }
+    "odoo-addon-purchase_order_line_merge" = { path = "modules/purchase-workflow/purchase_order_line_merge", editable = true }
+    "odoo-addon-purchase_order_line_note" = { path = "modules/purchase-workflow/purchase_order_line_note", editable = true }
+    "odoo-addon-purchase_order_line_original_date" = { path = "modules/purchase-workflow/purchase_order_line_original_date", editable = true }
+    "odoo-addon-purchase_order_line_sequence" = { path = "modules/purchase-workflow/purchase_order_line_sequence", editable = true }
+    "odoo-addon-purchase_order_line_stock_available" = { path = "modules/purchase-workflow/purchase_order_line_stock_available", editable = true }
+    "odoo-addon-purchase_order_owner" = { path = "modules/purchase-workflow/purchase_order_owner", editable = true }
+    "odoo-addon-purchase_order_price_recalculation" = { path = "modules/purchase-workflow/purchase_order_price_recalculation", editable = true }
+    "odoo-addon-purchase_order_product_recommendation" = { path = "modules/purchase-workflow/purchase_order_product_recommendation", editable = true }
+    "odoo-addon-purchase_order_product_recommendation_brand" = { path = "modules/purchase-workflow/purchase_order_product_recommendation_brand", editable = true }
+    "odoo-addon-purchase_order_product_recommendation_secondary_unit" = { path = "modules/purchase-workflow/purchase_order_product_recommendation_secondary_unit", editable = true }
+    "odoo-addon-purchase_order_product_recommendation_xlsx" = { path = "modules/purchase-workflow/purchase_order_product_recommendation_xlsx", editable = true }
+    "odoo-addon-purchase_order_qty_change_no_recompute" = { path = "modules/purchase-workflow/purchase_order_qty_change_no_recompute", editable = true }
+    "odoo-addon-purchase_order_secondary_unit" = { path = "modules/purchase-workflow/purchase_order_secondary_unit", editable = true }
+    "odoo-addon-purchase_order_supplier_return" = { path = "modules/purchase-workflow/purchase_order_supplier_return", editable = true }
+    "odoo-addon-purchase_order_supplierinfo_update" = { path = "modules/purchase-workflow/purchase_order_supplierinfo_update", editable = true }
+    "odoo-addon-purchase_order_type" = { path = "modules/purchase-workflow/purchase_order_type", editable = true }
+    "odoo-addon-purchase_order_type_dashboard" = { path = "modules/purchase-workflow/purchase_order_type_dashboard", editable = true }
+    "odoo-addon-purchase_order_uninvoiced_amount" = { path = "modules/purchase-workflow/purchase_order_uninvoiced_amount", editable = true }
+    "odoo-addon-purchase_order_uninvoiced_amount_line" = { path = "modules/purchase-workflow/purchase_order_uninvoiced_amount_line", editable = true }
+    "odoo-addon-purchase_partner_incoterm" = { path = "modules/purchase-workflow/purchase_partner_incoterm", editable = true }
+    "odoo-addon-purchase_partner_selectable_option" = { path = "modules/purchase-workflow/purchase_partner_selectable_option", editable = true }
+    "odoo-addon-purchase_product_template_tags" = { path = "modules/product-attribute/purchase_product_template_tags", editable = true }
+    "odoo-addon-purchase_receipt_expectation" = { path = "modules/purchase-workflow/purchase_receipt_expectation", editable = true }
+    "odoo-addon-purchase_reception_notify" = { path = "modules/purchase-workflow/purchase_reception_notify", editable = true }
+    "odoo-addon-purchase_reception_status" = { path = "modules/purchase-workflow/purchase_reception_status", editable = true }
+    "odoo-addon-purchase_reception_status_line" = { path = "modules/purchase-workflow/purchase_reception_status_line", editable = true }
+    "odoo-addon-purchase_representative" = { path = "modules/purchase-workflow/purchase_representative", editable = true }
+    "odoo-addon-purchase_request" = { path = "modules/purchase-workflow/purchase_request", editable = true }
+    "odoo-addon-purchase_request_cancel_confirm" = { path = "modules/purchase-workflow/purchase_request_cancel_confirm", editable = true }
+    "odoo-addon-purchase_request_department" = { path = "modules/purchase-workflow/purchase_request_department", editable = true }
+    "odoo-addon-purchase_request_exception" = { path = "modules/purchase-workflow/purchase_request_exception", editable = true }
+    "odoo-addon-purchase_request_substate" = { path = "modules/purchase-workflow/purchase_request_substate", editable = true }
+    "odoo-addon-purchase_request_tier_validation" = { path = "modules/purchase-workflow/purchase_request_tier_validation", editable = true }
+    "odoo-addon-purchase_request_to_requisition" = { path = "modules/purchase-workflow/purchase_request_to_requisition", editable = true }
+    "odoo-addon-purchase_request_type" = { path = "modules/purchase-workflow/purchase_request_type", editable = true }
+    "odoo-addon-purchase_requisition_line_description" = { path = "modules/purchase-workflow/purchase_requisition_line_description", editable = true }
+    "odoo-addon-purchase_requisition_tier_validation" = { path = "modules/purchase-workflow/purchase_requisition_tier_validation", editable = true }
+    "odoo-addon-purchase_rfq_number" = { path = "modules/purchase-workflow/purchase_rfq_number", editable = true }
+    "odoo-addon-purchase_sale_link_by_origin" = { path = "modules/purchase-workflow/purchase_sale_link_by_origin", editable = true }
+    "odoo-addon-purchase_security" = { path = "modules/purchase-workflow/purchase_security", editable = true }
+    "odoo-addon-purchase_stock_analytic" = { path = "modules/account-analytic/purchase_stock_analytic", editable = true }
+    "odoo-addon-purchase_stock_cost_update" = { path = "modules/purchase-workflow/purchase_stock_cost_update", editable = true }
+    "odoo-addon-purchase_stock_line_sequence" = { path = "modules/purchase-workflow/purchase_stock_line_sequence", editable = true }
+    "odoo-addon-purchase_stock_manual_currency" = { path = "modules/purchase-workflow/purchase_stock_manual_currency", editable = true }
+    "odoo-addon-purchase_stock_packaging" = { path = "modules/purchase-workflow/purchase_stock_packaging", editable = true }
+    "odoo-addon-purchase_stock_picking_return_invoicing" = { path = "modules/account-invoicing/purchase_stock_picking_return_invoicing", editable = true }
+    "odoo-addon-purchase_stock_price_unit_sync" = { path = "modules/purchase-workflow/purchase_stock_price_unit_sync", editable = true }
+    "odoo-addon-purchase_stock_reception_status" = { path = "modules/purchase-workflow/purchase_stock_reception_status", editable = true }
+    "odoo-addon-purchase_stock_secondary_unit" = { path = "modules/purchase-workflow/purchase_stock_secondary_unit", editable = true }
+    "odoo-addon-purchase_substate" = { path = "modules/purchase-workflow/purchase_substate", editable = true }
+    "odoo-addon-purchase_supplier_rank" = { path = "modules/partner-contact/purchase_supplier_rank", editable = true }
+    "odoo-addon-purchase_tag" = { path = "modules/purchase-workflow/purchase_tag", editable = true }
+    "odoo-addon-purchase_tier_validation" = { path = "modules/purchase-workflow/purchase_tier_validation", editable = true }
+    "odoo-addon-purchase_triple_discount" = { path = "modules/purchase-workflow/purchase_triple_discount", editable = true }
+    "odoo-addon-purchase_uninvoiced_amount_force_invoiced_line" = { path = "modules/purchase-workflow/purchase_uninvoiced_amount_force_invoiced_line", editable = true }
+    "odoo-addon-purchase_unreconciled" = { path = "modules/account-financial-tools/purchase_unreconciled", editable = true }
+    "odoo-addon-purchase_warn_message" = { path = "modules/purchase-workflow/purchase_warn_message", editable = true }
+    "odoo-addon-purchase_warn_option" = { path = "modules/purchase-workflow/purchase_warn_option", editable = true }
+    "odoo-addon-purchase_work_acceptance" = { path = "modules/purchase-workflow/purchase_work_acceptance", editable = true }
+    "odoo-addon-purchase_work_acceptance_evaluation" = { path = "modules/purchase-workflow/purchase_work_acceptance_evaluation", editable = true }
+    "odoo-addon-purchase_work_acceptance_invoice_plan" = { path = "modules/purchase-workflow/purchase_work_acceptance_invoice_plan", editable = true }
+    "odoo-addon-purchase_work_acceptance_late_fines" = { path = "modules/purchase-workflow/purchase_work_acceptance_late_fines", editable = true }
+    "odoo-addon-quality_control_mrp_oca" = { path = "modules/manufacture/quality_control_mrp_oca", editable = true }
+    "odoo-addon-quality_control_oca" = { path = "modules/manufacture/quality_control_oca", editable = true }
+    "odoo-addon-quality_control_stock_oca" = { path = "modules/manufacture/quality_control_stock_oca", editable = true }
+    "odoo-addon-queue_job" = { path = "modules/queue/queue_job", editable = true }
+    "odoo-addon-queue_job_batch" = { path = "modules/queue/queue_job_batch", editable = true }
+    "odoo-addon-queue_job_cron" = { path = "modules/queue/queue_job_cron", editable = true }
+    "odoo-addon-queue_job_cron_jobrunner" = { path = "modules/queue/queue_job_cron_jobrunner", editable = true }
+    "odoo-addon-queue_job_profiler" = { path = "modules/queue/queue_job_profiler", editable = true }
+    "odoo-addon-queue_job_subscribe" = { path = "modules/queue/queue_job_subscribe", editable = true }
+    "odoo-addon-remove_odoo_enterprise" = { path = "modules/server-brand/remove_odoo_enterprise", editable = true }
+    "odoo-addon-report_context" = { path = "modules/reporting-engine/report_context", editable = true }
+    "odoo-addon-report_csv" = { path = "modules/reporting-engine/report_csv", editable = true }
+    "odoo-addon-report_display_name_in_footer" = { path = "modules/reporting-engine/report_display_name_in_footer", editable = true }
+    "odoo-addon-report_footer_html" = { path = "modules/reporting-engine/report_footer_html", editable = true }
+    "odoo-addon-report_label" = { path = "modules/reporting-engine/report_label", editable = true }
+    "odoo-addon-report_layout_config" = { path = "modules/reporting-engine/report_layout_config", editable = true }
+    "odoo-addon-report_partner_address" = { path = "modules/reporting-engine/report_partner_address", editable = true }
+    "odoo-addon-report_pdf_form" = { path = "modules/reporting-engine/report_pdf_form", editable = true }
+    "odoo-addon-report_pdf_zip_download" = { path = "modules/reporting-engine/report_pdf_zip_download", editable = true }
+    "odoo-addon-report_positioned_image" = { path = "modules/reporting-engine/report_positioned_image", editable = true }
+    "odoo-addon-report_py3o" = { path = "modules/reporting-engine/report_py3o", editable = true }
+    "odoo-addon-report_py3o_fusion_server" = { path = "modules/reporting-engine/report_py3o_fusion_server", editable = true }
+    "odoo-addon-report_qr" = { path = "modules/reporting-engine/report_qr", editable = true }
+    "odoo-addon-report_qweb_element_page_visibility" = { path = "modules/reporting-engine/report_qweb_element_page_visibility", editable = true }
+    "odoo-addon-report_qweb_encrypt" = { path = "modules/reporting-engine/report_qweb_encrypt", editable = true }
+    "odoo-addon-report_qweb_field_option" = { path = "modules/reporting-engine/report_qweb_field_option", editable = true }
+    "odoo-addon-report_qweb_parameter" = { path = "modules/reporting-engine/report_qweb_parameter", editable = true }
+    "odoo-addon-report_qweb_pdf_cover" = { path = "modules/reporting-engine/report_qweb_pdf_cover", editable = true }
+    "odoo-addon-report_qweb_pdf_watermark" = { path = "modules/reporting-engine/report_qweb_pdf_watermark", editable = true }
+    "odoo-addon-report_qweb_signer" = { path = "modules/reporting-engine/report_qweb_signer", editable = true }
+    "odoo-addon-report_substitute" = { path = "modules/reporting-engine/report_substitute", editable = true }
+    "odoo-addon-report_text_format_option" = { path = "modules/reporting-engine/report_text_format_option", editable = true }
+    "odoo-addon-report_wkhtmltopdf_param" = { path = "modules/reporting-engine/report_wkhtmltopdf_param", editable = true }
+    "odoo-addon-report_xlsx" = { path = "modules/reporting-engine/report_xlsx", editable = true }
+    "odoo-addon-report_xlsx_helper" = { path = "modules/reporting-engine/report_xlsx_helper", editable = true }
+    "odoo-addon-report_xml" = { path = "modules/reporting-engine/report_xml", editable = true }
+    "odoo-addon-rpc_helper" = { path = "modules/server-tools/rpc_helper", editable = true }
+    "odoo-addon-sale_advance_payment" = { path = "modules/sale-workflow/sale_advance_payment", editable = true }
+    "odoo-addon-sale_analytic_distribution_model_warehouse" = { path = "modules/account-analytic/sale_analytic_distribution_model_warehouse", editable = true }
+    "odoo-addon-sale_analytic_tag" = { path = "modules/account-analytic/sale_analytic_tag", editable = true }
+    "odoo-addon-sale_attached_product" = { path = "modules/sale-workflow/sale_attached_product", editable = true }
+    "odoo-addon-sale_auto_remove_zero_quantity_lines" = { path = "modules/sale-workflow/sale_auto_remove_zero_quantity_lines", editable = true }
+    "odoo-addon-sale_automatic_workflow" = { path = "modules/sale-workflow/sale_automatic_workflow", editable = true }
+    "odoo-addon-sale_automatic_workflow_auto_assign" = { path = "modules/sale-workflow/sale_automatic_workflow_auto_assign", editable = true }
+    "odoo-addon-sale_automatic_workflow_force_invoiced" = { path = "modules/sale-workflow/sale_automatic_workflow_force_invoiced", editable = true }
+    "odoo-addon-sale_automatic_workflow_job" = { path = "modules/sale-workflow/sale_automatic_workflow_job", editable = true }
+    "odoo-addon-sale_automatic_workflow_payment_mode" = { path = "modules/sale-workflow/sale_automatic_workflow_payment_mode", editable = true }
+    "odoo-addon-sale_automatic_workflow_periodicity" = { path = "modules/sale-workflow/sale_automatic_workflow_periodicity", editable = true }
+    "odoo-addon-sale_automatic_workflow_stock" = { path = "modules/sale-workflow/sale_automatic_workflow_stock", editable = true }
+    "odoo-addon-sale_automatic_workflow_stock_job" = { path = "modules/sale-workflow/sale_automatic_workflow_stock_job", editable = true }
+    "odoo-addon-sale_block_no_stock" = { path = "modules/sale-workflow/sale_block_no_stock", editable = true }
+    "odoo-addon-sale_cancel_confirm" = { path = "modules/sale-workflow/sale_cancel_confirm", editable = true }
+    "odoo-addon-sale_cancel_reason" = { path = "modules/sale-workflow/sale_cancel_reason", editable = true }
+    "odoo-addon-sale_comment_template" = { path = "modules/sale-reporting/sale_comment_template", editable = true }
+    "odoo-addon-sale_commercial_partner" = { path = "modules/sale-workflow/sale_commercial_partner", editable = true }
+    "odoo-addon-sale_company_currency" = { path = "modules/sale-workflow/sale_company_currency", editable = true }
+    "odoo-addon-sale_confirm_group" = { path = "modules/sale-workflow/sale_confirm_group", editable = true }
+    "odoo-addon-sale_credit_note_reversal" = { path = "modules/account-invoicing/sale_credit_note_reversal", editable = true }
+    "odoo-addon-sale_custom_rounding" = { path = "modules/sale-workflow/sale_custom_rounding", editable = true }
+    "odoo-addon-sale_customer_order_frequency" = { path = "modules/partner-contact/sale_customer_order_frequency", editable = true }
+    "odoo-addon-sale_customer_rank" = { path = "modules/partner-contact/sale_customer_rank", editable = true }
+    "odoo-addon-sale_delivery_split_date" = { path = "modules/sale-workflow/sale_delivery_split_date", editable = true }
+    "odoo-addon-sale_delivery_state" = { path = "modules/sale-workflow/sale_delivery_state", editable = true }
+    "odoo-addon-sale_discount_display_amount" = { path = "modules/sale-workflow/sale_discount_display_amount", editable = true }
+    "odoo-addon-sale_elaboration" = { path = "modules/sale-workflow/sale_elaboration", editable = true }
+    "odoo-addon-sale_elaboration_brand" = { path = "modules/sale-workflow/sale_elaboration_brand", editable = true }
+    "odoo-addon-sale_exception" = { path = "modules/sale-workflow/sale_exception", editable = true }
+    "odoo-addon-sale_exception_product_sale_manufactured_for" = { path = "modules/sale-workflow/sale_exception_product_sale_manufactured_for", editable = true }
+    "odoo-addon-sale_fixed_discount" = { path = "modules/sale-workflow/sale_fixed_discount", editable = true }
+    "odoo-addon-sale_force_invoiced" = { path = "modules/sale-workflow/sale_force_invoiced", editable = true }
+    "odoo-addon-sale_force_invoiced_quantity" = { path = "modules/sale-workflow/sale_force_invoiced_quantity", editable = true }
+    "odoo-addon-sale_global_discount" = { path = "modules/sale-workflow/sale_global_discount", editable = true }
+    "odoo-addon-sale_invoice_blocking" = { path = "modules/sale-workflow/sale_invoice_blocking", editable = true }
+    "odoo-addon-sale_invoice_delivery_state" = { path = "modules/sale-workflow/sale_invoice_delivery_state", editable = true }
+    "odoo-addon-sale_invoice_frequency" = { path = "modules/sale-workflow/sale_invoice_frequency", editable = true }
+    "odoo-addon-sale_invoice_plan" = { path = "modules/sale-workflow/sale_invoice_plan", editable = true }
+    "odoo-addon-sale_invoice_plan_report" = { path = "modules/sale-workflow/sale_invoice_plan_report", editable = true }
+    "odoo-addon-sale_invoice_policy" = { path = "modules/sale-workflow/sale_invoice_policy", editable = true }
+    "odoo-addon-sale_invoice_product_not_alone" = { path = "modules/sale-workflow/sale_invoice_product_not_alone", editable = true }
+    "odoo-addon-sale_invoice_split_payment" = { path = "modules/sale-workflow/sale_invoice_split_payment", editable = true }
+    "odoo-addon-sale_invoiceability_on_payment_transaction" = { path = "modules/account-invoicing/sale_invoiceability_on_payment_transaction", editable = true }
+    "odoo-addon-sale_invoicing_date_from_picking" = { path = "modules/account-invoicing/sale_invoicing_date_from_picking", editable = true }
+    "odoo-addon-sale_invoicing_date_selection" = { path = "modules/account-invoicing/sale_invoicing_date_selection", editable = true }
+    "odoo-addon-sale_last_price_info" = { path = "modules/sale-workflow/sale_last_price_info", editable = true }
+    "odoo-addon-sale_layout_category_hide_detail" = { path = "modules/sale-reporting/sale_layout_category_hide_detail", editable = true }
+    "odoo-addon-sale_line_name_option" = { path = "modules/sale-workflow/sale_line_name_option", editable = true }
+    "odoo-addon-sale_line_refund_to_invoice_qty" = { path = "modules/account-invoicing/sale_line_refund_to_invoice_qty", editable = true }
+    "odoo-addon-sale_line_vendor_comment" = { path = "modules/sale-workflow/sale_line_vendor_comment", editable = true }
+    "odoo-addon-sale_mail_autosubscribe" = { path = "modules/sale-workflow/sale_mail_autosubscribe", editable = true }
+    "odoo-addon-sale_manual_delivery" = { path = "modules/sale-workflow/sale_manual_delivery", editable = true }
+    "odoo-addon-sale_mrp_bom" = { path = "modules/sale-workflow/sale_mrp_bom", editable = true }
+    "odoo-addon-sale_mrp_bom_menu" = { path = "modules/manufacture/sale_mrp_bom_menu", editable = true }
+    "odoo-addon-sale_multi_template_application" = { path = "modules/sale-workflow/sale_multi_template_application", editable = true }
+    "odoo-addon-sale_no_portal_button" = { path = "modules/sale-workflow/sale_no_portal_button", editable = true }
+    "odoo-addon-sale_order_add_byproduct" = { path = "modules/sale-workflow/sale_order_add_byproduct", editable = true }
+    "odoo-addon-sale_order_amount_to_invoice" = { path = "modules/sale-workflow/sale_order_amount_to_invoice", editable = true }
+    "odoo-addon-sale_order_archive" = { path = "modules/sale-workflow/sale_order_archive", editable = true }
+    "odoo-addon-sale_order_cancel_optional_email" = { path = "modules/sale-workflow/sale_order_cancel_optional_email", editable = true }
+    "odoo-addon-sale_order_carrier_auto_assign" = { path = "modules/sale-workflow/sale_order_carrier_auto_assign", editable = true }
+    "odoo-addon-sale_order_disable_user_autosubscribe" = { path = "modules/sale-workflow/sale_order_disable_user_autosubscribe", editable = true }
+    "odoo-addon-sale_order_finish_service" = { path = "modules/sale-workflow/sale_order_finish_service", editable = true }
+    "odoo-addon-sale_order_general_discount" = { path = "modules/sale-workflow/sale_order_general_discount", editable = true }
+    "odoo-addon-sale_order_invoice_amount" = { path = "modules/sale-workflow/sale_order_invoice_amount", editable = true }
+    "odoo-addon-sale_order_invoicing_finished_task" = { path = "modules/sale-workflow/sale_order_invoicing_finished_task", editable = true }
+    "odoo-addon-sale_order_invoicing_grouping_criteria" = { path = "modules/account-invoicing/sale_order_invoicing_grouping_criteria", editable = true }
+    "odoo-addon-sale_order_invoicing_picking_filter" = { path = "modules/sale-workflow/sale_order_invoicing_picking_filter", editable = true }
+    "odoo-addon-sale_order_invoicing_qty_percentage" = { path = "modules/account-invoicing/sale_order_invoicing_qty_percentage", editable = true }
+    "odoo-addon-sale_order_line_cancel" = { path = "modules/sale-workflow/sale_order_line_cancel", editable = true }
+    "odoo-addon-sale_order_line_cancel_sale_stock" = { path = "modules/sale-workflow/sale_order_line_cancel_sale_stock", editable = true }
+    "odoo-addon-sale_order_line_chained_move" = { path = "modules/sale-workflow/sale_order_line_chained_move", editable = true }
+    "odoo-addon-sale_order_line_client_order_ref" = { path = "modules/sale-workflow/sale_order_line_client_order_ref", editable = true }
+    "odoo-addon-sale_order_line_date" = { path = "modules/sale-workflow/sale_order_line_date", editable = true }
+    "odoo-addon-sale_order_line_date_next_reception" = { path = "modules/sale-workflow/sale_order_line_date_next_reception", editable = true }
+    "odoo-addon-sale_order_line_delivery_state" = { path = "modules/sale-workflow/sale_order_line_delivery_state", editable = true }
+    "odoo-addon-sale_order_line_description" = { path = "modules/sale-workflow/sale_order_line_description", editable = true }
+    "odoo-addon-sale_order_line_effective_date" = { path = "modules/sale-workflow/sale_order_line_effective_date", editable = true }
+    "odoo-addon-sale_order_line_final_price" = { path = "modules/sale-workflow/sale_order_line_final_price", editable = true }
+    "odoo-addon-sale_order_line_input" = { path = "modules/sale-workflow/sale_order_line_input", editable = true }
+    "odoo-addon-sale_order_line_menu" = { path = "modules/sale-workflow/sale_order_line_menu", editable = true }
+    "odoo-addon-sale_order_line_move_to_optional" = { path = "modules/sale-workflow/sale_order_line_move_to_optional", editable = true }
+    "odoo-addon-sale_order_line_no_print" = { path = "modules/sale-workflow/sale_order_line_no_print", editable = true }
+    "odoo-addon-sale_order_line_note" = { path = "modules/sale-workflow/sale_order_line_note", editable = true }
+    "odoo-addon-sale_order_line_position" = { path = "modules/sale-reporting/sale_order_line_position", editable = true }
+    "odoo-addon-sale_order_line_price_history" = { path = "modules/sale-workflow/sale_order_line_price_history", editable = true }
+    "odoo-addon-sale_order_line_price_lock_by_pricelist" = { path = "modules/sale-workflow/sale_order_line_price_lock_by_pricelist", editable = true }
+    "odoo-addon-sale_order_line_product_attribute_values" = { path = "modules/sale-workflow/sale_order_line_product_attribute_values", editable = true }
+    "odoo-addon-sale_order_line_remove" = { path = "modules/sale-workflow/sale_order_line_remove", editable = true }
+    "odoo-addon-sale_order_line_sequence" = { path = "modules/sale-workflow/sale_order_line_sequence", editable = true }
+    "odoo-addon-sale_order_line_stock_move_history" = { path = "modules/sale-workflow/sale_order_line_stock_move_history", editable = true }
+    "odoo-addon-sale_order_line_tag" = { path = "modules/sale-workflow/sale_order_line_tag", editable = true }
+    "odoo-addon-sale_order_lot_generator" = { path = "modules/sale-workflow/sale_order_lot_generator", editable = true }
+    "odoo-addon-sale_order_lot_selection" = { path = "modules/sale-workflow/sale_order_lot_selection", editable = true }
+    "odoo-addon-sale_order_lot_selection_price" = { path = "modules/sale-workflow/sale_order_lot_selection_price", editable = true }
+    "odoo-addon-sale_order_note_template" = { path = "modules/sale-workflow/sale_order_note_template", editable = true }
+    "odoo-addon-sale_order_payment_terms_from_invoice_address" = { path = "modules/sale-workflow/sale_order_payment_terms_from_invoice_address", editable = true }
+    "odoo-addon-sale_order_price_recalculation" = { path = "modules/sale-workflow/sale_order_price_recalculation", editable = true }
+    "odoo-addon-sale_order_priority" = { path = "modules/sale-workflow/sale_order_priority", editable = true }
+    "odoo-addon-sale_order_product_assortment" = { path = "modules/sale-workflow/sale_order_product_assortment", editable = true }
+    "odoo-addon-sale_order_product_availability_inline" = { path = "modules/sale-workflow/sale_order_product_availability_inline", editable = true }
+    "odoo-addon-sale_order_product_recommendation" = { path = "modules/sale-workflow/sale_order_product_recommendation", editable = true }
+    "odoo-addon-sale_order_product_recommendation_elaboration" = { path = "modules/sale-workflow/sale_order_product_recommendation_elaboration", editable = true }
+    "odoo-addon-sale_order_product_recommendation_packaging_default" = { path = "modules/sale-workflow/sale_order_product_recommendation_packaging_default", editable = true }
+    "odoo-addon-sale_order_product_recommendation_product_sold_by_delivery_week" = { path = "modules/sale-reporting/sale_order_product_recommendation_product_sold_by_delivery_week", editable = true }
+    "odoo-addon-sale_order_product_recommendation_secondary_unit" = { path = "modules/sale-workflow/sale_order_product_recommendation_secondary_unit", editable = true }
+    "odoo-addon-sale_order_qty_change_no_recompute" = { path = "modules/sale-workflow/sale_order_qty_change_no_recompute", editable = true }
+    "odoo-addon-sale_order_report_hide_tax" = { path = "modules/sale-reporting/sale_order_report_hide_tax", editable = true }
+    "odoo-addon-sale_order_report_product_image" = { path = "modules/sale-reporting/sale_order_report_product_image", editable = true }
+    "odoo-addon-sale_order_report_without_price" = { path = "modules/sale-workflow/sale_order_report_without_price", editable = true }
+    "odoo-addon-sale_order_requested_delivery" = { path = "modules/sale-workflow/sale_order_requested_delivery", editable = true }
+    "odoo-addon-sale_order_restrict_copy_archived_product" = { path = "modules/sale-workflow/sale_order_restrict_copy_archived_product", editable = true }
+    "odoo-addon-sale_order_revision" = { path = "modules/sale-workflow/sale_order_revision", editable = true }
+    "odoo-addon-sale_order_secondary_unit" = { path = "modules/sale-workflow/sale_order_secondary_unit", editable = true }
+    "odoo-addon-sale_order_show_currency_rate" = { path = "modules/sale-workflow/sale_order_show_currency_rate", editable = true }
+    "odoo-addon-sale_order_split_strategy" = { path = "modules/sale-workflow/sale_order_split_strategy", editable = true }
+    "odoo-addon-sale_order_tag" = { path = "modules/sale-workflow/sale_order_tag", editable = true }
+    "odoo-addon-sale_order_team_from_product" = { path = "modules/sale-workflow/sale_order_team_from_product", editable = true }
+    "odoo-addon-sale_order_transmit_method" = { path = "modules/sale-workflow/sale_order_transmit_method", editable = true }
+    "odoo-addon-sale_order_type" = { path = "modules/sale-workflow/sale_order_type", editable = true }
+    "odoo-addon-sale_order_type_confirm_message" = { path = "modules/sale-workflow/sale_order_type_confirm_message", editable = true }
+    "odoo-addon-sale_order_warehouse_header" = { path = "modules/sale-workflow/sale_order_warehouse_header", editable = true }
+    "odoo-addon-sale_order_warn_message" = { path = "modules/sale-workflow/sale_order_warn_message", editable = true }
+    "odoo-addon-sale_order_weight" = { path = "modules/sale-reporting/sale_order_weight", editable = true }
+    "odoo-addon-sale_packaging_default" = { path = "modules/sale-workflow/sale_packaging_default", editable = true }
+    "odoo-addon-sale_packaging_report" = { path = "modules/sale-reporting/sale_packaging_report", editable = true }
+    "odoo-addon-sale_partner_address_restrict" = { path = "modules/sale-workflow/sale_partner_address_restrict", editable = true }
+    "odoo-addon-sale_partner_company_group" = { path = "modules/partner-contact/sale_partner_company_group", editable = true }
+    "odoo-addon-sale_partner_incoterm" = { path = "modules/sale-workflow/sale_partner_incoterm", editable = true }
+    "odoo-addon-sale_partner_order_template" = { path = "modules/sale-workflow/sale_partner_order_template", editable = true }
+    "odoo-addon-sale_partner_primeship" = { path = "modules/sale-workflow/sale_partner_primeship", editable = true }
+    "odoo-addon-sale_partner_selectable_option" = { path = "modules/sale-workflow/sale_partner_selectable_option", editable = true }
+    "odoo-addon-sale_partner_shipping_default_partner_invoice" = { path = "modules/sale-workflow/sale_partner_shipping_default_partner_invoice", editable = true }
+    "odoo-addon-sale_payment_sheet" = { path = "modules/sale-workflow/sale_payment_sheet", editable = true }
+    "odoo-addon-sale_planner_calendar" = { path = "modules/sale-workflow/sale_planner_calendar", editable = true }
+    "odoo-addon-sale_pricelist_display_surcharge" = { path = "modules/sale-workflow/sale_pricelist_display_surcharge", editable = true }
+    "odoo-addon-sale_pricelist_from_commitment_date" = { path = "modules/sale-workflow/sale_pricelist_from_commitment_date", editable = true }
+    "odoo-addon-sale_pricelist_packaging" = { path = "modules/sale-workflow/sale_pricelist_packaging", editable = true }
+    "odoo-addon-sale_probability_amount" = { path = "modules/sale-workflow/sale_probability_amount", editable = true }
+    "odoo-addon-sale_procurement_group_by_line" = { path = "modules/sale-workflow/sale_procurement_group_by_line", editable = true }
+    "odoo-addon-sale_product_catalog_extended" = { path = "modules/sale-workflow/sale_product_catalog_extended", editable = true }
+    "odoo-addon-sale_product_identification" = { path = "modules/sale-workflow/sale_product_identification", editable = true }
+    "odoo-addon-sale_product_multi_add" = { path = "modules/sale-workflow/sale_product_multi_add", editable = true }
+    "odoo-addon-sale_product_set" = { path = "modules/sale-workflow/sale_product_set", editable = true }
+    "odoo-addon-sale_product_set_packaging_qty" = { path = "modules/sale-workflow/sale_product_set_packaging_qty", editable = true }
+    "odoo-addon-sale_product_template_tags" = { path = "modules/product-attribute/sale_product_template_tags", editable = true }
+    "odoo-addon-sale_production_state" = { path = "modules/sale-workflow/sale_production_state", editable = true }
+    "odoo-addon-sale_purchase_force_vendor" = { path = "modules/purchase-workflow/sale_purchase_force_vendor", editable = true }
+    "odoo-addon-sale_purchase_stock_auto_cancel" = { path = "modules/sale-workflow/sale_purchase_stock_auto_cancel", editable = true }
+    "odoo-addon-sale_purchase_stock_auto_confirm" = { path = "modules/sale-workflow/sale_purchase_stock_auto_confirm", editable = true }
+    "odoo-addon-sale_quotation_number" = { path = "modules/sale-workflow/sale_quotation_number", editable = true }
+    "odoo-addon-sale_readonly_security" = { path = "modules/sale-workflow/sale_readonly_security", editable = true }
+    "odoo-addon-sale_report_delivered" = { path = "modules/sale-reporting/sale_report_delivered", editable = true }
+    "odoo-addon-sale_report_delivered_attribute_values" = { path = "modules/sale-reporting/sale_report_delivered_attribute_values", editable = true }
+    "odoo-addon-sale_report_delivered_brand" = { path = "modules/sale-reporting/sale_report_delivered_brand", editable = true }
+    "odoo-addon-sale_report_delivered_elaboration" = { path = "modules/sale-reporting/sale_report_delivered_elaboration", editable = true }
+    "odoo-addon-sale_report_delivered_partner_priority" = { path = "modules/sale-reporting/sale_report_delivered_partner_priority", editable = true }
+    "odoo-addon-sale_report_delivered_semaphore" = { path = "modules/sale-reporting/sale_report_delivered_semaphore", editable = true }
+    "odoo-addon-sale_report_delivered_subtotal" = { path = "modules/sale-reporting/sale_report_delivered_subtotal", editable = true }
+    "odoo-addon-sale_report_delivered_volume" = { path = "modules/sale-reporting/sale_report_delivered_volume", editable = true }
+    "odoo-addon-sale_report_salesman" = { path = "modules/sale-reporting/sale_report_salesman", editable = true }
+    "odoo-addon-sale_report_salesperson_from_partner" = { path = "modules/sale-reporting/sale_report_salesperson_from_partner", editable = true }
+    "odoo-addon-sale_require_po_doc" = { path = "modules/sale-workflow/sale_require_po_doc", editable = true }
+    "odoo-addon-sale_resource_booking" = { path = "modules/sale-workflow/sale_resource_booking", editable = true }
+    "odoo-addon-sale_restricted_qty" = { path = "modules/sale-workflow/sale_restricted_qty", editable = true }
+    "odoo-addon-sale_semaphore" = { path = "modules/sale-workflow/sale_semaphore", editable = true }
+    "odoo-addon-sale_shipping_info_helper" = { path = "modules/sale-workflow/sale_shipping_info_helper", editable = true }
+    "odoo-addon-sale_sourced_by_line" = { path = "modules/sale-workflow/sale_sourced_by_line", editable = true }
+    "odoo-addon-sale_start_end_dates" = { path = "modules/sale-workflow/sale_start_end_dates", editable = true }
+    "odoo-addon-sale_stock_cancel_restriction" = { path = "modules/sale-workflow/sale_stock_cancel_restriction", editable = true }
+    "odoo-addon-sale_stock_delivery_address" = { path = "modules/sale-workflow/sale_stock_delivery_address", editable = true }
+    "odoo-addon-sale_stock_delivery_state" = { path = "modules/sale-workflow/sale_stock_delivery_state", editable = true }
+    "odoo-addon-sale_stock_expiry_date_on_qty_at_date_widget" = { path = "modules/sale-workflow/sale_stock_expiry_date_on_qty_at_date_widget", editable = true }
+    "odoo-addon-sale_stock_last_date" = { path = "modules/sale-workflow/sale_stock_last_date", editable = true }
+    "odoo-addon-sale_stock_line_customer_ref" = { path = "modules/sale-workflow/sale_stock_line_customer_ref", editable = true }
+    "odoo-addon-sale_stock_line_sequence" = { path = "modules/sale-workflow/sale_stock_line_sequence", editable = true }
+    "odoo-addon-sale_stock_partner_warehouse" = { path = "modules/sale-workflow/sale_stock_partner_warehouse", editable = true }
+    "odoo-addon-sale_stock_picking_blocking" = { path = "modules/sale-workflow/sale_stock_picking_blocking", editable = true }
+    "odoo-addon-sale_stock_picking_invoicing" = { path = "modules/account-invoicing/sale_stock_picking_invoicing", editable = true }
+    "odoo-addon-sale_stock_picking_note" = { path = "modules/sale-workflow/sale_stock_picking_note", editable = true }
+    "odoo-addon-sale_stock_picking_validation_blocking" = { path = "modules/sale-workflow/sale_stock_picking_validation_blocking", editable = true }
+    "odoo-addon-sale_stock_product_recommendation" = { path = "modules/sale-workflow/sale_stock_product_recommendation", editable = true }
+    "odoo-addon-sale_stock_qty_at_date_widget_multi_warehouse" = { path = "modules/sale-workflow/sale_stock_qty_at_date_widget_multi_warehouse", editable = true }
+    "odoo-addon-sale_stock_reservation_issue_on_qty_at_date_widget" = { path = "modules/sale-workflow/sale_stock_reservation_issue_on_qty_at_date_widget", editable = true }
+    "odoo-addon-sale_stock_return_request" = { path = "modules/sale-workflow/sale_stock_return_request", editable = true }
+    "odoo-addon-sale_stock_secondary_unit" = { path = "modules/sale-workflow/sale_stock_secondary_unit", editable = true }
+    "odoo-addon-sale_substate" = { path = "modules/sale-workflow/sale_substate", editable = true }
+    "odoo-addon-sale_team_payment_term" = { path = "modules/sale-workflow/sale_team_payment_term", editable = true }
+    "odoo-addon-sale_tier_validation" = { path = "modules/sale-workflow/sale_tier_validation", editable = true }
+    "odoo-addon-sale_timesheet_budget" = { path = "modules/timesheet/sale_timesheet_budget", editable = true }
+    "odoo-addon-sale_timesheet_invoice_description" = { path = "modules/account-invoicing/sale_timesheet_invoice_description", editable = true }
+    "odoo-addon-sale_timesheet_invoice_link" = { path = "modules/timesheet/sale_timesheet_invoice_link", editable = true }
+    "odoo-addon-sale_timesheet_line_exclude" = { path = "modules/timesheet/sale_timesheet_line_exclude", editable = true }
+    "odoo-addon-sale_timesheet_project_manual" = { path = "modules/sale-workflow/sale_timesheet_project_manual", editable = true }
+    "odoo-addon-sale_timesheet_rounded" = { path = "modules/timesheet/sale_timesheet_rounded", editable = true }
+    "odoo-addon-sale_timesheet_timeline" = { path = "modules/timesheet/sale_timesheet_timeline", editable = true }
+    "odoo-addon-sale_transaction_form_link" = { path = "modules/sale-workflow/sale_transaction_form_link", editable = true }
+    "odoo-addon-sale_validity_auto_cancel" = { path = "modules/sale-workflow/sale_validity_auto_cancel", editable = true }
+    "odoo-addon-sale_warn_option" = { path = "modules/sale-workflow/sale_warn_option", editable = true }
+    "odoo-addon-sale_wishlist" = { path = "modules/sale-workflow/sale_wishlist", editable = true }
+    "odoo-addon-sales_team_security" = { path = "modules/sale-workflow/sales_team_security", editable = true }
+    "odoo-addon-scheduler_error_mailer" = { path = "modules/server-tools/scheduler_error_mailer", editable = true }
+    "odoo-addon-sell_only_by_packaging" = { path = "modules/sale-workflow/sell_only_by_packaging", editable = true }
+    "odoo-addon-sentry" = { path = "modules/server-tools/sentry", editable = true }
+    "odoo-addon-sentry_client" = { path = "modules/server-tools/sentry_client", editable = true }
+    "odoo-addon-sequence_check_digit" = { path = "modules/server-ux/sequence_check_digit", editable = true }
+    "odoo-addon-sequence_python" = { path = "modules/server-tools/sequence_python", editable = true }
+    "odoo-addon-sequence_reset_period" = { path = "modules/server-ux/sequence_reset_period", editable = true }
+    "odoo-addon-server_action_mass_edit" = { path = "modules/server-ux/server_action_mass_edit", editable = true }
+    "odoo-addon-server_action_mass_edit_onchange" = { path = "modules/server-ux/server_action_mass_edit_onchange", editable = true }
+    "odoo-addon-session_db" = { path = "modules/server-tools/session_db", editable = true }
+    "odoo-addon-sql_export" = { path = "modules/reporting-engine/sql_export", editable = true }
+    "odoo-addon-sql_export_delta" = { path = "modules/reporting-engine/sql_export_delta", editable = true }
+    "odoo-addon-sql_export_excel" = { path = "modules/reporting-engine/sql_export_excel", editable = true }
+    "odoo-addon-sql_export_mail" = { path = "modules/reporting-engine/sql_export_mail", editable = true }
+    "odoo-addon-sql_request_abstract" = { path = "modules/reporting-engine/sql_request_abstract", editable = true }
+    "odoo-addon-stock_account_move_reset_to_draft" = { path = "modules/account-invoicing/stock_account_move_reset_to_draft", editable = true }
+    "odoo-addon-stock_analytic" = { path = "modules/account-analytic/stock_analytic", editable = true }
+    "odoo-addon-stock_landed_costs_analytic" = { path = "modules/account-analytic/stock_landed_costs_analytic", editable = true }
+    "odoo-addon-stock_lot_production_date" = { path = "modules/product-attribute/stock_lot_production_date", editable = true }
+    "odoo-addon-stock_move_purchase_price_update" = { path = "modules/purchase-workflow/stock_move_purchase_price_update", editable = true }
+    "odoo-addon-stock_picking_analytic" = { path = "modules/account-analytic/stock_picking_analytic", editable = true }
+    "odoo-addon-stock_picking_invoicing" = { path = "modules/account-invoicing/stock_picking_invoicing", editable = true }
+    "odoo-addon-stock_picking_return_refund_option" = { path = "modules/account-invoicing/stock_picking_return_refund_option", editable = true }
+    "odoo-addon-stock_product_template_tags" = { path = "modules/product-attribute/stock_product_template_tags", editable = true }
+    "odoo-addon-stock_whole_kit_constraint" = { path = "modules/manufacture/stock_whole_kit_constraint", editable = true }
+    "odoo-addon-supplier_calendar" = { path = "modules/purchase-workflow/supplier_calendar", editable = true }
+    "odoo-addon-template_content_swapper" = { path = "modules/server-ux/template_content_swapper", editable = true }
+    "odoo-addon-test_auditlog" = { path = "modules/server-tools/test_auditlog", editable = true }
+    "odoo-addon-test_base_time_window" = { path = "modules/server-tools/test_base_time_window", editable = true }
+    "odoo-addon-test_queue_job" = { path = "modules/queue/test_queue_job", editable = true }
+    "odoo-addon-test_queue_job_batch" = { path = "modules/queue/test_queue_job_batch", editable = true }
+    "odoo-addon-tracking_manager" = { path = "modules/server-tools/tracking_manager", editable = true }
+    "odoo-addon-tracking_manager_domain" = { path = "modules/server-tools/tracking_manager_domain", editable = true }
+    "odoo-addon-uom_alias" = { path = "modules/product-attribute/uom_alias", editable = true }
+    "odoo-addon-uom_category_active" = { path = "modules/product-attribute/uom_category_active", editable = true }
+    "odoo-addon-upgrade_analysis" = { path = "modules/server-tools/upgrade_analysis", editable = true }
+    "odoo-addon-user_log_view" = { path = "modules/server-auth/user_log_view", editable = true }
+    "odoo-addon-users_ldap_mail" = { path = "modules/server-auth/users_ldap_mail", editable = true }
+    "odoo-addon-vault" = { path = "modules/server-auth/vault", editable = true }
+    "odoo-addon-vault_share" = { path = "modules/server-auth/vault_share", editable = true }
+    "odoo-addon-vendor_transport_lead_time" = { path = "modules/purchase-workflow/vendor_transport_lead_time", editable = true }
+    "odoo-addon-web_action_conditionable" = { path = "modules/web/web_action_conditionable", editable = true }
+    "odoo-addon-web_calendar_slot_duration" = { path = "modules/web/web_calendar_slot_duration", editable = true }
+    "odoo-addon-web_chatter_position" = { path = "modules/web/web_chatter_position", editable = true }
+    "odoo-addon-web_company_color" = { path = "modules/web/web_company_color", editable = true }
+    "odoo-addon-web_copy_confirm" = { path = "modules/web/web_copy_confirm", editable = true }
+    "odoo-addon-web_dark_mode" = { path = "modules/web/web_dark_mode", editable = true }
+    "odoo-addon-web_datetime_picker_default_time" = { path = "modules/web/web_datetime_picker_default_time", editable = true }
+    "odoo-addon-web_dialog_size" = { path = "modules/web/web_dialog_size", editable = true }
+    "odoo-addon-web_disable_export_group" = { path = "modules/web/web_disable_export_group", editable = true }
+    "odoo-addon-web_editor_class_selector" = { path = "modules/web/web_editor_class_selector", editable = true }
+    "odoo-addon-web_editor_disable_chatgpt" = { path = "modules/web/web_editor_disable_chatgpt", editable = true }
+    "odoo-addon-web_environment_ribbon" = { path = "modules/web/web_environment_ribbon", editable = true }
+    "odoo-addon-web_excel_export_dynamic_expand" = { path = "modules/web/web_excel_export_dynamic_expand", editable = true }
+    "odoo-addon-web_favicon" = { path = "modules/web/web_favicon", editable = true }
+    "odoo-addon-web_filter_header_button" = { path = "modules/web/web_filter_header_button", editable = true }
+    "odoo-addon-web_font_size_report_layout" = { path = "modules/web/web_font_size_report_layout", editable = true }
+    "odoo-addon-web_form_banner" = { path = "modules/web/web_form_banner", editable = true }
+    "odoo-addon-web_group_expand" = { path = "modules/web/web_group_expand", editable = true }
+    "odoo-addon-web_help" = { path = "modules/web/web_help", editable = true }
+    "odoo-addon-web_ir_actions_act_multi" = { path = "modules/web/web_ir_actions_act_multi", editable = true }
+    "odoo-addon-web_ir_actions_act_window_message" = { path = "modules/web/web_ir_actions_act_window_message", editable = true }
+    "odoo-addon-web_loading_block_ui" = { path = "modules/web/web_loading_block_ui", editable = true }
+    "odoo-addon-web_m2x_options" = { path = "modules/web/web_m2x_options", editable = true }
+    "odoo-addon-web_m2x_options_manager" = { path = "modules/web/web_m2x_options_manager", editable = true }
+    "odoo-addon-web_no_bubble" = { path = "modules/web/web_no_bubble", editable = true }
+    "odoo-addon-web_notify" = { path = "modules/web/web_notify", editable = true }
+    "odoo-addon-web_notify_channel_message" = { path = "modules/web/web_notify_channel_message", editable = true }
+    "odoo-addon-web_notify_upgrade" = { path = "modules/web/web_notify_upgrade", editable = true }
+    "odoo-addon-web_pivot_computed_measure" = { path = "modules/web/web_pivot_computed_measure", editable = true }
+    "odoo-addon-web_portal_properties" = { path = "modules/web/web_portal_properties", editable = true }
+    "odoo-addon-web_pwa_customize" = { path = "modules/web/web_pwa_customize", editable = true }
+    "odoo-addon-web_quick_start_screen" = { path = "modules/web/web_quick_start_screen", editable = true }
+    "odoo-addon-web_refresher" = { path = "modules/web/web_refresher", editable = true }
+    "odoo-addon-web_remember_tree_column_width" = { path = "modules/web/web_remember_tree_column_width", editable = true }
+    "odoo-addon-web_responsive" = { path = "modules/web/web_responsive", editable = true }
+    "odoo-addon-web_responsive_company_color" = { path = "modules/web/web_responsive_company_color", editable = true }
+    "odoo-addon-web_save_discard_button" = { path = "modules/web/web_save_discard_button", editable = true }
+    "odoo-addon-web_search_with_and" = { path = "modules/web/web_search_with_and", editable = true }
+    "odoo-addon-web_send_message_popup" = { path = "modules/web/web_send_message_popup", editable = true }
+    "odoo-addon-web_session_auto_close" = { path = "modules/web/web_session_auto_close", editable = true }
+    "odoo-addon-web_sort_menu" = { path = "modules/web/web_sort_menu", editable = true }
+    "odoo-addon-web_systray_button_init_action" = { path = "modules/web/web_systray_button_init_action", editable = true }
+    "odoo-addon-web_theme_classic" = { path = "modules/web/web_theme_classic", editable = true }
+    "odoo-addon-web_time_range_menu_custom" = { path = "modules/web/web_time_range_menu_custom", editable = true }
+    "odoo-addon-web_timeline" = { path = "modules/web/web_timeline", editable = true }
+    "odoo-addon-web_toggle_chatter" = { path = "modules/web/web_toggle_chatter", editable = true }
+    "odoo-addon-web_touchscreen" = { path = "modules/web/web_touchscreen", editable = true }
+    "odoo-addon-web_tree_column_keyboard_resize" = { path = "modules/web/web_tree_column_keyboard_resize", editable = true }
+    "odoo-addon-web_tree_dynamic_colored_field" = { path = "modules/web/web_tree_dynamic_colored_field", editable = true }
+    "odoo-addon-web_tree_many2one_clickable" = { path = "modules/web/web_tree_many2one_clickable", editable = true }
+    "odoo-addon-web_widget_bokeh_chart" = { path = "modules/web/web_widget_bokeh_chart", editable = true }
+    "odoo-addon-web_widget_char_size" = { path = "modules/web/web_widget_char_size", editable = true }
+    "odoo-addon-web_widget_domain_editor_dialog" = { path = "modules/web/web_widget_domain_editor_dialog", editable = true }
+    "odoo-addon-web_widget_dropdown_dynamic" = { path = "modules/web/web_widget_dropdown_dynamic", editable = true }
+    "odoo-addon-web_widget_image_download" = { path = "modules/web/web_widget_image_download", editable = true }
+    "odoo-addon-web_widget_mpld3_chart" = { path = "modules/web/web_widget_mpld3_chart", editable = true }
+    "odoo-addon-web_widget_numeric_step" = { path = "modules/web/web_widget_numeric_step", editable = true }
+    "odoo-addon-web_widget_o2m_attachment_image_gallery" = { path = "modules/web/web_widget_o2m_attachment_image_gallery", editable = true }
+    "odoo-addon-web_widget_one2many_tree_line_duplicate" = { path = "modules/web/web_widget_one2many_tree_line_duplicate", editable = true }
+    "odoo-addon-web_widget_open_tab" = { path = "modules/web/web_widget_open_tab", editable = true }
+    "odoo-addon-web_widget_pattern" = { path = "modules/web/web_widget_pattern", editable = true }
+    "odoo-addon-web_widget_popover" = { path = "modules/web/web_widget_popover", editable = true }
+    "odoo-addon-web_widget_product_label_section_and_note_full_label" = { path = "modules/web/web_widget_product_label_section_and_note_full_label", editable = true }
+    "odoo-addon-web_widget_product_label_section_and_note_full_label_sale" = { path = "modules/sale-workflow/web_widget_product_label_section_and_note_full_label_sale", editable = true }
+    "odoo-addon-web_widget_product_label_section_and_note_name_visibility" = { path = "modules/web/web_widget_product_label_section_and_note_name_visibility", editable = true }
+    "odoo-addon-web_widget_url_advanced" = { path = "modules/web/web_widget_url_advanced", editable = true }
+    "odoo-addon-web_widget_x2many_2d_matrix" = { path = "modules/web/web_widget_x2many_2d_matrix", editable = true }
+# <<< odoo-nix: module sources <<<
+
+# The root is a virtual package with no Python code of its own.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
+
+# Legacy sdist-only deps (from Odoo's requirements) that don't declare setuptools
+# as a build dependency. Auto-maintained from uv.lock (lib/uv_build_deps.py).
+[tool.uv.extra-build-dependencies]
+# >>> odoo-nix: sdist build deps (managed) >>>
+"docopt" = ["setuptools"]
+"odoo" = ["setuptools"]
+"ofxparse" = ["setuptools"]
+"python-ldap" = ["setuptools"]
+"rjsmin" = ["setuptools"]
+"vobject" = ["setuptools"]
+# <<< odoo-nix: sdist build deps (managed) <<<

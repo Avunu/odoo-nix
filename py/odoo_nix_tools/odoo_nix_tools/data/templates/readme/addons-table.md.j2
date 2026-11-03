@@ -1,0 +1,5 @@
+| Addon | Summary | License |
+| --- | --- | --- |
+{% for addon in addons if addon.installable %}
+| [{{ addon.name }}]({{ addon.path }}/{{ addon.readme or "" }}) | {{ addon.summary | md_cell }} | {{ (addon.license or "") | md_cell }} |
+{% endfor %}

@@ -1,11 +1,13 @@
 """odoo-nix's product: every value standards-core reads (core DESIGN.md §3).
 
-Stage O4 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields carry
+Stage O5 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields carry
 their final values; discovery (``discover``), the template context and the gates
 (``context``), the branching models (``release.BRANCHING``), the managed files'
 handlers (``groups``, ``checks``), preflight, notices and whole-repo checks
-(``checks``), the first-opt-in files and the fixtures (``fixtures``) are wired in. Every
-other hook keeps the core's neutral default until its stage (DESIGN.md §14).
+(``checks``), the first-opt-in files and the fixtures (``fixtures``) are wired in; the
+sentinel blocks (``flake.nix`` inputs, ``.gitignore``, the README table) and the editor
+files (jsonc-merge) are the core's handlers over ``data/manifest.d``. Every other hook
+keeps the core's neutral default until its stage (DESIGN.md §14).
 """
 
 from __future__ import annotations
@@ -222,6 +224,7 @@ PRODUCT = Product(
         {
             "regex_alt": context.regex_alt,
             "path_prefix_regex": context.path_prefix_regex,
+            "md_cell": context.md_cell,
         }
     ),
     handlers=MappingProxyType(

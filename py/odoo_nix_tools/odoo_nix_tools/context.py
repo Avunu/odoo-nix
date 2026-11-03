@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping, Sequence
+from functools import cache
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -155,11 +156,19 @@ def scopes(cfg: Mapping[str, Any], facts: Mapping[str, Any]) -> list[str]:
     return sorted({*names, *commits.get("extra-scopes", [])})
 
 
+@cache
+def ide_data() -> Mapping[str, Any]:
+    """``data/ide/vscode.json``: the seed ``modules/devenv.nix`` writes and the ``ide``
+    module's jsonc-merge spec (DESIGN.md §3.1 ide)."""
+    from odoo_nix_tools.product import DATA
+
+    return json.loads((DATA / "ide" / "vscode.json").read_text())
+
+
 def template_globals(
     checkout: Checkout, resolved: Resolved, base_ctx: NS
 ) -> dict[str, Any]:
-    """odoo-nix's template keys (DESIGN.md §2.4). The editor data (``ide``) arrives with
-    its files (stage O5)."""
+    """odoo-nix's template keys (DESIGN.md §2.4)."""
     from odoo_nix_tools import precommit
 
     facts = base_ctx["discover"]
@@ -188,6 +197,7 @@ def template_globals(
         "odoo_python": data.odoo_python,
         "website": series.website(cfg),
         "scopes": scopes(cfg, facts),
+        "ide": ide_data(),
     }
 
 
@@ -443,6 +453,11 @@ def url_placeholders(ctx: NS) -> Sequence[tuple[str, str]]:
 def regex_alt(patterns: Sequence[str]) -> str:
     """Regular expressions joined as alternatives (each kept as written)."""
     return "|".join(patterns)
+
+
+def md_cell(value: Any) -> str:
+    """``value`` as the text of one Markdown table cell: one line, ``|`` escaped."""
+    return " ".join(str(value or "").split()).replace("|", "\\|")
 
 
 def path_prefix_regex(prefixes: Sequence[str]) -> str:

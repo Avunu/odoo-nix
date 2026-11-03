@@ -185,20 +185,26 @@ def load_checkout(root: Path, product: Product | None = None) -> Checkout:
             "flake": _flake_text(checkout.root, checkout.tracked),
             "gitlinks": MappingProxyType(_gitlinks(checkout.root)),
             "config_path": config_file(checkout.root),
+            # The file the core reads the table from (and --standards writes it to):
+            # the root pyproject.toml until core CR1 lets hooks.config_file choose.
+            "core_config": engine.config_file(product, checkout.root),
         }
     )
     return checkout
 
 
-def _extra(checkout: Checkout) -> Mapping[str, Any]:
+def checkout_extra(checkout: Checkout) -> Mapping[str, Any]:
     """``checkout.extra``, computed when the checkout came from elsewhere (a core
     ``Checkout`` built without ``load_checkout``)."""
     if "flake" in checkout.extra:
         return checkout.extra
+    from odoo_nix_tools.product import PRODUCT
+
     return {
         "flake": _flake_text(checkout.root, checkout.tracked),
         "gitlinks": _gitlinks(checkout.root),
         "config_path": config_file(checkout.root),
+        "core_config": engine.config_file(PRODUCT, checkout.root),
     }
 
 
@@ -361,6 +367,7 @@ def _addon(root: Path, name: str, path: str, inner: list[str]) -> dict[str, Any]
         "installable": bool(manifest.get("installable", True)),
         "license": manifest.get("license"),
         "author": str(author or ""),
+        "summary": " ".join(str(manifest.get("summary") or "").split()),
         "website": manifest.get("website"),
         "version": manifest.get("version"),
         "depends": list(manifest.get("depends", [])),
@@ -475,7 +482,7 @@ def _resolve(
     checkout: Checkout, cfg: Mapping[str, Any]
 ) -> tuple[Mapping[str, Any], dict[str, Any]]:
     """``(table, partial facts)``: shape, series and addons, which ``derive`` needs too."""
-    extra = _extra(checkout)
+    extra = checkout_extra(checkout)
     doc = _config_doc(checkout, extra)
     table = {**_table(doc), **{k: cfg[k] for k in ("shape", "series") if k in cfg}}
     flake = extra["flake"]
@@ -508,7 +515,7 @@ def facts(
 ) -> dict[str, Any]:
     """odoo-nix's discovery facts (DESIGN.md §2.3 "Fact keys")."""
     doc, out = _resolve(checkout, cfg)
-    extra = _extra(checkout)
+    extra = checkout_extra(checkout)
     tracked = checkout.tracked
     not_source = set(_not_source())
     source = [p for p in tracked if _top_dir(p) not in not_source]
