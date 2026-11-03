@@ -574,11 +574,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793409647,
-        "narHash": "sha256-8FDu9ZOTNhWU6oEUqFi5r9T2r27ApgO31jDWpOlKujU=",
+        "lastModified": 1793726930,
+        "narHash": "sha256-waaZKexQs6NqmYqjdN0UY+pV/xvwhv4y5aLZSss9XBM=",
         "owner": "Avunu",
         "repo": "python-devops-nix",
-        "rev": "c07df3edb5c3ab98d91ca06e7c406fea134b03cf",
+        "rev": "cd817f60afd8b207ef3a36586423fcd59cce204d",
         "type": "github"
       },
       "original": {
