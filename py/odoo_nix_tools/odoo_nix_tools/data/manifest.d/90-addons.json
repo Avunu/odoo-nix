@@ -1,0 +1,11 @@
+{
+  "$comment": "Addon repositories (DESIGN.md §3.2): the files addons mode's externalSources replaces. The README addons table (readme) is a sentinel block (stage O5).",
+  "retire": [
+    {
+      "paths": ["oca_dependencies.txt", "test-requirements.txt"],
+      "rule": "OCA's dependency lists: addons mode reads the external sources from flake.nix (externalSources)",
+      "module": "dev-shell",
+      "when": "discover.shape == 'addons' and discover.flake.external_sources"
+    }
+  ]
+}

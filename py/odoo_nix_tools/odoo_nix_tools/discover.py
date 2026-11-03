@@ -17,7 +17,7 @@ import tomllib
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
@@ -28,6 +28,9 @@ from standards_core.scaffold.context import Checkout, default_load_checkout
 
 from odoo_nix_tools import manifests, series
 from odoo_nix_tools.pngsize import png_size
+
+if TYPE_CHECKING:
+    from standards_core.product import Product
 
 PROJECT_CONFIG = "pyproject.toml"
 ADDONS_CONFIG = "nix/pyproject.toml"
@@ -168,12 +171,15 @@ def config_file(root: Path) -> str:
     return ADDONS_CONFIG if signals["addons"] else PROJECT_CONFIG
 
 
-def load_checkout(root: Path) -> Checkout:
+def load_checkout(root: Path, product: Product | None = None) -> Checkout:
     """The core's checkout plus ``extra``: the comment-stripped ``flake.nix``, the
-    gitlinks and the config file's path."""
-    from odoo_nix_tools.product import PRODUCT
+    gitlinks and the config file's path. ``product`` is ``PRODUCT`` but in the tests'
+    stand-in for core CR1, whose config file is ``nix/pyproject.toml``."""
+    if product is None:
+        from odoo_nix_tools.product import PRODUCT
 
-    checkout = default_load_checkout(PRODUCT, root)
+        product = PRODUCT
+    checkout = default_load_checkout(product, root)
     checkout.extra = MappingProxyType(
         {
             "flake": _flake_text(checkout.root, checkout.tracked),
@@ -476,6 +482,10 @@ def _resolve(
     gitlinks = extra["gitlinks"]
     signals = shape_signals(checkout.tracked, flake, gitlinks)
     shape_name, notice = shape(table, signals)
+    if notice is None and "shape" not in _table(doc) and all(signals.values()):
+        # cfg["shape"] is derive's copy of the discovered shape, not an explicit one:
+        # the notice is the checkout's table's to silence.
+        notice = shape(_table(doc), signals)[1]
     root_dir = addons_root(shape_name, flake)
     addons = addon_facts(checkout, root_dir, _not_source())
     branch = cfg.get("integration-branch") or _table(doc).get("integration-branch")

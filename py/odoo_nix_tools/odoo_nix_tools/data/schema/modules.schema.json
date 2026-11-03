@@ -479,7 +479,7 @@
           "src-icon": {
             "type": "string",
             "minLength": 1,
-            "default": "templates/addon-icon.png",
+            "default": "assets/addon-icon.png",
             "description": "The icon `check icons --fix` copies, relative to the profile directory."
           }
         }

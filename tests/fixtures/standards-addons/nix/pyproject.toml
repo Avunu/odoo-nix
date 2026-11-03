@@ -15,6 +15,9 @@ requires-python = ">=3.11"
 # modules its depends reach.
 dependencies = [
     # >>> odoo-nix: install set (managed from modules.txt) >>>
+    "odoo",
+    "odoo-addon-fixture_a",
+    "odoo-addon-fixture_b",
     # <<< odoo-nix: install set <<<
 ]
 
@@ -42,6 +45,9 @@ constraint-dependencies = ["setuptools<81"]
 # are store paths). Managed by lib/oca_sources.py; do not edit by hand.
 [tool.uv.sources]
 # >>> odoo-nix: module sources (managed) >>>
+odoo = { path = "../.odoo-nix/ocb" }
+"odoo-addon-fixture_a" = { path = "../fixture_a", editable = true }
+"odoo-addon-fixture_b" = { path = "../fixture_b", editable = true }
 # <<< odoo-nix: module sources <<<
 
 [build-system]

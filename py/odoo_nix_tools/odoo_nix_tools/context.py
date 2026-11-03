@@ -8,10 +8,14 @@ has. ``url_placeholders`` fills the org URL templates (``{repo_name}``, ``{repo}
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
+
+import tomlkit
+from standards_core.common.report import ConfigError
 
 from odoo_nix_tools import series
 
@@ -154,8 +158,10 @@ def scopes(cfg: Mapping[str, Any], facts: Mapping[str, Any]) -> list[str]:
 def template_globals(
     checkout: Checkout, resolved: Resolved, base_ctx: NS
 ) -> dict[str, Any]:
-    """odoo-nix's template keys (DESIGN.md §2.4). The pre-commit hook list (``hooks``,
-    stage O4) and the editor data (``ide``, stage O5) arrive with their files."""
+    """odoo-nix's template keys (DESIGN.md §2.4). The editor data (``ide``) arrives with
+    its files (stage O5)."""
+    from odoo_nix_tools import precommit
+
     facts = base_ctx["discover"]
     cfg = resolved.cfg
     modules = resolved.modules
@@ -177,6 +183,7 @@ def template_globals(
         "series_data": data,
         "tools": live_tools(data, modules, cfg, facts),
         "node_tools": node_tools(data, modules),
+        "hooks": precommit.hooks(data, modules, cfg, facts),
         "tools_python": data.tools_python,
         "odoo_python": data.odoo_python,
         "website": series.website(cfg),
@@ -184,17 +191,248 @@ def template_globals(
     }
 
 
+# .ruff.toml's tables in OCA's layout; any other table of the series data follows.
+RUFF_TABLES = (
+    ("lint",),
+    ("format",),
+    ("lint", "per-file-ignores"),
+    ("lint", "isort"),
+    ("lint", "isort", "sections"),
+    ("lint", "mccabe"),
+)
+RUFF_KEYS = {
+    (): ("target-version", "fix", "extend-exclude"),
+    ("lint",): (
+        "extend-select",
+        "extend-safe-fixes",
+        "extend-ignore",
+        "exclude",
+        "ignore",
+    ),
+}
+PYLINT_SECTIONS = ("MASTER", "IMPORTS", "ODOOLINT", "MESSAGES CONTROL", "REPORTS")
+PYLINT_KEYS = {
+    "ODOOLINT": (
+        "readme-template-url",
+        "manifest-required-authors",
+        "manifest-required-keys",
+        "manifest-deprecated-keys",
+        "license-allowed",
+        "valid-odoo-versions",
+    ),
+}
+NIX_SH_EDITORCONFIG = "\n[*.{nix,sh}]\nindent_style = space\nindent_size = 2\n"
+
+
+def plain(value: Any) -> Any:
+    """``value`` with every read-only mapping and tuple of the series data made a plain
+    dict or list."""
+    if isinstance(value, Mapping):
+        return {k: plain(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [plain(v) for v in value]
+    return value
+
+
+def _toml_value(value: Any) -> str:
+    return tomlkit.item(value).as_string()
+
+
+def _toml_key(key: str) -> str:
+    return tomlkit.key(key).as_string()
+
+
+def _ordered(table: Mapping[str, Any], first: tuple[str, ...]) -> list[str]:
+    keys = [k for k in first if k in table]
+    return keys + [k for k in table if k not in keys]
+
+
+def _tables(
+    doc: Mapping[str, Any], path: tuple[str, ...] = ()
+) -> list[tuple[str, ...]]:
+    out = []
+    for key, value in doc.items():
+        if isinstance(value, Mapping):
+            out.append((*path, key))
+            out += _tables(value, (*path, key))
+    return out
+
+
+def _at(doc: Mapping[str, Any], path: tuple[str, ...]) -> Mapping[str, Any]:
+    cur: Any = doc
+    for part in path:
+        cur = cur[part]
+    return cur
+
+
+def _local(ctx: NS) -> str:
+    from odoo_nix_tools.product import PRODUCT
+
+    return f"# {PRODUCT.markers.local}"
+
+
 class Gen:
     """The generated bodies of the files no single template can hold (DESIGN.md §2.4):
-    ``pylintrc``, ``eslint_config``, ``ruff_toml`` and ``exclude_block`` arrive with
-    their managed files (stage O4). Pure functions of the context."""
+    pure functions of the context and, for a local region's rule, the file on disk."""
 
-    def __init__(self, ctx: NS) -> None:
+    def __init__(self, ctx: NS, current: str | None = None) -> None:
         self.ctx = ctx
+        self.current = current
+
+    @property
+    def data(self) -> series.SeriesData:
+        return self.ctx["series_data"]
+
+    # --- .editorconfig, checklog-odoo.cfg, the prettier and eslint configs -----------
+
+    def editorconfig(self) -> str:
+        """OCA's sections, then 2-space Nix and shell."""
+        return self.data.files[".editorconfig"].lstrip("\n") + NIX_SH_EDITORCONFIG
+
+    def checklog(self) -> str:
+        return self.data.raw["reference_files"]["checklog-odoo.cfg"].lstrip("\n")
+
+    def prettier_config(self) -> str:
+        return self.data.files["prettier.config.cjs"].lstrip("\n")
+
+    def eslint_config(self) -> str:
+        """OCA's config with the series' ES-module globs (deviation esm-static) and,
+        with ``js-xml.exclude``, a first object that ignores those paths."""
+        body = self.data.files["eslint.config.cjs"].lstrip("\n")
+        oca = "files: " + json.dumps(list(self.data.raw["eslint_esm_globs"])) + ","
+        if oca not in body:
+            raise RuntimeError(
+                f"series {self.data.series}: eslint.config.cjs has no `{oca}` line"
+            )
+        body = body.replace(
+            oca, "files: " + json.dumps(list(self.data.esm_globs)) + ","
+        )
+        exclude = list(self.ctx["cfg"]["js-xml"].get("exclude") or [])
+        if exclude:
+            start = "const config = [{"
+            if start not in body:
+                raise RuntimeError(
+                    f"series {self.data.series}: eslint.config.cjs has no `{start}`"
+                )
+            ignores = json.dumps([f"{p}**" for p in exclude])
+            body = body.replace(
+                start, f"const config = [{{\n    ignores: {ignores},\n}}, {{", 1
+            )
+        return body
+
+    # --- .ruff.toml -------------------------------------------------------------------
+
+    def ruff_doc(self) -> dict[str, Any]:
+        """The series' ruff settings with python-lint's parameters merged in."""
+        params = self.ctx["cfg"]["python-lint"]
+        doc = plain(self.data.ruff)
+        exclude = ["odoo", "modules"] if self.ctx["shape"] == "project" else []
+        exclude += [p for p in params.get("extend-exclude") or [] if p not in exclude]
+        if exclude:
+            doc["extend-exclude"] = exclude
+        lint = doc.setdefault("lint", {})
+        select = lint.setdefault("extend-select", [])
+        select += [c for c in params.get("extra-select") or [] if c not in select]
+        ignore = lint.get("ignore", [])
+        ignore += [c for c in params.get("ignore") or [] if c not in ignore]
+        if ignore:
+            lint["ignore"] = ignore
+        per_file = lint.setdefault("per-file-ignores", {})
+        for glob, codes in (params.get("per-file-ignores") or {}).items():
+            have = per_file.setdefault(glob, [])
+            have += [c for c in codes if c not in have]
+        return doc
+
+    def ruff_toml(self) -> str:
+        """The top-level keys first, then OCA's tables in OCA's layout; the local region
+        follows in the template (DESIGN.md §3.1 python-lint)."""
+        self._check_ruff_region()
+        doc = self.ruff_doc()
+        lines = []
+        for key in _ordered(doc, RUFF_KEYS[()]):
+            if not isinstance(doc[key], Mapping):
+                lines.append(f"{_toml_key(key)} = {_toml_value(doc[key])}")
+        tables = [t for t in RUFF_TABLES if t in _tables(doc)]
+        tables += [t for t in _tables(doc) if t not in tables]
+        for path in tables:
+            table = _at(doc, path)
+            keys = [
+                k
+                for k in _ordered(table, RUFF_KEYS.get(path, ()))
+                if not isinstance(table[k], Mapping)
+            ]
+            if not keys:
+                continue
+            lines += ["", "[" + ".".join(path) + "]"]
+            lines += [f"{_toml_key(k)} = {_toml_value(table[k])}" for k in keys]
+        return "\n".join(lines) + "\n"
+
+    def _check_ruff_region(self) -> None:
+        if self.current is None:
+            return
+        from standards_core.scaffold import regions
+
+        from odoo_nix_tools.product import PRODUCT
+
+        bodies = regions.parse(PRODUCT, self.current, ".ruff.toml", ("ruff",))
+        content = [
+            line.strip()
+            for line in bodies.get("ruff", [])
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        if content and not content[0].startswith("["):
+            raise ConfigError(
+                ".ruff.toml: the ruff local region follows [lint.mccabe]: start it with a"
+                " table header, or use python-lint's parameters"
+            )
+
+    # --- .pylintrc, .pylintrc-mandatory -----------------------------------------------
+
+    def pylint_sections(self, kind: str) -> dict[str, dict[str, str]]:
+        """The sections of ``.pylintrc`` (``optional``) or ``.pylintrc-mandatory``, with
+        addon-manifest's licenses."""
+        name = ".pylintrc" if kind == "optional" else ".pylintrc-mandatory"
+        sections = plain(self.data.pylint["sections"][name])
+        licenses = list(
+            (self.ctx["cfg"].get("addon-manifest") or {}).get("licenses-allowed") or []
+        )
+        odoolint = sections.setdefault("ODOOLINT", {})
+        if licenses:
+            odoolint["license-allowed"] = ",".join(licenses)
+        odoolint["valid-odoo-versions"] = self.data.series
+        return sections
+
+    def pylintrc(self, kind: str) -> str:
+        if kind not in ("optional", "mandatory"):
+            raise ValueError(f"pylintrc kind {kind!r}")
+        sections = self.pylint_sections(kind)
+        blocks = []
+        for name in _ordered(sections, PYLINT_SECTIONS):
+            values = sections[name]
+            lines = [f"[{name}]"]
+            for key in _ordered(values, PYLINT_KEYS.get(name, ())):
+                value = str(values[key]).replace("\n", "\n    ")
+                lines.append(f"{key}={value}")
+            blocks.append("\n".join(lines) + "\n")
+        return "\n".join(blocks)
+
+    # --- .pre-commit-config.yaml ------------------------------------------------------
+
+    def exclude_block(self) -> str:
+        from odoo_nix_tools import precommit
+
+        return precommit.exclude_block(
+            self.data, self.ctx["discover"], _local(self.ctx)
+        )
+
+    def hooks_yaml(self) -> str:
+        from odoo_nix_tools import precommit
+
+        return precommit.hooks_yaml(list(self.ctx["hooks"]))
 
 
 def render_helpers(ctx: NS, current: str | None) -> Mapping[str, Any]:
-    return {"gen": Gen(ctx)}
+    return {"gen": Gen(ctx, current)}
 
 
 def url_placeholders(ctx: NS) -> Sequence[tuple[str, str]]:

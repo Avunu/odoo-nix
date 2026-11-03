@@ -110,4 +110,4 @@ required = true
 enable = false
 min-size = 128
 max-bytes = 102400
-src-icon = "templates/addon-icon.png"
+src-icon = "assets/addon-icon.png"

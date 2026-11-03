@@ -1,0 +1,14 @@
+{
+  "$comment": "dev-shell (DESIGN.md §3.1): .envrc. The flake.nix inputs block and the .gitignore block are sentinel entries (stage O5).",
+  "entries": [
+    {
+      "path": ".envrc",
+      "template": "envrc.j2",
+      "strategy": "whole",
+      "module": "dev-shell",
+      "header": "shell",
+      "local_regions": ["envrc"],
+      "phase": "a"
+    }
+  ]
+}

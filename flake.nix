@@ -284,6 +284,7 @@
       #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
       #   standards-unit, standards-version                   odoo-nix-tools' suites on python3 and python311; one version (all systems)
       #   standards-conformance                               odoo-nix-tools against the core's contract (all systems)
+      #   standards-fixtures-{project,addons}                 each standards fixture synced offline under every profile (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   odoo-db-compat                                      the CLI's one API over Odoo's two database-management APIs (all systems)
       #   raw-odoo                                            lib/raw-odoo.nix and its coverage hook, with stand-in trees (all systems)
@@ -540,14 +541,32 @@
           '';
 
           # odoo-nix-tools against the core's contract (core DESIGN.md §11.4): the
-          # static part (modules schema, profiles, manifest, variable names); the
-          # render part joins once the product has fixtures (stage O4).
-          standards-conformance = base.standards.conformance {
-            inherit pkgs;
-            product = "odoo-nix";
-            package = odooNixTools pkgs pkgs.python3;
-            module = "odoo_nix_tools.product:PRODUCT";
-          };
+          # static part (modules schema, profiles, manifest, variable names) and the
+          # render part (product.fixtures synced under each built-in profile).
+          # base.standards.conformance runs it without git on PATH, which the
+          # render part's throwaway checkouts need (DESIGN.md §14, O4-12): the same
+          # command, with git and a home.
+          standards-conformance =
+            let
+              env = pkgs.python3.withPackages (_: [ (odooNixTools pkgs pkgs.python3) ]);
+            in
+            scriptCheck pkgs "standards-conformance" { tools = [ pkgs.git ]; } ''
+              export HOME="$TMPDIR" PYTHONDONTWRITEBYTECODE=1
+              ${env}/bin/python -m standards_core.testing.conformance odoo_nix_tools.product:PRODUCT
+            '';
+
+          # Each standards fixture under each built-in profile and example-org,
+          # synced offline and checked (tests/standards/fixtures.nix).
+          inherit
+            (import ./tests/standards/fixtures.nix {
+              inherit pkgs lib;
+              scriptCheck = scriptCheck pkgs;
+              odooNix = odooNixCli pkgs;
+              odooNixTools = odooNixTools pkgs pkgs.python3;
+            })
+            standards-fixtures-project
+            standards-fixtures-addons
+            ;
 
           # odoo-nix and odoo-nix-tools share one version: version.txt,
           # py/odoo_nix_tools/pyproject.toml and __version__, which

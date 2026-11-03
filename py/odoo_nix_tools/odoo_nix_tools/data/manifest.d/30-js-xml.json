@@ -1,0 +1,48 @@
+{
+  "$comment": "js-xml (DESIGN.md §3.1): the locked prettier and eslint (package.json, json-merge, and package-lock.json) and OCA's configs for the series.",
+  "entries": [
+    {
+      "path": "package.json",
+      "strategy": "json-merge",
+      "handler": "package-json",
+      "module": "js-xml"
+    },
+    {
+      "path": "package-lock.json",
+      "strategy": "seed",
+      "handler": "node-npm-lock",
+      "module": "js-xml",
+      "command": "npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
+      "relock_when": ["package.json"]
+    },
+    {
+      "path": "prettier.config.cjs",
+      "template": "prettier.config.cjs.j2",
+      "strategy": "whole",
+      "module": "js-xml",
+      "header": "js"
+    },
+    {
+      "path": "eslint.config.cjs",
+      "template": "eslint.config.cjs.j2",
+      "strategy": "whole",
+      "module": "js-xml",
+      "header": "js",
+      "uses": ["js-xml.exclude"]
+    }
+  ],
+  "retire": [
+    {
+      "paths": [
+        ".prettierrc",
+        ".prettierrc.{json,yml,yaml,js,cjs,mjs,toml}",
+        ".eslintrc",
+        ".eslintrc.{json,yml,yaml,js,cjs}",
+        "eslint.config.{js,mjs,ts}",
+        "prettier.config.{js,mjs}"
+      ],
+      "rule": "another prettier or eslint config: js-xml writes prettier.config.cjs and eslint.config.cjs",
+      "module": "js-xml"
+    }
+  ]
+}

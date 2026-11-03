@@ -1,0 +1,89 @@
+{
+  "$comment": "python-lint and pylint-odoo (DESIGN.md §3.1), and the tools project every module that runs a tool shares: tools/pyproject.toml (toml-merge) and tools/uv.lock. The module list of the tools entries is context.TOOLS_MODULES.",
+  "entries": [
+    {
+      "path": ".ruff.toml",
+      "template": "ruff.toml.j2",
+      "strategy": "whole",
+      "module": "python-lint",
+      "header": "toml",
+      "local_regions": ["ruff"],
+      "uses": [
+        "python-lint.extra-select",
+        "python-lint.ignore",
+        "python-lint.per-file-ignores",
+        "python-lint.extend-exclude"
+      ]
+    },
+    {
+      "path": ".pylintrc",
+      "template": "pylintrc.j2",
+      "strategy": "whole",
+      "module": "pylint-odoo",
+      "header": "ini",
+      "uses": ["addon-manifest.author", "addon-manifest.licenses-allowed"]
+    },
+    {
+      "path": ".pylintrc-mandatory",
+      "template": "pylintrc-mandatory.j2",
+      "strategy": "whole",
+      "module": "pylint-odoo",
+      "header": "ini",
+      "uses": ["addon-manifest.author", "addon-manifest.licenses-allowed"]
+    },
+    {
+      "path": "tools/pyproject.toml",
+      "strategy": "toml-merge",
+      "handler": "tools-pyproject",
+      "module": [
+        "python-lint",
+        "pylint-odoo",
+        "addon-manifest",
+        "hygiene",
+        "tests",
+        "packaging",
+        "icons",
+        "js-xml",
+        "workflow-lint",
+        "shell-lint",
+        "nix-lint",
+        "commits"
+      ],
+      "uses": ["tests.initial-floor"]
+    },
+    {
+      "path": "tools/uv.lock",
+      "strategy": "seed",
+      "handler": "tools-uv-lock",
+      "module": [
+        "python-lint",
+        "pylint-odoo",
+        "addon-manifest",
+        "hygiene",
+        "tests",
+        "packaging",
+        "icons",
+        "js-xml",
+        "workflow-lint",
+        "shell-lint",
+        "nix-lint",
+        "commits"
+      ],
+      "command": "uv lock --project tools",
+      "relock_when": ["tools/pyproject.toml"]
+    }
+  ],
+  "retire": [
+    {
+      "paths": [".flake8", ".isort.cfg", "ruff.toml"],
+      "rule": "another tool's config: python-lint configures ruff in .ruff.toml",
+      "module": "python-lint"
+    },
+    {
+      "paths": ["setup.cfg"],
+      "rule": "a setup.cfg holding only the old linters' sections: python-lint configures ruff in .ruff.toml",
+      "module": "python-lint",
+      "only_sections": ["flake8", "isort", "tool:isort", "pycodestyle", "pylint", "pep8"]
+    }
+  ]
+}

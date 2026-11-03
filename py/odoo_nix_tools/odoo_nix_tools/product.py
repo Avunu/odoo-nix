@@ -1,9 +1,11 @@
 """odoo-nix's product: every value standards-core reads (core DESIGN.md §3).
 
-Stage O3 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields carry
+Stage O4 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields carry
 their final values; discovery (``discover``), the template context and the gates
-(``context``) and the branching models (``release.BRANCHING``) are wired in. Every other
-hook keeps the core's neutral default until its stage (DESIGN.md §14).
+(``context``), the branching models (``release.BRANCHING``), the managed files'
+handlers (``groups``, ``checks``), preflight, notices and whole-repo checks
+(``checks``), the first-opt-in files and the fixtures (``fixtures``) are wired in. Every
+other hook keeps the core's neutral default until its stage (DESIGN.md §14).
 """
 
 from __future__ import annotations
@@ -27,7 +29,15 @@ from standards_core.product import (
     SyncHooks,
 )
 
-from odoo_nix_tools import __version__, context, discover, release
+from odoo_nix_tools import (
+    __version__,
+    checks,
+    context,
+    discover,
+    fixtures,
+    groups,
+    release,
+)
 
 DATA = Path(str(files("odoo_nix_tools") / "data"))
 DOCS = "https://github.com/Avunu/odoo-nix/tree/main/docs/standards"
@@ -143,9 +153,13 @@ PRODUCT = Product(
         render_helpers=context.render_helpers,
         derive=discover.derive,
         url_placeholders=context.url_placeholders,
+        preflight=checks.preflight,
+        notices=checks.notices,
+        checks=checks.checks,
         new_target_table=discover.new_target_table,
         # YAML/JSON whole files compare as data: prettier owns their layout.
         semantic_compare=lambda ctx: True,
+        write_fixture=fixtures.write,
         # config_file=discover.config_file: CR1 (DESIGN.md §10), with
         # Identity.config_paths, in the commit that pins a core with it.
     ),
@@ -210,8 +224,18 @@ PRODUCT = Product(
             "path_prefix_regex": context.path_prefix_regex,
         }
     ),
+    handlers=MappingProxyType(
+        {
+            "tools-pyproject": groups.TOOLS_HANDLER,
+            "package-json": groups.PACKAGE_HANDLER,
+            "tools-uv-lock": checks.ToolsLock(),
+            "node-npm-lock": checks.NodeLock(),
+        }
+    ),
     # "develop+series" first (the default), then "trunk".
     branching=release.BRANCHING,
+    first_opt_in=checks.FIRST_OPT_IN,
+    fixtures=fixtures.FIXTURES,
     fleet_key="repos",
     self_repo="Avunu/odoo-nix",
     help=context.HELP,

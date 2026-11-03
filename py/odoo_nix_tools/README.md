@@ -62,3 +62,17 @@ By hand, from this directory, with the core on the path:
 PYTHONPATH=. uv run --no-project --with-editable <python-devops-nix>/standards \
   python -m unittest discover -s tests
 ```
+
+The fixtures' locks (`tests/fixtures/standards-locks/<fixture>/<profile>/`) and the
+fixture the package ships (`odoo_nix_tools/data/fixtures/project.json`) are generated:
+after a change to the series data, `data/tool-pins.json` or the tools groups, run (with
+network)
+
+```
+PYTHONPATH=.:tests uv run --no-project --with-editable <python-devops-nix>/standards \
+  python scripts/relock_fixtures.py
+python3 scripts/gen_fixture_data.py
+```
+
+and `nix build .#checks.<system>.standards-fixtures-{project,addons}` syncs each fixture
+under every profile with those locks.

@@ -33,6 +33,7 @@ let
       ../../tests/fixtures/standards-project
       ../../tests/fixtures/standards-addons
       ../../tests/fixtures/standards-profiles
+      ../../tests/fixtures/standards-locks
     ];
   };
   standardsCore = base.standards.package {
@@ -45,7 +46,8 @@ buildPythonPackage {
   inherit ((lib.importTOML (src + "/pyproject.toml")).project) version;
   pyproject = true;
 
-  # The distribution and its tests: not DESIGN.md, scripts/ or byte-compiled files.
+  # The distribution and its tests: not DESIGN.md, scripts/ (but the fixture-data
+  # generator, which a suite compares the shipped fixtures with) or byte-compiled files.
   src = lib.fileset.toSource {
     root = src;
     fileset = lib.fileset.difference (lib.fileset.unions [
@@ -53,6 +55,7 @@ buildPythonPackage {
       (src + "/README.md")
       (src + "/odoo_nix_tools")
       (src + "/tests")
+      (src + "/scripts/gen_fixture_data.py")
     ]) (lib.fileset.fileFilter (f: f.hasExt "pyc") src);
   };
 

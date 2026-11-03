@@ -1,0 +1,27 @@
+{% import "github/workflows/_uses.j2" as w with context %}
+# Releases (odoo-nix docs: standards/versioning.md): after a merge to {{ branches.integration }} the CI App
+# bumps each changed addon's version (`chore(release): bump …`) and fast-forwards
+# {{ branches.release }} once that commit's checks are green.
+name: release
+on:
+  push:
+    branches: [{{ branches.integration | json_string }}]
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [{{ branches.integration | json_string }}]
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    permissions:
+      contents: read
+    uses: {{ w.uses("odoo-release.yml") }}
+    with:
+      integration-branch: {{ branches.integration | json_string }}
+      release-branch: {{ branches.release | json_string }}
+      runs-on: {{ cfg.ci["runs-on"] | yaml_json }}
+{{ w.app_with() }}{{ w.app_secrets() -}}
