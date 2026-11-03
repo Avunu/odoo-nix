@@ -74,6 +74,10 @@ The PostgreSQL cluster predates `postgres.noCow`. Stop `devenv up` and run the `
 
 Odoo would skip every browser tour and report it as a pass. Add `websocket-client` to `[dependency-groups].dev` and re-lock, and keep `testBrowser` set (Chromium by default). `ODOO_NIX_TEST_ALLOW_SKIP=1` runs anyway.
 
+### `odoo test --coverage`: `no coverage data was written`
+
+The `odoo` CLI that ran was not the dev shell's, whose odoo-bin has the coverage hook: a deployed host's never measures. Run it in the dev shell.
+
 ### `odoo module remove` refuses
 
 - `modules whose code would go are still installed`: uninstall them in Odoo (Apps) first.

@@ -276,7 +276,8 @@
       #   standards-unit, standards-version                   odoo-nix-tools' suites on python3 and python311; one version (all systems)
       #   backups, backup-layout                              the backup fetch layer, base and odoo-nix's side (all systems)
       #   odoo-db-compat                                      the CLI's one API over Odoo's two database-management APIs (all systems)
-      #   raw-odoo                                            lib/raw-odoo.nix, with stand-in trees (all systems)
+      #   raw-odoo                                            lib/raw-odoo.nix and its coverage hook, with stand-in trees (all systems)
+      #   odoo-test-unit                                      `odoo test`'s pieces and command line, without Odoo (all systems)
       #   secrets-*                                           odoo-nix's secrets module (all systems)
       #   lock-audit-*                                        the stale-lock audit on a stale fixture (all systems)
       #   restore-*                                           the dev shell's restore options (Linux only)
@@ -292,6 +293,7 @@
       #                                                       per-series, no Odoo run (all systems)
       #   built-odoo-<major>, built-odoo-no-odoo-bin-<major>, odoo-init-<major>,
       #   odoo-test-<major>, cli-*-<major>                    run Odoo (Linux only)
+      #   odoo-test-ci-18                                     `odoo test --all --fresh-db --coverage --log`, checklog-odoo (Linux only)
       #   service-<major>, nginx                              NixOS VM tests (Linux only)
       checks = forAllSystems (
         pkgs:
@@ -451,21 +453,41 @@
             '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
           );
 
+          # `odoo test` without Odoo (lib/odoo_nix_cli/testrun.py): the addons
+          # --all means, the odoo-bin line (-u, or -i into a fresh database
+          # with the series' demo flag), the log, the coverage variables and
+          # the exit code, on the interpreters the CLI runs on. Against real
+          # Odoo: odoo-test-ci-18.
+          odoo-test-unit = scriptCheck pkgs "odoo-test-unit" { } (
+            lib.concatMapStrings (py: ''
+              ${
+                base.python.rich {
+                  python = pkgs.${py};
+                  extraPackages = ps: [ ps.click ];
+                }
+              }/bin/python3 -I ${./tests/test_odoo_test.py} ${cliPackage pkgs}
+            '') (base.python.interpreters { presets = [ ./lib/odoo-presets.json ]; })
+          );
+
           # lib/raw-odoo.nix: a tree's odoo-bin, or Odoo as `python -m odoo`
-          # runs it when the tree has none, with stand-in trees.
+          # runs it when the tree has none, with stand-in trees; and its
+          # coverage hook, either way.
           raw-odoo =
             let
-              script = pkgs.writeShellScript "raw-odoo" ''
-                tree=$1
-                shift
-                ${import ./lib/raw-odoo.nix {
-                  inherit pkgs;
-                  python = pkgs.python3.interpreter;
-                }}
-              '';
+              script =
+                name: coverage:
+                pkgs.writeShellScript name ''
+                  tree=$1
+                  shift
+                  ${import ./lib/raw-odoo.nix {
+                    inherit pkgs coverage;
+                    python = pkgs.python3.interpreter;
+                  }}
+                '';
             in
             scriptCheck pkgs "raw-odoo" { } ''
-              ${pkgs.python3.interpreter} -I ${./tests/test_raw_odoo.py} ${script}
+              ${pkgs.python3.interpreter} -I ${./tests/test_raw_odoo.py} \
+                ${script "raw-odoo" null} ${script "raw-odoo-coverage" pkgs.python3.pkgs.coverage}
             '';
 
           # nixfmt-rs (what `nix fmt` writes), statix (statix.toml, compared

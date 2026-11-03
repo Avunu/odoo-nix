@@ -1155,7 +1155,10 @@ in
         # no workspace scripts wired in -- there is no git checkout to pull or
         # modules.txt to add to in an assembled /nix/store deployment.
         # A tree without odoo-bin runs as `python -m odoo` (lib/raw-odoo.nix).
-        # The `odoo` process under `devenv up` runs this too.
+        # The `odoo` process under `devenv up` runs this too. `odoo test
+        # --coverage` measures through its coverage hook, with nixpkgs'
+        # coverage.py for the project's interpreter (py/odoo_nix_tools/DESIGN.md
+        # §5.4; the standards' tools lock supplies it once a project opts in).
         devRawOdooBin = pkgs.writeShellScript "odoo-nix-dev-odoo-bin" ''
           set -euo pipefail
           cd "''${REPO_ROOT:-$PWD}"
@@ -1163,6 +1166,7 @@ in
           ${import ../lib/raw-odoo.nix {
             inherit pkgs;
             python = "${pythonEnvs.devPythonEnv}/bin/python";
+            inherit (cfg.python.pkgs) coverage;
           }}
         '';
 
