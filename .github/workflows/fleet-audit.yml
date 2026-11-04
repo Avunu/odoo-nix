@@ -1,0 +1,137 @@
+name: fleet-audit
+
+# The fleet scorecard (py/odoo_nix_tools/DESIGN.md §2.7, §6.4; core DESIGN.md §7.4),
+# reusable by an org profile repository, which holds the fleet list (fleet.json) and pins
+# odoo-nix in its flake.lock. `odoo-nix repo audit --all` clones each repository of the
+# fleet and scores it: the core rows A1-A11 and odoo-nix's A12 (an addon repository's
+# series and Dependabot branches) and A13 (a project's submodules on its series). The
+# scorecard goes to the job summary and, with `issue-repo`, to one `scorecard: <repo>`
+# issue per repository there. The job fails when any row is amber or red.
+#
+# odoo-nix is the build of the odoo-nix the profile repository's flake.lock pins
+# (packages.odoo-nix), with gh (the clones' credential helper and every API call), git and
+# uv (each repository's `sync --check` runs the odoo-nix-tools its own flake.lock pins)
+# from that odoo-nix's nixpkgs. Not a caller-skew row: no checkout renders a caller of it.
+#
+# A caller, in the profile repository:
+#
+#   on:
+#     schedule: [{ cron: "0 5 * * 1" }]
+#     workflow_dispatch:
+#   permissions: {}
+#   jobs:
+#     audit:
+#       uses: Avunu/odoo-nix/.github/workflows/fleet-audit.yml@<sha> # v2.3.0
+#       permissions:
+#         contents: read
+#         issues: write
+#       with:
+#         issue-repo: ${{ github.repository }}
+#       secrets:
+#         AUDIT_TOKEN: ${{ secrets.AUDIT_TOKEN }}
+
+on:
+  workflow_call:
+    inputs:
+      fleet:
+        description: the fleet list, a path in the profile repository
+        type: string
+        default: fleet.json
+      issue-repo:
+        description: "the repository (`<owner>/<repo>`) that keeps the scorecard issues; empty for none"
+        type: string
+        default: ""
+      against:
+        description: "`pinned` (each repository's locked odoo-nix) or `latest` (the latest release)"
+        type: string
+        default: pinned
+      runs-on:
+        description: >-
+          The runner, as JSON: a label or a list of labels (`["self-hosted", "nixos"]`).
+        type: string
+        default: '["ubuntu-latest"]'
+    secrets:
+      AUDIT_TOKEN:
+        description: >-
+          A read-only token over the fleet's repositories (Administration, Contents, Actions
+          and Variables read; Secrets read for `repo doctor`'s rows). Without it the rows
+          that need it read as unknown.
+        required: false
+
+permissions: {}
+
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  audit:
+    name: audit
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 60
+    permissions:
+      contents: read # the profile repository's checkout
+      issues: write # the scorecard issues in issue-repo, when it is this repository
+    steps:
+      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
+      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
+      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
+      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
+      - if: runner.environment != 'github-hosted'
+        name: Clear what an earlier job left in the runner's temp dir and workspace
+        working-directory: ${{ runner.temp }}
+        run: |
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
+          if [ -d "$GITHUB_WORKSPACE" ]; then
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        if: runner.environment == 'github-hosted'
+        with:
+          determinate: false
+
+      - name: odoo-nix, gh, git and uv from the odoo-nix flake.lock pins
+        run: |
+          set -euo pipefail
+          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
+          case "$(jq -r .type <<<"$node")" in
+            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
+            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
+            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
+          esac
+          echo "$(nix build --no-link --print-out-paths "$ref#odoo-nix")/bin" >> "$GITHUB_PATH"
+          for package in gh git uv; do
+            echo "$(nix build --no-link --print-out-paths --inputs-from "$ref" "nixpkgs#$package")/bin" >> "$GITHUB_PATH"
+          done
+
+      # GH_TOKEN (the audit token) reads the fleet; ODOO_NIX_ISSUE_TOKEN (this job's
+      # token) writes the scorecard issues.
+      - name: odoo-nix repo audit --all
+        env:
+          FLEET: ${{ inputs.fleet }}
+          ISSUE_REPO: ${{ inputs.issue-repo }}
+          AGAINST: ${{ inputs.against }}
+          AUDIT_TOKEN: ${{ secrets.AUDIT_TOKEN }}
+          ISSUE_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [ -f "$FLEET" ] || { echo "::error::no fleet list at $FLEET"; exit 1; }
+          if [ -z "$AUDIT_TOKEN" ]; then
+            echo "::notice::AUDIT_TOKEN is empty: the rows that need it read as unknown"
+            AUDIT_TOKEN="$ISSUE_TOKEN"
+          fi
+          out="$RUNNER_TEMP/scorecard.md"
+          rm -f "$out"
+          args=(repo audit --all --fleet "$FLEET" --against "$AGAINST" --format md --out "$out")
+          [ -z "$ISSUE_REPO" ] || args+=(--issue --issue-repo "$ISSUE_REPO")
+          rc=0
+          env GH_TOKEN="$AUDIT_TOKEN" ODOO_NIX_ISSUE_TOKEN="$ISSUE_TOKEN" odoo-nix "${args[@]}" || rc=$?
+          if [ -f "$out" ]; then
+            cat "$out" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"

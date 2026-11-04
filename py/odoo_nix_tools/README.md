@@ -30,7 +30,7 @@ manifest fragments) lives under `odoo_nix_tools/data/` and is read through
 | `config`, `profile` | core | the resolved configuration; show, list and validate profiles |
 | `data-path`, `pin-path` | core | a packaged data file; a locked flake input's tree |
 | `policy`, `ci` | core | commit and pull-request policy (with odoo-nix's rule: no version moved by hand under `develop+series`); the CI, Dependabot and release steps (`ci bump` raises each changed addon's `<series>.x.y.z`) |
-| `repo` | core | apply, audit, roll out and doctor a fleet of repositories (to come) |
+| `repo` | core | apply, audit, roll out and doctor a fleet of repositories (`targets`, `apply`, `audit`, `doctor`, `rollout`), with odoo-nix's parts: a fleet entry's shape and integration branch, the release ruleset on the series branch only, no integration bypass in a project, audit rows A12 (an addon repository's series and Dependabot branches) and A13 (a project's submodules on its series), and the CI App the release flow needs (`repo doctor`). `.github/workflows/fleet-audit.yml` runs `repo audit --all` from an org profile repository |
 | `gate lint\|test` | odoo-nix | the lint and test gates CI runs, step by step, with a JSON report (`.odoo-nix/gate/<gate>.json`) |
 | `check manifests\|icons\|submodules` | odoo-nix | what no hook checks: manifest website and series version, addon icons (`--fix` adds the org's), submodule branches |
 | `ratchet coverage` | odoo-nix | the coverage floor only rises (`--base`), and `--raise` lifts it to the measured total |

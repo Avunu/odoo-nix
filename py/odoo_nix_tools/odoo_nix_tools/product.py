@@ -1,7 +1,7 @@
 """odoo-nix's product: every value standards-core reads (core DESIGN.md §3).
 
-Stage O7 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields carry
-their final values; sync's phase hooks (``bootstrap``: the project's submodules, the
+Stages O1-O8 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields
+carry their final values; sync's phase hooks (``bootstrap``: the project's submodules, the
 handovers to the locked engine's ``odoo-init``); discovery (``discover``), the template
 context and the gates (``context``), the managed files' handlers (``groups``,
 ``checks``), preflight, notices and whole-repo checks (``checks``), the first-opt-in files
@@ -9,8 +9,10 @@ and the fixtures (``fixtures``); the release flow (``release``: the ``odoo-serie
 scheme, the manifest release tool, the branching models), the pull-request rules
 (``policy``) and the Dependabot decision table (``verdict``) are wired in; the sentinel
 blocks (``flake.nix`` inputs, ``.gitignore``, the README table) and the editor files
-(jsonc-merge) are the core's handlers over ``data/manifest.d``. The fleet hooks
-(``fleet``, stage O8) keep the core's neutral defaults (DESIGN.md §14).
+(jsonc-merge) are the core's handlers over ``data/manifest.d``. Stage O8: the ``repo``
+commands' hooks (``fleet``): a fleet entry's app layer, the per-series release ruleset
+and a project's integration ruleset without bypass, the audit rows A12/A13 and the
+doctor rows of the develop+series release flow.
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ from odoo_nix_tools import (
     context,
     discover,
     fixtures,
+    fleet,
     groups,
     policy,
     release,
@@ -172,6 +175,12 @@ PRODUCT = Product(
         # A version moved by hand in a pull request under develop+series.
         pr_checks=policy.pr_checks,
         write_fixture=fixtures.write,
+        # A not-opted-in fleet repository's shape and integration branch (DESIGN.md §2.7).
+        fleet_table=fleet.fleet_table,
+        doctor_rows=fleet.doctor_rows,
+        # The per-series release pattern, and a project's integration ruleset without
+        # bypass (DESIGN.md §2.2).
+        repo_policy_values=fleet.repo_policy_values,
         # config_file=discover.config_file: CR1 (DESIGN.md §10), with
         # Identity.config_paths, in the commit that pins a core with it.
     ),
@@ -259,5 +268,7 @@ PRODUCT = Product(
     fixtures=fixtures.FIXTURES,
     fleet_key="repos",
     self_repo="Avunu/odoo-nix",
+    # A12, A13 (DESIGN.md §2.7).
+    audit_rows=fleet.AUDIT_ROWS,
     help=context.HELP,
 )
