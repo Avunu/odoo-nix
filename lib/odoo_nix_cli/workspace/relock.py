@@ -60,9 +60,24 @@ def run(cfg: config.WorkspaceConfig, uv_args: Sequence[str] = ()) -> int:
     return r.status
 
 
+def project_root() -> str:
+    """$REPO_ROOT when the working directory is in it, else the working
+    directory. A terminal can carry another project's dev-shell environment,
+    whose $REPO_ROOT names that project: relocking it from here would rewrite
+    the wrong checkout."""
+    cwd = os.path.realpath(os.getcwd())
+    env = os.environ.get("REPO_ROOT")
+    if env:
+        root = os.path.realpath(env)
+        if cwd == root or cwd.startswith(root.rstrip(os.sep) + os.sep):
+            return root
+    return cwd
+
+
 def main(argv: Sequence[str]) -> int:
-    """``nix run .#relock``: ``run`` from the project root ($REPO_ROOT, else
-    the working directory), after what shell entry does first."""
+    """``nix run .#relock``: ``run`` from the project root ($REPO_ROOT when
+    the working directory is in it, else the working directory), after what
+    shell entry does first."""
     if any(a in ("-h", "--help") for a in argv):
         print(HELP)
         return 0
@@ -71,7 +86,7 @@ def main(argv: Sequence[str]) -> int:
     except config.ConfigError as e:
         print(f"{NAME}: {e}", file=sys.stderr)
         return 1
-    root = os.environ.get("REPO_ROOT") or os.getcwd()
+    root = project_root()
     pyproject = os.path.join(root, cfg.lock_dir, "pyproject.toml")
     seeded = cfg.pyproject_template and os.path.isfile(os.path.join(root, "flake.nix"))
     if not (os.path.isfile(pyproject) or seeded):

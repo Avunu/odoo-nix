@@ -318,6 +318,8 @@
       #   standards-shell-eval-*                              the standards' dev-shell additions, opted in and not (Linux only)
       #   standards-unit, standards-version                   odoo-nix-tools' suites on python3 and python311; one version (all systems)
       #   standards-conformance                               odoo-nix-tools against the core's contract (all systems)
+      #   standards-core-pins                                 flake.lock, the standards-core URL and .github/** name one core commit (all systems)
+      #   bump-base                                           `nix run .#bump-base`'s rewrite of those pins, offline, with a made-up commit (all systems)
       #   standards-fixtures-{project,addons}                 each standards fixture synced offline under every profile (all systems)
       #   standards-prek-{project,addons}, standards-prettier-stable
       #                                                       the synced fixtures under their own locked hooks and prettier (all systems)
@@ -377,7 +379,6 @@
             inherit pkgs lib;
             scriptCheck = scriptCheck pkgs;
             odooNix = odooNixCli pkgs;
-            odooNixTools = odooNixTools pkgs pkgs.python3;
             standardsShell = standardsShellFor pkgs;
           };
         in
@@ -624,6 +625,67 @@
             standards-prek-addons
             standards-prettier-stable
             ;
+
+          # The three pins of the core agree (core DESIGN.md §10.3): flake.lock's
+          # python-devops-nix rev, py/odoo_nix_tools/pyproject.toml's
+          # standards-core URL and every Avunu/python-devops-nix/...@sha in
+          # .github/**. Offline; check.yml's standards-core-pins job adds the
+          # reachability from main or a v* tag (network). `nix run .#bump-base`
+          # moves all of them.
+          standards-core-pins = base.standards.pins {
+            inherit pkgs;
+            src = ./.;
+            product = "odoo-nix";
+            owner = "Avunu";
+          };
+
+          # `nix run .#bump-base`'s rewrite (lib/standards/bump_base.py), offline:
+          # over a copy of .github/**, py/odoo_nix_tools/pyproject.toml and
+          # flake.lock, a made-up commit replaces every live pin (each
+          # uncommented `Avunu/python-devops-nix/...@<sha>` and the
+          # standards-core URL) and nothing commented out; the pins check
+          # refuses the result until flake.lock names the same commit, then
+          # passes.
+          bump-base =
+            let
+              src = lib.fileset.toSource {
+                root = ./.;
+                fileset = lib.fileset.unions [
+                  ./.github
+                  ./flake.lock
+                  ./py/odoo_nix_tools/pyproject.toml
+                ];
+              };
+              core = pkgs.python3.withPackages (_: [ (base.standards.package { inherit pkgs; }) ]);
+            in
+            scriptCheck pkgs "bump-base" { tools = [ pkgs.jq ]; } ''
+              cp -r --no-preserve=mode ${src} tree
+              node='.nodes[.nodes.root.inputs["python-devops-nix"]].locked.rev'
+              old=$(jq -r "$node" tree/flake.lock)
+              new=0123456789abcdef0123456789abcdef01234567
+              pins() {
+                ${core}/bin/python -m standards_core.testing.pins --root tree \
+                  --owner Avunu --input python-devops-nix
+              }
+              live() {
+                grep -rhE '^[^#]*Avunu/python-devops-nix/[^@[:space:]]+@[0-9a-f]{40}' tree/.github
+              }
+              printf '      # uses: Avunu/python-devops-nix/.github/actions/x@%s # v0\n' \
+                "$old" >>tree/.github/workflows/check.yml
+              before=$(live | wc -l)
+              ${pkgs.python3}/bin/python -I ${./lib/standards/bump_base.py} tree "$new" "made up"
+              moved=$(live | grep -c "@$new # made up\$")
+              url=$(grep -c "@$new#subdirectory=standards" tree/py/odoo_nix_tools/pyproject.toml)
+              echo "live pins in .github: $before; moved: $moved and $url standards-core URL"
+              [ "$before" -ge 18 ] && [ "$moved" -eq "$before" ] && [ "$url" -eq 1 ]
+              refute grep -q "$old" <(live)
+              grep -qF "# uses: Avunu/python-devops-nix/.github/actions/x@$old # v0" \
+                tree/.github/workflows/check.yml
+              refute pins
+              jq --arg new "$new" "$node = \$new" tree/flake.lock >lock
+              mv lock tree/flake.lock
+              pins
+            '';
 
           # odoo-nix and odoo-nix-tools share one version: version.txt,
           # py/odoo_nix_tools/pyproject.toml and __version__, which
@@ -1118,6 +1180,13 @@
               ];
               scaffolder = lib.getExe (odooInit pkgs);
             };
+            # odoo-nix-tools' dev lock is development-only (.github/dependabot.yml).
+            dependabot.development = [
+              {
+                ecosystem = "uv";
+                directory = "/py/odoo_nix_tools";
+              }
+            ];
             envVars.exceptions = [
               "ODOO_RC" # Odoo's own: the config file
               "ODOO_HTTP_SOCKET_FD" # Odoo's own: a 19.0 reload hands its socket on by it
@@ -1272,6 +1341,34 @@
               }
             );
             meta.description = "Re-lock the standards fixtures' tools (tools/uv.lock, package-lock.json)";
+          };
+          # `nix run .#bump-base -- REV [COMMENT]`: move every python-devops-nix
+          # pin (flake.lock, the standards-core URL, the .github/** actions and
+          # workflows, the dev uv.lock) to one commit (needs network; never runs
+          # in a check). checks.standards-core-pins compares them.
+          bump-base = {
+            type = "app";
+            program = pkgs.lib.getExe (import ./lib/standards/bump-base.nix { inherit pkgs; });
+            meta.description = "Move every python-devops-nix (standards-core) pin to one commit";
+          };
+          # `nix run .#standards-core-pins [-- --reachable URL]`: checks.standards-core-pins
+          # on the work tree; with --reachable (check.yml), the pinned commit must also be
+          # on URL's main or a v* tag (network).
+          standards-core-pins = {
+            type = "app";
+            program = pkgs.lib.getExe (
+              pkgs.writeShellApplication {
+                name = "odoo-nix-standards-core-pins";
+                runtimeInputs = [ pkgs.git ];
+                text = ''
+                  root="$(git rev-parse --show-toplevel)"
+                  exec ${
+                    pkgs.python3.withPackages (_: [ (base.standards.package { inherit pkgs; }) ])
+                  }/bin/python -m standards_core.testing.pins --root "$root" --owner Avunu "$@"
+                '';
+              }
+            );
+            meta.description = "Check that every python-devops-nix (standards-core) pin names one commit";
           };
           # `nix run .#relock-odoo-ls`: regenerate lib/odoo-ls-Cargo.lock against
           # the pinned odoo-ls-src input (needs network; never runs in a check).

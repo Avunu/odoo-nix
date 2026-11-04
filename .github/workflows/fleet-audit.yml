@@ -8,10 +8,12 @@ name: fleet-audit
 # scorecard goes to the job summary and, with `issue-repo`, to one `scorecard: <repo>`
 # issue per repository there. The job fails when any row is amber or red.
 #
-# odoo-nix is the build of the odoo-nix the profile repository's flake.lock pins
-# (packages.odoo-nix), with gh (the clones' credential helper and every API call), git and
-# uv (each repository's `sync --check` runs the odoo-nix-tools its own flake.lock pins)
-# from that odoo-nix's nixpkgs. Not a caller-skew row: no checkout renders a caller of it.
+# odoo-nix is the odoo-nix-tools of the odoo-nix the profile repository's flake.lock pins,
+# installed with `uv tool install` (python-devops-nix's standards-install, which also puts
+# uv on PATH: each repository's `sync --check` runs the odoo-nix-tools its own flake.lock
+# pins), and the audit is python-devops-nix's standards-fleet-audit. gh (the clones'
+# credential helper and every API call) is the runner's, else that odoo-nix's nixpkgs'.
+# Not a caller-skew row: no checkout renders a caller of it.
 #
 # A caller, in the profile repository:
 #
@@ -90,48 +92,30 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        if: runner.environment == 'github-hosted'
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
         with:
-          determinate: false
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
 
-      - name: odoo-nix, gh, git and uv from the odoo-nix flake.lock pins
+      # A self-hosted NixOS runner may have no gh; its Nix builds that odoo-nix's.
+      - name: gh, when the runner has none
         run: |
           set -euo pipefail
-          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
-          case "$(jq -r .type <<<"$node")" in
-            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
-            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
-            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
-          esac
-          echo "$(nix build --no-link --print-out-paths "$ref#odoo-nix")/bin" >> "$GITHUB_PATH"
-          for package in gh git uv; do
-            echo "$(nix build --no-link --print-out-paths --inputs-from "$ref" "nixpkgs#$package")/bin" >> "$GITHUB_PATH"
-          done
+          if ! command -v gh >/dev/null; then
+            ref="$(jq -r '.nodes[.nodes.root.inputs["odoo-nix"]].locked | "github:\(.owner)/\(.repo)/\(.rev)"' flake.lock)"
+            echo "$(nix build --no-link --print-out-paths --inputs-from "$ref" nixpkgs#gh)/bin" >> "$GITHUB_PATH"
+          fi
 
-      # GH_TOKEN (the audit token) reads the fleet; ODOO_NIX_ISSUE_TOKEN (this job's
-      # token) writes the scorecard issues.
-      - name: odoo-nix repo audit --all
-        env:
-          FLEET: ${{ inputs.fleet }}
-          ISSUE_REPO: ${{ inputs.issue-repo }}
-          AGAINST: ${{ inputs.against }}
-          AUDIT_TOKEN: ${{ secrets.AUDIT_TOKEN }}
-          ISSUE_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          [ -f "$FLEET" ] || { echo "::error::no fleet list at $FLEET"; exit 1; }
-          if [ -z "$AUDIT_TOKEN" ]; then
-            echo "::notice::AUDIT_TOKEN is empty: the rows that need it read as unknown"
-            AUDIT_TOKEN="$ISSUE_TOKEN"
-          fi
-          out="$RUNNER_TEMP/scorecard.md"
-          rm -f "$out"
-          args=(repo audit --all --fleet "$FLEET" --against "$AGAINST" --format md --out "$out")
-          [ -z "$ISSUE_REPO" ] || args+=(--issue --issue-repo "$ISSUE_REPO")
-          rc=0
-          env GH_TOKEN="$AUDIT_TOKEN" ODOO_NIX_ISSUE_TOKEN="$ISSUE_TOKEN" odoo-nix "${args[@]}" || rc=$?
-          if [ -f "$out" ]; then
-            cat "$out" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          exit "$rc"
+      # The audit token reads the fleet; this job's token writes the scorecard issues.
+      - uses: Avunu/python-devops-nix/.github/actions/standards-fleet-audit@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+        with:
+          cli: odoo-nix
+          env-prefix: ODOO_NIX
+          fleet: ${{ inputs.fleet }}
+          issue-repo: ${{ inputs.issue-repo }}
+          against: ${{ inputs.against }}
+          audit-token: ${{ secrets.AUDIT_TOKEN }}
+          issue-token: ${{ github.token }}

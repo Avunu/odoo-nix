@@ -14,7 +14,7 @@ from odoo_nix_tools.product import PRODUCT
 from standards_core.common import schema
 from standards_core.common.report import ConfigError
 from standards_core.product import ReleaseUnit
-from support import ADDONS_PRODUCT, SHAPES, SyncCase, git, run_cli
+from support import SHAPES, SyncCase, git, run_cli
 
 SCHEME = release.OdooSeries()
 TOOL = release.ManifestTool()
@@ -233,9 +233,7 @@ class Bump(SyncCase):
         output = self.tmp / "github-output"
         output.write_text("")
         os.environ["GITHUB_OUTPUT"] = str(output)
-        code, out, err = run_cli(
-            "ci", "bump", "--base", "18.0", *argv, cwd=self.root, product=ADDONS_PRODUCT
-        )
+        code, out, err = run_cli("ci", "bump", "--base", "18.0", *argv, cwd=self.root)
         return code, out + err + output.read_text()
 
     def test_levels_per_addon_and_exempt_paths(self) -> None:

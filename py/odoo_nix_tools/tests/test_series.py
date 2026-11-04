@@ -267,3 +267,19 @@ class Placeholders(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Docs(unittest.TestCase):
+    def test_managed_files_lists_every_deviation(self) -> None:
+        """docs/standards/managed-files.md's table, written by hand: its ids, in order,
+        and each one's Applies column are ``DEVIATIONS``' (O9-19)."""
+        root = odoo_nix_root()
+        page = root / "docs/standards/managed-files.md" if root else None
+        if page is None or not page.is_file():
+            self.skipTest("docs/standards/managed-files.md is not available")
+        text = page.read_text().split("## Where odoo-nix changes OCA's rules", 1)[1]
+        rows = re.findall(r"^\| `([a-z0-9-]+)` \| (.+?) \| ", text, re.MULTILINE)
+        shown = [(name, applies.replace("`", "")) for name, applies in rows]
+        self.assertEqual(shown, [(d.id, d.applies) for d in series.DEVIATIONS])
+        for d in series.DEVIATIONS:
+            self.assertEqual("proposed" in d.applies, d.status == "proposed", d.id)

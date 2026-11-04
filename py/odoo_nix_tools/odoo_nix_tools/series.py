@@ -9,7 +9,8 @@ placeholders filled in. A placeholder left over is a ``RuntimeError`` (a product
 
 Every deviation changes the ``SeriesData`` fields it names and no other, which
 ``tests/test_series.py`` checks by building the data with and without it (``build``'s
-``skip``); ``docs/standards/managed-files.md`` is generated from the table.
+``skip``); ``docs/standards/managed-files.md`` lists the table by hand, and
+``tests/test_series.py`` holds its ids and ``Applies`` column to it.
 """
 
 from __future__ import annotations
@@ -375,7 +376,7 @@ _PIPELINE: tuple[
     (
         Deviation(
             "drop-external-deps",
-            "always (pending the user's sign-off)",
+            "always (proposed, pending sign-off)",
             ("hooks",),
             "hook oca-gen-external-dependencies dropped: the requirements.txt it writes"
             " is read by nothing in odoo-nix's uv model (addons mode derives the lock"
@@ -423,7 +424,7 @@ _PIPELINE: tuple[
     (
         Deviation(
             "addons-dir",
-            "shape project",
+            "projects",
             ("hooks",),
             "oca-fix-manifest-website gets --addons-dir=<addons_root> before its URL (its"
             " default, ., finds no addon in a project)",

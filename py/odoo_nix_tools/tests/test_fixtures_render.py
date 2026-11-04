@@ -1,8 +1,7 @@
 """Both fixtures under every profile, through ``sync --write --offline`` and ``--check``
 (DESIGN.md §7.2 test_fixtures_render), and the fixtures the package ships.
 
-The addons fixture runs through ``support.ADDONS_PRODUCT``, the stand-in for core CR1
-(its table is in ``nix/pyproject.toml``).
+The addons fixture's table is in ``nix/pyproject.toml`` (core CR1, ``hooks.config_file``).
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from pathlib import Path
 import yaml
 from odoo_nix_tools.product import PRODUCT
 from standards_core.testing import conformance
-from support import PACKAGE, SyncCase, need_root, product_for, run_cli
+from support import PACKAGE, SyncCase, need_root, run_cli
 
 FIXTURES = ("standards-project", "standards-addons")
 PROFILES = ("minimal", "recommended", "example-org")
@@ -62,7 +61,7 @@ def snapshot(root: Path) -> dict[str, bytes]:
 class Matrix(SyncCase):
     def synced(self, name: str, profile: str) -> Path:
         root = self.profile_fixture(name, profile)
-        self.write(root, product=product_for(name))
+        self.write(root)
         self.commit(root)
         return root
 
@@ -70,12 +69,11 @@ class Matrix(SyncCase):
         for name in FIXTURES:
             for profile in PROFILES:
                 with self.subTest(fixture=name, profile=profile):
-                    product = product_for(name)
                     root = self.synced(name, profile)
                     before = snapshot(root)
-                    self.write(root, product=product)
+                    self.write(root)
                     self.assertEqual(snapshot(root), before)
-                    self.check(root, product=product)
+                    self.check(root)
                     files = set(before)
                     for path, marker in DEV_SHELL_BLOCKS:
                         self.assertIn(marker, before[path].decode(), path)
@@ -85,6 +83,15 @@ class Matrix(SyncCase):
                         IDE_LEAF in before.get(".vscode/settings.json", b"").decode()
                     )
                     self.assertEqual(has_ide, profile == "example-org")
+                    if has_ide and name == "standards-addons":
+                        # Sync made the editor files, so they carry the dev shell's
+                        # seed, which it writes only into a missing file (O9-16).
+                        self.assertIn(
+                            SEED_LEAF, before[".vscode/settings.json"].decode()
+                        )
+                        self.assertIn(
+                            "Odoo.odoo", before[".vscode/extensions.json"].decode()
+                        )
                     if has_ide and name == "standards-project":
                         # The fixture's Odoo.serverConfigPath is forbidden (bd59032).
                         self.assertNotIn(
@@ -139,7 +146,6 @@ class Matrix(SyncCase):
         self.assertEqual(ci[True]["push"]["branches"], ["main"])
 
     def test_dependabot_branches_and_local_region(self) -> None:
-        product = product_for("standards-addons")
         root = self.synced("standards-addons", "recommended")
         path = root / ".github/dependabot.yml"
         doc = yaml.safe_load(path.read_text())
@@ -165,20 +171,19 @@ class Matrix(SyncCase):
                 "  # odoo-nix:local-begin updates\n" + entry,
             )
         )
-        self.write(root, product=product)
+        self.write(root)
         self.assertIn(entry, path.read_text())
-        self.check(root, product=product)
+        self.check(root)
         # A region entry with a managed entry's key is exit 2.
         path.write_text(
             path.read_text().replace("npm", "nix").replace("/fixture_b/static", "/")
         )
-        code, text = self.check(root, product=product, ok=False)
+        code, text = self.check(root, ok=False)
         self.assertEqual(code, 2, text)
 
     def test_minimal_after_recommended_retracts(self) -> None:
         for name in FIXTURES:
             with self.subTest(fixture=name):
-                product = product_for(name)
                 root = self.synced(name, "example-org")
                 config = root / (
                     "pyproject.toml"
@@ -188,7 +193,7 @@ class Matrix(SyncCase):
                 config.write_text(
                     config.read_text().replace('"./.standards-profile"', '"minimal"')
                 )
-                self.write(root, product=product)
+                self.write(root)
                 files = snapshot(root)
                 left = set(files)
                 self.assertFalse(
@@ -212,11 +217,16 @@ class Matrix(SyncCase):
                     self.assertNotIn(IDE_EXTENSION, extensions)
                     self.assertIn("Odoo.odoo", extensions)
                 else:
-                    # The editor files sync made for ide hold nothing of sync's now.
+                    # The editor files sync made for ide hold nothing of sync's now;
+                    # the seed it wrote with them stays, as the shell's would.
                     for path in (".vscode/settings.json", ".vscode/extensions.json"):
                         if path in files:
                             self.assertNotIn(IDE_EXTENSION, files[path].decode())
                             self.assertNotIn(IDE_LEAF, files[path].decode())
+                    if ".vscode/settings.json" in files:
+                        self.assertIn(
+                            SEED_LEAF, files[".vscode/settings.json"].decode()
+                        )
                 self.assertNotIn(".github/workflows/release.yml", left)
                 # The org profile's [[extra-files]] leave with it: switching to minimal
                 # leaves SECURITY.md, which no profile names any more.
@@ -224,19 +234,18 @@ class Matrix(SyncCase):
                 self.assertLessEqual(SEEDS, left)
                 self.assertIn(".envrc", left)
                 self.commit(root)
-                self.check(root, product=product)
+                self.check(root)
 
 
 class Defects(SyncCase):
     def test_missing_readme(self) -> None:
-        product = product_for("standards-addons")
         root = self.profile_fixture(
             "standards-addons", "example-org", {"fixture_b/README.md": None}
         )
-        code, text = self.write(root, product=product, ok=False)
+        code, text = self.write(root, ok=False)
         self.assertEqual(code, 1, text)
         self.commit(root)
-        code, text = self.check(root, product=product, ok=False)
+        code, text = self.check(root, ok=False)
         self.assertEqual(code, 1, text)
         self.assertIn("fixture_b has no README.md", text)
 
@@ -281,15 +290,29 @@ class ShippedFixtures(unittest.TestCase):
                 self.assertEqual(shipped, module.build(repo, name))
 
     def test_product_fixtures(self) -> None:
-        self.assertEqual(list(PRODUCT.fixtures), ["project"])
-        files = PRODUCT.fixtures["project"].files
-        self.assertNotIn("[tool.odoo-nix]", files["pyproject.toml"])
-        for path in ("flake.nix", "flake.lock", "tools/uv.lock", "package-lock.json"):
-            self.assertIn(path, files)
-
-    def test_table_turns_commits_on(self) -> None:
-        # The conformance CI part turns releases on, which needs commits (CR8 fallback).
-        self.assertEqual(PRODUCT.fixtures["project"].table, "commits.enable = true\n")
+        self.assertEqual(list(PRODUCT.fixtures), ["project", "addons"])
+        for name, config in (
+            ("project", "pyproject.toml"),
+            ("addons", "nix/pyproject.toml"),
+        ):
+            with self.subTest(name):
+                files = PRODUCT.fixtures[name].files
+                self.assertNotIn("[tool.odoo-nix]", files[config])
+                for path in (
+                    "flake.nix",
+                    "flake.lock",
+                    config,
+                    "tools/uv.lock",
+                    "package-lock.json",
+                ):
+                    self.assertIn(path, files)
+        self.assertNotIn("pyproject.toml", PRODUCT.fixtures["addons"].files)
+        # The project's table is the profile alone (the core turns on what releases
+        # needs, CR8); the addons fixture's carries its two-branch Dependabot subtable.
+        self.assertEqual(PRODUCT.fixtures["project"].table, "")
+        table = PRODUCT.fixtures["addons"].table
+        self.assertTrue(table.startswith("\n[tool.odoo-nix.dependabot]\n"), table)
+        self.assertIn('target-branches = ["develop", "17.0"]\n', table)
 
     def test_conformance_render_and_ci_parts(self) -> None:
         # The render part, then the CI part: under develop+series the fixture's ci.yml

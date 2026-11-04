@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import tomllib
@@ -12,13 +13,35 @@ from pathlib import Path
 from odoo_nix_tools.product import MODULES, PRODUCT
 from standards_core.common import config, schema
 from standards_core.testing import conformance
-from support import HAS_CR1, NEEDS_CR1, TempRepos, need_root, run_cli
+from support import TempRepos, need_root, run_cli
 
 PROFILES = Path(PRODUCT.data_root) / "profiles"
 
 
 def toml(path: Path) -> dict:
     return tomllib.loads(path.read_text())
+
+
+# The built-in profiles a release has shipped never change (core DESIGN.md §4.4): a
+# later minor that changes `recommended` adds recommended@2.<minor>.toml, and only a new
+# file gets a new digest here.
+FROZEN = {
+    "minimal.toml": "81ad8af19e739a34fd1b36ab339a0228c0ff6fbc92adf54c9fc89dd3e053aea7",
+    "recommended@2.3.toml": "b59f5a099f84f8be1da72856ee5f0031032c6f563335bcb70e983a8ced4686a1",
+}
+
+
+class Frozen(unittest.TestCase):
+    def test_every_builtin_is_frozen(self) -> None:
+        self.assertEqual(
+            sorted(p.name for p in PROFILES.glob("*.toml")), sorted(FROZEN)
+        )
+
+    def test_the_bytes_are_the_frozen_ones(self) -> None:
+        for name, digest in FROZEN.items():
+            with self.subTest(name):
+                data = (PROFILES / name).read_bytes()
+                self.assertEqual(hashlib.sha256(data).hexdigest(), digest)
 
 
 class Builtins(unittest.TestCase):
@@ -196,8 +219,7 @@ class Resolution(TempRepos):
         self.assertEqual(code, 2)
         self.assertIn("knows series 18.0, 19.0, 20.0", err)
 
-    @unittest.skipUnless(HAS_CR1, NEEDS_CR1)
-    def test_addons_fixture(self) -> None:  # pragma: no cover - CR1
+    def test_addons_fixture(self) -> None:
         root = self.fixture("standards-addons")
         doc = self.show(root)
         cfg = doc["config"]
@@ -206,20 +228,6 @@ class Resolution(TempRepos):
         self.assertEqual(cfg["dependabot"]["target-branches"], ["develop", "17.0"])
         code, out, _ = run_cli("config", "shape", cwd=root / "fixture_a")
         self.assertEqual((code, out.strip()), (0, "addons"))
-
-    def test_addons_fixture_without_cr1_is_not_opted_in(self) -> None:
-        if HAS_CR1:
-            self.skipTest("the core has CR1")
-        # Documents the gap: the core reads the root pyproject.toml, which an addon
-        # repository does not have, so the table in nix/pyproject.toml is unseen.
-        root = self.fixture("standards-addons")
-        code, out, err = run_cli("profile", "show", "--format", "json", cwd=root)
-        if code == 0:
-            self.assertEqual(
-                json.loads(out)["config"].get("profile", "minimal"), "minimal"
-            )
-        else:
-            self.assertIn(code, (2, 3), err)
 
 
 if __name__ == "__main__":

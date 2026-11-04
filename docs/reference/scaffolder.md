@@ -3,7 +3,7 @@ title: Scaffolder
 description: The flags and exit codes of odoo-init, the program behind nix run github:Avunu/odoo-nix that creates, migrates and repairs projects.
 order: 4
 tags: [reference, odoo-init, scaffolding]
-updated: 2026-11-03
+updated: 2026-11-04
 ---
 
 ```bash
@@ -33,7 +33,7 @@ nix run github:Avunu/odoo-nix -- [FLAGS] [TARGET_DIR]
 
 ### The standards flags
 
-`--sync`, `--check`, `--standards` and `--profile-path` make the run a standards run: odoo-nix's managed files, which `odoo-nix sync` writes and checks (py/odoo_nix_tools/DESIGN.md §5.5). The flags below are passed on one to one, `--force`, `--dry-run` and `--skip-lock` included.
+`--sync`, `--check`, `--standards` and `--profile-path` make the run a standards run: odoo-nix's managed files, which `odoo-nix sync` writes and checks ([Standards](../standards/README.md), and its [exit codes](../standards/README.md#exit-codes)). The flags below are passed on one to one, `--force`, `--dry-run` and `--skip-lock` included.
 
 | Flag | Meaning |
 | --- | --- |

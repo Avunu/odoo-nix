@@ -103,7 +103,7 @@ jobs:
         run: nix build .#default -L 2>&1 | tee -a "$RUNNER_TEMP/nix.log"
 
       - if: failure()
-        uses: Avunu/python-devops-nix/.github/actions/nix-failures@65cb6eafb7ffe79bce77e91782674ae02b2bd72b # python-devops-nix#26 (no release yet)
+        uses: Avunu/python-devops-nix/.github/actions/nix-failures@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
         with:
           log: ${{ runner.temp }}/nix.log
           title: flake
@@ -116,8 +116,42 @@ jobs:
           path: ${{ runner.temp }}/failures/flake.md
           if-no-files-found: ignore
 
+  # The three pins of python-devops-nix's standards-core (flake.lock, the standards-core
+  # URL odoo-nix-tools declares, the actions' SHAs) name one commit, and that commit is
+  # on python-devops-nix's main or a v* tag, so `uv tool install` of odoo-nix-tools never
+  # resolves a commit that only lived on a pull request's branch (core DESIGN.md §10.3).
+  # The flake's standards-core-pins check is the offline half; this adds the
+  # reachability, which needs the network. Red while the pin is unreleased: today until
+  # python-devops-nix#58 merges and is released as v1.3.0 (`nix run .#bump-base -- v1.3.0`).
+  standards-core-pins:
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
+    timeout-minutes: 15
+    permissions:
+      contents: read # the checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        if: runner.environment == 'github-hosted'
+        with:
+          determinate: false
+
+      - name: The core's pins agree and are released
+        shell: bash
+        run: |
+          set -uo pipefail
+          url=https://github.com/Avunu/python-devops-nix
+          nix run .#standards-core-pins -- --reachable "$url" | tee "$RUNNER_TEMP/pins.txt"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ] && grep -q 'is on neither' "$RUNNER_TEMP/pins.txt"; then
+            echo "::error::odoo-nix pins a python-devops-nix commit that is on neither its main nor a v* tag. Expected until the pull request carrying it merges and is released (today python-devops-nix#58, v1.3.0); then move every pin with \`nix run .#bump-base -- <tag>\`."
+          fi
+          exit "$rc"
+
   report:
-    needs: [lint, flake]
+    needs: [lint, flake, standards-core-pins]
     # `!cancelled()`: a run a newer push superseded has nothing to say. A fork's pull
     # request gets a read-only token, so no comment. A dispatched run (release.yml's,
     # autofix.yml's) finds its pull request by branch.
@@ -129,6 +163,6 @@ jobs:
     permissions:
       pull-requests: write # the comment
     steps:
-      - uses: Avunu/python-devops-nix/.github/actions/check-report@65cb6eafb7ffe79bce77e91782674ae02b2bd72b # python-devops-nix#26 (no release yet)
+      - uses: Avunu/python-devops-nix/.github/actions/check-report@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
         with:
           needs: ${{ toJSON(needs) }}

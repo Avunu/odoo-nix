@@ -9,9 +9,10 @@ name: odoo-pr-policy
 # On a push to the integration branch the job is skipped, which a required check counts
 # as passed: the release's bump commit needs every required context green.
 #
-# odoo-nix and committed are the builds of the odoo-nix the checkout's flake.lock pins
-# (packages.odoo-nix, packages.committed): no install and no skew, and the checkout's own
-# flake (with its submodules) is never evaluated.
+# odoo-nix is the odoo-nix-tools of the odoo-nix the checkout's flake.lock pins, installed
+# with `uv tool install` (python-devops-nix's standards-install, which exports
+# ODOO_NIX_EXPECT_REV for the skew check); committed is that odoo-nix's build
+# (packages.committed). The checkout's own flake (with its submodules) is never evaluated.
 
 on:
   workflow_call:
@@ -66,29 +67,21 @@ jobs:
         with:
           determinate: false
 
-      - name: odoo-nix and committed from the odoo-nix flake.lock pins
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+
+      - name: committed from the odoo-nix flake.lock pins
         run: |
           set -euo pipefail
-          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
-          case "$(jq -r .type <<<"$node")" in
-            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
-            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
-            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
-          esac
-          for package in odoo-nix committed; do
-            echo "$(nix build --no-link --print-out-paths "$ref#$package")/bin" >> "$GITHUB_PATH"
-          done
-          echo "ODOO_NIX_EXPECT_REV=$(jq -r .rev <<<"$node")" >> "$GITHUB_ENV"
+          ref="$(jq -r '.nodes[.nodes.root.inputs["odoo-nix"]].locked | "github:\(.owner)/\(.repo)/\(.rev)"' flake.lock)"
+          echo "$(nix build --no-link --print-out-paths "$ref#committed")/bin" >> "$GITHUB_PATH"
 
-      - name: odoo-nix policy --pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-          INTEGRATION: ${{ inputs.integration-branch }}
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          REF_NAME: ${{ github.ref_name }}
-        run: odoo-nix policy --pr
+      - uses: Avunu/python-devops-nix/.github/actions/standards-pr-policy@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+        with:
+          cli: odoo-nix
+          integration: ${{ inputs.integration-branch }}

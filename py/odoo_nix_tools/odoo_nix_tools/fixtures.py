@@ -8,9 +8,9 @@ of its ``example-org`` profile, the superset every other profile's tools are a s
 (the lock check accepts a superset in a throwaway, core CR2). Binary files (the icons)
 are left out: a ``Fixture`` holds text.
 
-Only the project fixture ships until core CR1 (DESIGN.md §10): the core reads
-``[tool.odoo-nix]`` from the root ``pyproject.toml`` only, and an addon repository's
-table is in ``nix/pyproject.toml``.
+Each document names its config file: the project fixture's table is in the root
+``pyproject.toml``, the addons fixture's in ``nix/pyproject.toml`` (DESIGN.md §2.3), where
+``write`` appends it.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import Any
 from standards_core.product import Fixture
 
 DATA = Path(str(files("odoo_nix_tools") / "data")) / "fixtures"
-NAMES = ("project",)
+NAMES = ("project", "addons")
 
 
 def _load(name: str) -> tuple[Fixture, str]:

@@ -4,7 +4,7 @@ description: Reusable Nix infrastructure for Odoo Community (OCB) and OCA projec
 nav_title: Overview
 order: 0
 tags: [odoo, oca, nix, overview]
-updated: 2026-11-02
+updated: 2026-11-03
 ---
 
 odoo-nix packages everything needed to develop and ship an [Odoo](https://www.odoo.com/) project built on the [Odoo Community Backports (OCB)](https://github.com/OCA/OCB) distribution and [OCA](https://odoo-community.org/) modules, declaratively. A project that uses it is a thin wrapper: a `flake.nix`, a `pyproject.toml` with its `uv.lock`, a `modules.txt`, and git submodules for OCB and the module repositories. The same description builds the development shell on a laptop and the production system on a server.
@@ -47,6 +47,7 @@ The deployable is the project's `packages.default`: the assembled Odoo tree wrap
 
 - **Working in the development shell?** See [The development shell](development/README.md), [The odoo command](development/commands.md) and [Development guard rails](development/guard-rails.md).
 - **Deploying?** See [Run Odoo as a NixOS service](production/nixos-service.md) or [The container image](production/container.md).
+- **Keeping repositories to one standard?** See [Repository standards](standards/README.md): one table picks a profile, and `odoo-nix sync` writes and checks the lint, test, editor and CI files of a project or an addon repository.
 - **Looking something up?** Every option is in the [reference](reference/README.md), and [Troubleshooting](reference/troubleshooting.md) lists the errors you are most likely to meet, with their fixes.
 
 ## The project

@@ -25,7 +25,7 @@
 let
   inherit (pkgs.stdenv.hostPlatform) system;
   plain = builtins.unsafeDiscardStringContext;
-  evaluates = v: (builtins.tryEval (builtins.seq v true)).success;
+  evaluates = v: (builtins.tryEval (builtins.deepSeq v true)).success;
 
   perSystem =
     odoo-nix:
@@ -96,6 +96,20 @@ let
     addonsMode = true;
   };
   locks = ../fixtures/standards-locks/standards-project/example-org;
+  # Opted in, with the Odoo lock and a tools lock that pins coverage
+  # (symlinks into the fixtures above): the raw odoo-bin's coverage hook gets
+  # the lock's coverage.
+  withCoverage = perSystem {
+    workspaceRoot = ../fixtures/standards-coverage;
+    addons.enable = true;
+    coreSource = inputs.ocb-18;
+  };
+  withoutStandards = perSystem {
+    workspaceRoot = ../fixtures/standards-coverage;
+    addons.enable = true;
+    coreSource = inputs.ocb-18;
+    standardsShell = false;
+  };
 in
 {
   standards-shell-eval-project-unchanged = unchanged project;
@@ -134,6 +148,23 @@ in
         prekInstall = lib.hasInfix "install -c .pre-commit-config.yaml" entry;
         blame = lib.hasInfix "blame.ignoreRevsFile .git-blame-ignore-revs" entry;
       };
+  };
+
+  # The `odoo` CLI and the default shell evaluate once the tools lock has
+  # coverage (O9: tools.nix's coverage carried no pythonModule for the hook).
+  standards-shell-eval-coverage = {
+    expected = {
+      odooCli = true;
+      packages = true;
+      lockCoverage = true;
+    };
+    actual = {
+      odooCli = evaluates withCoverage.packages.odooCli.drvPath;
+      packages = evaluates (map (p: p.drvPath) withCoverage.devenv.shells.default.packages);
+      # The hook takes the lock's coverage, not nixpkgs' (what the CLI gets
+      # without the standards' additions).
+      lockCoverage = withCoverage.packages.odooCli.drvPath != withoutStandards.packages.odooCli.drvPath;
+    };
   };
 
   standards-shell-eval-addons-opted-in = {

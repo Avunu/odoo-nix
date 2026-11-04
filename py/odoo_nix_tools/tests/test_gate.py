@@ -18,7 +18,7 @@ from pathlib import Path
 from odoo_nix_tools.commands import common, gate
 from odoo_nix_tools.product import PRODUCT
 from standards_core.common import schema
-from support import ADDONS_PRODUCT, SyncCase, git, need_root, run_cli
+from support import SyncCase, git, need_root, run_cli
 
 
 class Fake:
@@ -141,9 +141,7 @@ class Lint(GateCase):
     def test_addons_under_example_org(self) -> None:
         root = self.addons()
         fake = Fake()
-        code, report = self.gate(
-            root, "lint", fake, product=ADDONS_PRODUCT, base="HEAD", expect_rev="abc"
-        )
+        code, report = self.gate(root, "lint", fake, base="HEAD", expect_rev="abc")
         self.assertEqual(code, 0)
         steps = self.steps(report)
         self.assertEqual(steps["icons"], "passed")
@@ -320,7 +318,7 @@ class Test(GateCase):
         conf.write_text("[options]\naddons_path = /x\n")
         fake = Fake()
         env = {"ODOO_NIX_CI": "1", "ODOO_RC": str(conf), "COVERAGE_FILE": "/elsewhere"}
-        code, _ = self.gate(root, "test", fake, product=ADDONS_PRODUCT, env=env)
+        code, _ = self.gate(root, "test", fake, env=env)
         self.assertEqual(code, 0)
         names = [c[0] for c in fake.calls]
         self.assertEqual(names[:3], ["initdb", "pg_ctl", "odoo"])
@@ -340,7 +338,7 @@ class Test(GateCase):
         root = self.addons()
         fake = Fake({"odoo": 1})
         env = {"ODOO_NIX_CI": "true", "ODOO_RC": str(self.tmp / "missing.conf")}
-        code, report = self.gate(root, "test", fake, product=ADDONS_PRODUCT, env=env)
+        code, report = self.gate(root, "test", fake, env=env)
         self.assertEqual(code, 3)  # manifestoo: odoo.conf is unreadable
         steps = self.steps(report)
         self.assertEqual(steps["odoo-test"], "failed")
@@ -425,7 +423,7 @@ class AgreesWithOdooTestAll(GateCase):
             ("standards-project", PRODUCT, "pyproject.toml", {}, "fixture_sale"),
             (
                 "standards-addons",
-                ADDONS_PRODUCT,
+                PRODUCT,
                 "nix/pyproject.toml",
                 {"ODOO_NIX_LOCAL_ADDONS": "."},
                 "fixture_b",

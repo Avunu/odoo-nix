@@ -10,7 +10,8 @@
 # built here does not satisfy py/odoo_nix_tools/pyproject.toml. The unittest
 # suites in py/odoo_nix_tools/tests run as the check phase, with the odoo-nix
 # files they read from outside the package (the standards fixtures,
-# version.txt, committed.toml, lib/odoo-presets.json, `odoo test`'s
+# version.txt, committed.toml, the deviations table of
+# docs/standards/managed-files.md, lib/odoo-presets.json, `odoo test`'s
 # lib/odoo_nix_cli/testrun.py) under $ODOO_NIX_TOOLS_REPO.
 {
   lib,
@@ -32,6 +33,7 @@ let
     fileset = lib.fileset.unions [
       ../../version.txt
       ../../committed.toml
+      ../../docs/standards/managed-files.md
       ../odoo-presets.json
       ../odoo_nix_cli/testrun.py
       ../../tests/fixtures/standards-project

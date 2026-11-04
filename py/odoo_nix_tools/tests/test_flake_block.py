@@ -18,7 +18,7 @@ from pathlib import Path
 
 from standards_core.scaffold import engine
 from standards_core.testing import fakes
-from support import ADDONS_PRODUCT, ORG_PROFILES, PRODUCT, SHAPES, SyncCase, need_root
+from support import ORG_PROFILES, SHAPES, SyncCase, need_root
 
 PROJECT = "standards-project"
 ADDONS = "standards-addons"
@@ -54,28 +54,27 @@ def outside_block(text: str) -> list[str]:
 
 
 class FlakeShapes(SyncCase):
-    def adopt(self, shape: str) -> tuple[Path, str, object]:
+    def adopt(self, shape: str) -> tuple[Path, str]:
         """A fixture copy under ``recommended`` whose flake is ``shape``'s, locked as it
         is in its repository (from the URL written by hand)."""
         fixture, _ = CASES[shape]
-        product = ADDONS_PRODUCT if fixture == ADDONS else PRODUCT
         text = (SHAPES / "flakes" / f"{shape}.nix").read_text()
         lock = json.dumps(fakes.flake_lock(text), indent=2) + "\n"
         root = self.profile_fixture(
             fixture, "recommended", {"flake.nix": text, "flake.lock": lock}
         )
-        return root, text, product
+        return root, text
 
     def test_first_opt_in_force_and_idempotence(self) -> None:
         need_root(self)
         for shape, (_, url) in CASES.items():
             with self.subTest(shape=shape):
-                root, before, product = self.adopt(shape)
+                root, before = self.adopt(shape)
                 flake = root / "flake.nix"
                 self.assertIn(hand_line(url), before)
 
                 # The first run shows the replacement and writes nothing.
-                code, text = self.write(root, product=product, ok=False)
+                code, text = self.write(root, ok=False)
                 self.assertEqual(code, 2, text)
                 self.assertIn(
                     "flake.nix defines odoo-nix otherwise than the managed inputs block",
@@ -86,7 +85,7 @@ class FlakeShapes(SyncCase):
                 self.assertEqual(flake.read_text(), before)
 
                 # --force moves the input into the block; every other byte stays.
-                self.sync(root, "--write", "--offline", "--force", product=product)
+                self.sync(root, "--write", "--offline", "--force")
                 after = flake.read_text()
                 self.assertEqual(
                     block_lines(after), [f'    odoo-nix.url = "{RENDERED}";\n']
@@ -127,9 +126,9 @@ class FlakeShapes(SyncCase):
                     json.dumps(fakes.flake_lock(after), indent=2) + "\n"
                 )
                 self.commit(root)
-                self.write(root, product=product)
+                self.write(root)
                 self.assertEqual(flake.read_text(), after)
-                self.check(root, product=product)
+                self.check(root)
 
     def test_counts(self) -> None:
         """The shapes are what the design says they are."""
@@ -148,8 +147,8 @@ class FlakeShapes(SyncCase):
         self.assertIn("''${ODOO_NIX_HTTP_PORT:-8069}", ruckus)
 
     def test_indented_string_survives(self) -> None:
-        root, before, product = self.adopt("ruckus")
-        self.sync(root, "--write", "--offline", "--force", product=product)
+        root, before = self.adopt("ruckus")
+        self.sync(root, "--write", "--offline", "--force")
         after = (root / "flake.nix").read_text()
         port = next(
             line for line in before.splitlines() if "ODOO_NIX_HTTP_PORT" in line
@@ -157,8 +156,8 @@ class FlakeShapes(SyncCase):
         self.assertIn(port, after.splitlines())
 
     def test_unclaimed_inputs_stay_where_they_are(self) -> None:
-        root, before, product = self.adopt("edi-addons")
-        self.sync(root, "--write", "--offline", "--force", product=product)
+        root, before = self.adopt("edi-addons")
+        self.sync(root, "--write", "--offline", "--force")
         after = (root / "flake.nix").read_text()
         for name in ("ocb", "oca-edi", "nixpkgs"):
             with self.subTest(input=name):
@@ -173,8 +172,8 @@ class FlakeShapes(SyncCase):
                     self.assertNotIn(line + "\n", "".join(block_lines(after)))
 
     def test_hand_definition_after_opt_in(self) -> None:
-        root, _, product = self.adopt("millrun")
-        self.sync(root, "--write", "--offline", "--force", product=product)
+        root, _ = self.adopt("millrun")
+        self.sync(root, "--write", "--offline", "--force")
         flake = root / "flake.nix"
         (root / "flake.lock").write_text(
             json.dumps(fakes.flake_lock(flake.read_text()), indent=2) + "\n"
@@ -187,17 +186,17 @@ class FlakeShapes(SyncCase):
                 1,
             )
         )
-        code, text = self.check(root, product=product, ok=False)
+        code, text = self.check(root, ok=False)
         self.assertEqual(code, 2, text)
         self.assertIn("defines odoo-nix outside the managed inputs block", text)
 
     def test_equal_definition_moves_silently(self) -> None:
         """A flake odoo-init scaffolds with the release URL opts in without --force."""
-        root, before, product = self.adopt("millrun")
+        root, before = self.adopt("millrun")
         flake = root / "flake.nix"
         flake.write_text(before.replace('"github:Avunu/odoo-nix"', f'"{RENDERED}"'))
         self.commit(root)
-        self.write(root, product=product)
+        self.write(root)
         self.assertEqual(
             block_lines(flake.read_text()), [f'    odoo-nix.url = "{RENDERED}";\n']
         )

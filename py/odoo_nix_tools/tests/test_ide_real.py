@@ -15,8 +15,10 @@ turning ``ide`` off takes back exactly what it added: never a leaf the dev shell
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from collections.abc import Iterator, Mapping
+from pathlib import Path
 from typing import Any
 
 from odoo_nix_tools import context
@@ -62,6 +64,33 @@ class Data(unittest.TestCase):
         ensure = managed["union"]["recommendations"]["ensure"]
         self.assertFalse(set(data["seed_extensions"]) & set(ensure))
         self.assertIn(["Odoo.serverConfigPath"], managed["forbidden"])
+
+    def test_a_missing_file_gets_the_seed(self) -> None:
+        """Sync makes the editor files before the dev shell ever seeds them
+        (``odoo-init --standards``), so a file it creates carries the seed too; one
+        that exists does not, and its seed leaves stay the checkout's (O9-16)."""
+        data = context.ide_data()
+        managed = data["managed"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            specs = context.ide_specs(root)
+            created = dict(leaves(specs["settings"]["set"]))
+            for path, value in [*leaves(data["seed"]), *leaves(managed["set"])]:
+                self.assertEqual(created[path], value, path)
+            ensure = specs["extensions"]["union"]["recommendations"]["ensure"]
+            self.assertEqual(
+                ensure,
+                [
+                    *data["seed_extensions"],
+                    *managed["union"]["recommendations"]["ensure"],
+                ],
+            )
+            (root / ".vscode").mkdir()
+            (root / SETTINGS).write_text("{}")
+            (root / EXTENSIONS).write_text("{}")
+            specs = context.ide_specs(root)
+            self.assertEqual(specs["settings"]["set"], managed["set"])
+            self.assertEqual(specs["extensions"]["union"], managed["union"])
 
     def test_devenv_reads_the_same_file(self) -> None:
         path = need_root(self) / "modules" / "devenv.nix"

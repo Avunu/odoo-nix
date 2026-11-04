@@ -3,10 +3,9 @@
 ``repo apply --dry-run`` on the example-org fixtures, all against the core's
 ``FakeGitHub`` with ``targets.clone`` and ``targets.fetch_profile`` replaced.
 
-The addons fixture runs through ``support.ADDONS_PRODUCT``, the stand-in for core CR1
-(DESIGN.md §10): ``PRODUCT`` itself reads ``[tool.odoo-nix]`` from the root
-``pyproject.toml`` only, so it sees an addon repository as not opted in, and the
-``repo`` commands take the fleet entry's app layer (``fleet_table``) for it instead.
+The addons fixture keeps ``[tool.odoo-nix]`` in ``nix/pyproject.toml`` (core CR1,
+``hooks.config_file``); an addon repository that has not opted in yet gets the fleet
+entry's app layer (``fleet_table``) instead.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ from standards_core.commands.repo import audit, targets
 from standards_core.common import github, repo_policy, repoconfig, schema
 from standards_core.product import Product
 from standards_core.testing.fakes import FakeGitHub
-from support import ADDONS_PRODUCT, ORG_PROFILES, TempRepos, fixture_files, run_cli
+from support import ORG_PROFILES, TempRepos, fixture_files, git, run_cli
 
 ADDONS = "example-org/standards-addons"
 PROJECT = "example-org/standards-project"
@@ -136,10 +135,9 @@ class RepoPolicyValues(unittest.TestCase):
         cfg = self.cfg("addons", "trunk")
         self.assertEqual(fleet.repo_policy_values(cfg, {"releases": True}, []), {})
 
-    def test_a_project_has_no_integration_bypass(self) -> None:
+    def test_a_project_keeps_the_core_values(self) -> None:
         self.assertEqual(
-            fleet.repo_policy_values(self.cfg("project"), {"releases": True}, []),
-            {"integration_bypass": []},
+            fleet.repo_policy_values(self.cfg("project"), {"releases": True}, []), {}
         )
 
     def test_through_the_core_values(self) -> None:
@@ -148,9 +146,13 @@ class RepoPolicyValues(unittest.TestCase):
         vals = repo_policy.values(PRODUCT, cfg, modules, [], release_branch="18.0")
         self.assertEqual(vals["release_pattern"], "refs/heads/18.0")
         self.assertEqual(vals["integration_bypass"][0]["actor_id"], 1)
-        # A project's release branch is "" anyway; even a forced one bypasses nothing.
+        # A project's release branch is "" (release.BRANCHING), so the core gives its
+        # integration ruleset no bypass actor (CR3).
         cfg = {**cfg, "shape": "project", "integration-branch": "main"}
-        vals = repo_policy.values(PRODUCT, cfg, modules, [], release_branch="18.0")
+        branching = PRODUCT.branching["develop+series"]
+        release = branching.release_branch(cfg, {"shape": "project"})
+        self.assertEqual(release, "")
+        vals = repo_policy.values(PRODUCT, cfg, modules, [], release_branch=release)
         self.assertEqual(vals["integration_bypass"], [])
 
 
@@ -244,7 +246,7 @@ class Audit(RepoCase):
 
     def test_an_addon_repository_on_its_series(self) -> None:
         self.clone_of("standards-addons", ADDONS)
-        rows = self.rows(ADDONS_PRODUCT, ADDONS, ADDONS_ENTRY)
+        rows = self.rows(PRODUCT, ADDONS, ADDONS_ENTRY)
         self.assertEqual(rows["A12"]["status"], "green", rows["A12"])
         self.assertEqual(rows["A13"]["status"], "n/a")
         self.assertIn("addon repository", rows["A13"]["detail"])
@@ -252,7 +254,7 @@ class Audit(RepoCase):
     def test_the_fleet_does_not_list_the_series(self) -> None:
         self.clone_of("standards-addons", ADDONS)
         entry = {**ADDONS_ENTRY, "branches": ["develop", "17.0"]}
-        row = self.rows(ADDONS_PRODUCT, ADDONS, entry)["A12"]
+        row = self.rows(PRODUCT, ADDONS, entry)["A12"]
         self.assertEqual(row["status"], "red")
         self.assertIn("(17.0) do not include 18.0 (.odoo-series)", row["detail"])
 
@@ -262,7 +264,7 @@ class Audit(RepoCase):
             ADDONS,
             {"nix/pyproject.toml": f'{TARGETS}=>target-branches = ["develop", "18.0"]'},
         )
-        row = self.rows(ADDONS_PRODUCT, ADDONS, ADDONS_ENTRY)["A12"]
+        row = self.rows(PRODUCT, ADDONS, ADDONS_ENTRY)["A12"]
         self.assertEqual(row["status"], "red")
         self.assertIn("lists 18.0, which the release ruleset", row["detail"])
         self.assertIn("refs/heads/18.0", row["detail"])
@@ -273,13 +275,13 @@ class Audit(RepoCase):
             ADDONS,
             {"nix/pyproject.toml": f'{TARGETS}=>target-branches = ["17.0"]'},
         )
-        row = self.rows(ADDONS_PRODUCT, ADDONS, ADDONS_ENTRY)["A12"]
+        row = self.rows(PRODUCT, ADDONS, ADDONS_ENTRY)["A12"]
         self.assertEqual(row["status"], "red")
         self.assertIn("(17.0) does not list develop", row["detail"])
 
     def test_no_fleet_entry_is_unknown(self) -> None:
         self.clone_of("standards-addons", ADDONS)
-        row = self.rows(ADDONS_PRODUCT, ADDONS)["A12"]
+        row = self.rows(PRODUCT, ADDONS)["A12"]
         self.assertEqual(row["status"], "unknown")
 
     def test_a_project_on_its_series(self) -> None:
@@ -340,7 +342,7 @@ class Doctor(RepoCase):
 
     def test_the_app_the_release_flow_needs(self) -> None:
         self.clone_of("standards-addons", ADDONS)
-        _, rows, _ = self.rows(ADDONS_PRODUCT, ADDONS)
+        _, rows, _ = self.rows(PRODUCT, ADDONS)
         self.assertEqual(
             rows["Actions variable EXAMPLE_CI_APP_ID (the CI App's client ID)"], "ok"
         )
@@ -358,7 +360,7 @@ class Doctor(RepoCase):
             ("GET", f"repos/{ADDONS}/actions/variables/EXAMPLE_CI_APP_ID")
         ]
         self.gh.routes[("GET", f"repos/{ADDONS}/actions/organization-secrets")] = 403
-        code, rows, _ = self.rows(ADDONS_PRODUCT, ADDONS)
+        code, rows, _ = self.rows(PRODUCT, ADDONS)
         self.assertEqual(code, 1)
         self.assertEqual(
             rows["Actions variable EXAMPLE_CI_APP_ID (the CI App's client ID)"],
@@ -377,7 +379,7 @@ class Doctor(RepoCase):
         self.gh.routes[("GET", f"repos/{ADDONS}/actions/organization-variables")] = {
             "variables": [{"name": "EXAMPLE_CI_APP_ID"}]
         }
-        _, rows, _ = self.rows(ADDONS_PRODUCT, ADDONS)
+        _, rows, _ = self.rows(PRODUCT, ADDONS)
         self.assertEqual(
             rows["Actions variable EXAMPLE_CI_APP_ID (the CI App's client ID)"], "ok"
         )
@@ -393,7 +395,7 @@ class Doctor(RepoCase):
                 )
             },
         )
-        code, rows, _ = self.rows(ADDONS_PRODUCT, ADDONS)
+        code, rows, _ = self.rows(PRODUCT, ADDONS)
         self.assertEqual(code, 1)
         [(setting, status)] = [
             (s, v)
@@ -414,7 +416,7 @@ class Doctor(RepoCase):
                 )
             },
         )
-        _, rows, _ = self.rows(ADDONS_PRODUCT, ADDONS)
+        _, rows, _ = self.rows(PRODUCT, ADDONS)
         missing = [s for s, v in rows.items() if v == "missing"]
         self.assertIn(
             "ci.github-app.app-id names the Actions variable holding the CI App's"
@@ -478,7 +480,7 @@ class ApplyDryRun(RepoCase):
         self.gh.routes[("GET", f"repos/{ADDONS}/branches/develop")] = {
             "name": "develop"
         }
-        doc = self.apply(ADDONS_PRODUCT, ADDONS)
+        doc = self.apply(PRODUCT, ADDONS)
         self.assertEqual(doc["status"], "ok")
         posted = [
             c["diff"]["ruleset"][1]
@@ -491,9 +493,9 @@ class ApplyDryRun(RepoCase):
         """A repository set up with every ``*.0`` protected and the bump bypassing
         nothing: the dry run wants the series branch only, and the App past both."""
         root = self.clone_of("standards-addons", ADDONS)
-        t = targets.load(ADDONS_PRODUCT, ADDONS, {}, {})
+        t = targets.load(PRODUCT, ADDONS, {}, {})
         policy = repo_policy.for_target(
-            ADDONS_PRODUCT,
+            PRODUCT,
             t.cfg,
             t.modules,
             t.gates,
@@ -526,7 +528,7 @@ class ApplyDryRun(RepoCase):
                 ("GET", f"repos/{ADDONS}/rulesets/2"): stale_release,
             }
         )
-        doc = self.apply(ADDONS_PRODUCT, ADDONS)
+        doc = self.apply(PRODUCT, ADDONS)
         changes = self.changes(doc)
         self.assertEqual(
             changes[f"PUT repos/{ADDONS}/rulesets/2"],
@@ -566,11 +568,24 @@ class ApplyDryRun(RepoCase):
         [integration] = policy.rulesets
         self.assertEqual(integration["bypass_actors"], [])
 
-    def test_a_not_opted_in_addon_repository_through_its_fleet_entry(self) -> None:
-        """Without CR1 ``PRODUCT`` sees no table in an addon repository: ``--phase
-        provisional`` applies the integration ruleset from the fleet entry (shape,
-        integration branch) and the fleet's profile."""
+    def test_an_addon_repository_reads_nix_pyproject(self) -> None:
+        """An opted-in addon repository's table is its nix/pyproject.toml (CR1)."""
         self.clone_of("standards-addons", ADDONS)
+        t = targets.load(PRODUCT, ADDONS, ADDONS_ENTRY, {}, "github:example-org/p")
+        self.assertTrue(t.opted_in)
+        self.assertEqual(t.cfg["shape"], "addons")
+        self.assertEqual(t.integration, "develop")
+        self.assertEqual(t.cfg["dependabot"]["target-branches"], ["develop", "17.0"])
+
+    def test_a_not_opted_in_addon_repository_through_its_fleet_entry(self) -> None:
+        """An addon repository without the table: ``--phase provisional`` applies the
+        integration ruleset from the fleet entry (shape, integration branch) and the
+        fleet's profile."""
+        root = self.clone_of("standards-addons", ADDONS)
+        config = root / "nix/pyproject.toml"
+        text = config.read_text()
+        config.write_text(text[: text.index("\n[tool.odoo-nix]")] + "\n")
+        git(root, "commit", "-q", "-am", "not opted in")
         self.gh.routes[("GET", f"repos/{ADDONS}/branches/develop")] = {
             "name": "develop"
         }

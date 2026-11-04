@@ -5,8 +5,9 @@
 # and the same stale-lock guard.
 #
 #   toolsEnv     the tools' virtualenv (tools/.venv), null without tools/uv.lock
-#   coverage     the lock's coverage built for `odooPython` (lib/raw-odoo.nix's
-#                hook), null without a lock or without coverage in it
+#   coverage     the lock's coverage built for `odooPython`, with
+#                passthru.pythonModule (lib/raw-odoo.nix's hook), null without
+#                a lock or without coverage in it
 #   nodeModules  package-lock.json's node_modules (its /node_modules), null
 #                without a package-lock.json
 #   prek         the lock's prek (bin/prek) when it pins one, else nixpkgs'
@@ -112,7 +113,18 @@ let
 in
 {
   inherit toolsEnv;
-  coverage = if locks "coverage" then (setFor odooPython).coverage else null;
+  # pyproject-nix's packages carry no pythonModule, which lib/raw-odoo.nix's
+  # hook reads for the site-packages path (nixpkgs' packages do): passthru only,
+  # so the derivation is unchanged.
+  coverage =
+    if locks "coverage" then
+      (setFor odooPython).coverage.overrideAttrs (old: {
+        passthru = (old.passthru or { }) // {
+          pythonModule = odooPython;
+        };
+      })
+    else
+      null;
   nodeModules =
     if hasNpmLock then pkgs.importNpmLock.buildNodeModules { inherit nodejs npmRoot; } else null;
   prek =

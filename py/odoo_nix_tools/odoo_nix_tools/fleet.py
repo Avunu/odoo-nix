@@ -6,13 +6,12 @@ branch (``integration_branch``, else ``branches[0]``).
 
 ``repo_policy_values`` (core §7.3 lets a product override any placeholder value):
 
-- an addon repository under ``develop+series``: the release ruleset protects only the
-  series branch ``.odoo-series`` names (``refs/heads/18.0``), not every ``*.0``, so a
-  maintenance branch of another series (Dependabot's second target, ``17.0``) still
-  merges pull requests;
-- a project: no actor bypasses the integration ruleset. A project inherits ``releases``
-  from the Avunu profile and has no release branch, so nothing pushes to ``main`` past
-  its pull-request rules (core CR3, DESIGN.md §10, which the core now applies itself).
+an addon repository under ``develop+series``: the release ruleset protects only the
+series branch ``.odoo-series`` names (``refs/heads/18.0``), not every ``*.0``, so a
+maintenance branch of another series (Dependabot's second target, ``17.0``) still merges
+pull requests. A project needs no override: its release branch is ``""``
+(``release.BRANCHING``), so the core gives its integration ruleset no bypass actor (core
+CR3, DESIGN.md §10).
 
 ``AUDIT_ROWS``: A12 (an addon repository's branches against its series and Dependabot's
 targets) and A13 (a project's submodules on its series).
@@ -78,11 +77,8 @@ def _series_flow(cfg: Mapping[str, Any]) -> bool:
 def repo_policy_values(
     cfg: Mapping[str, Any], modules: Mapping[str, bool], gates: Sequence[str]
 ) -> dict[str, Any]:
-    """The per-series release pattern of an addon repository, and no integration
-    bypass in a project (module docstring)."""
+    """The per-series release pattern of an addon repository (module docstring)."""
     shape = cfg.get("shape")
-    if shape == "project":
-        return {"integration_bypass": []}
     series = cfg.get("series")
     if shape == "addons" and _series_flow(cfg) and series:
         return {"release_pattern": f"refs/heads/{series}", "release_label": series}

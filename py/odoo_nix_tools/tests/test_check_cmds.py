@@ -7,7 +7,7 @@ import os
 import unittest
 
 from odoo_nix_tools.pngsize import png_size
-from support import ADDONS_PRODUCT, ICONS, SyncCase, git, png, run_cli
+from support import ICONS, SyncCase, git, png, run_cli
 
 ICON = "static/description/icon.png"
 
@@ -38,7 +38,7 @@ class Case(SyncCase):
 
     def check(self, root, *argv: str) -> tuple[int, str]:
         os.environ.pop("GITHUB_ACTIONS", None)
-        code, out, err = run_cli("check", *argv, cwd=root, product=ADDONS_PRODUCT)
+        code, out, err = run_cli("check", *argv, cwd=root)
         return code, out + err
 
 

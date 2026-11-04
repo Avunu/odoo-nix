@@ -5,10 +5,11 @@
 the conformance check sync under every profile, and they must ship in the package: a
 ``uv tool install`` of py/odoo_nix_tools has no tests/fixtures. Each is generated from
 ``tests/fixtures/standards-<name>`` (its text files; the config file without its
-``[tool.odoo-nix]`` table, which ``fixtures.write`` appends for the profile under test)
-and the ``example-org`` locks of ``tests/fixtures/standards-locks/standards-<name>/``:
-the superset of every profile's tools, which the lock check accepts in a throwaway
-checkout (core CR2).
+``[tool.odoo-nix]`` table, which ``fixtures.write`` appends for the profile under test,
+and whose keys beside ``schema`` and ``profile``, its ``[tool.odoo-nix.*]`` subtables
+included, become the fixture's ``table``) and the ``example-org`` locks of
+``tests/fixtures/standards-locks/standards-<name>/``: the superset of every profile's
+tools, which the lock check accepts in a throwaway checkout (core CR2).
 
     python3 py/odoo_nix_tools/scripts/gen_fixture_data.py          # write
     python3 py/odoo_nix_tools/scripts/gen_fixture_data.py --check  # compare (exit 1)
@@ -27,17 +28,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PACKAGE = HERE.parent
 DATA = PACKAGE / "odoo_nix_tools" / "data" / "fixtures"
-# name → its config file; the addons fixture ships once core CR1 lands (DESIGN.md §10).
-FIXTURES = {"project": "pyproject.toml"}
+# name → its config file (pyproject.toml in a project, nix/pyproject.toml in addons
+# mode, DESIGN.md §2.3).
+FIXTURES = {"project": "pyproject.toml", "addons": "nix/pyproject.toml"}
 LOCK_PROFILE = "example-org"
-# What each shipped fixture's table sets beside its profile. The conformance CI part
-# (core DESIGN.md §11.4) renders every fixture with `releases` and `ci` turned on, and
-# odoo-nix's `releases` needs `commits`, which no built-in profile turns on; until the
-# core turns on what `releases` needs too (DESIGN.md §10, CR8), the shipped fixture has
-# conventional commits on under every profile.
-TABLE = {"project": "commits.enable = true\n"}
 LOCKS = ("tools/uv.lock", "package-lock.json")
 TABLE_HEADER = "[tool.odoo-nix]"
+SUBTABLE = "[tool.odoo-nix."
+# The keys fixtures.write writes itself, for the profile under test.
+OWN_KEYS = ("schema", "profile")
 
 
 def _text(path: Path) -> str | None:
@@ -47,17 +46,34 @@ def _text(path: Path) -> str | None:
         return None
 
 
-def without_table(text: str, rel: str) -> str:
-    """``text`` up to its ``[tool.odoo-nix]`` table (the last one in the file), with
-    the blank lines before it."""
+def split_table(text: str, rel: str) -> tuple[str, str]:
+    """``(text, table)``: ``text`` up to its ``[tool.odoo-nix]`` table (the file's last
+    tables), and that table's body without the ``schema`` and ``profile`` lines: the
+    fixture's ``table`` (DESIGN.md §7.1). Only ``[tool.odoo-nix.*]`` subtables may
+    follow the table."""
     lines = text.splitlines(keepends=True)
     at = next((i for i, line in enumerate(lines) if line.strip() == TABLE_HEADER), None)
     if at is None:
         raise SystemExit(f"{rel} has no {TABLE_HEADER} table")
-    rest = [line for line in lines[at + 1 :] if line.strip()]
-    if any(line.lstrip().startswith("[") for line in rest):
-        raise SystemExit(f"{rel}: {TABLE_HEADER} must be the file's last table")
-    return "".join(lines[:at]).rstrip("\n") + "\n"
+    body: list[str] = []
+    in_own = True  # the table's own body, before its first subtable
+    for line in lines[at + 1 :]:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            if not stripped.startswith(SUBTABLE):
+                raise SystemExit(
+                    f"{rel}: only {SUBTABLE}*] subtables may follow {TABLE_HEADER}"
+                )
+            in_own = False
+        elif in_own and stripped.split("=", 1)[0].strip() in OWN_KEYS:
+            continue
+        body.append(line)
+    table = "".join(body).strip("\n")
+    if table:
+        # A subtable gets the blank line before it the tree has; dotted keys follow the
+        # table's own lines directly (fixtures.table).
+        table = ("\n" if table.startswith("[") else "") + table + "\n"
+    return "".join(lines[:at]).rstrip("\n") + "\n", table
 
 
 def build(repo: Path, name: str) -> dict:
@@ -65,6 +81,7 @@ def build(repo: Path, name: str) -> dict:
     source = repo / "tests" / "fixtures" / f"standards-{name}"
     config = FIXTURES[name]
     files: dict[str, str] = {}
+    table = ""
     for path in sorted(source.rglob("*")):
         if not path.is_file():
             continue
@@ -72,7 +89,9 @@ def build(repo: Path, name: str) -> dict:
         text = _text(path)
         if text is None:
             continue  # the icons: a Fixture holds text
-        files[rel] = without_table(text, rel) if rel == config else text
+        if rel == config:
+            text, table = split_table(text, rel)
+        files[rel] = text
     locks = repo / "tests" / "fixtures" / "standards-locks" / f"standards-{name}"
     for rel in LOCKS:
         lock = locks / LOCK_PROFILE / rel
@@ -85,7 +104,7 @@ def build(repo: Path, name: str) -> dict:
             f" tests/fixtures/standards-{name} and its {LOCK_PROFILE} locks; do not edit."
         ),
         "config_file": config,
-        "table": TABLE.get(name, ""),
+        "table": table,
         "files": dict(sorted(files.items())),
     }
 

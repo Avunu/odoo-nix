@@ -1,5 +1,7 @@
-# odoo-nix built-in profile `recommended@2.3`, the first `recommended` snapshot. Frozen once v2.3.0 is
-# tagged: a later minor that changes `recommended` adds recommended@2.<minor>.toml.
+# odoo-nix built-in profile `recommended@2.3`, the first `recommended` snapshot
+# (py/odoo_nix_tools/DESIGN.md §4.2). Frozen: v2.3.0 ships it, and a later minor that
+# changes `recommended` adds recommended@2.<minor>.toml instead of editing this file
+# (test_profiles.Frozen compares its bytes with the digest it records).
 schema = 1
 name = "recommended"
 description = "Vendor-neutral Odoo standards: OCA's per-series lint and format rules with locked tools, tests with coverage, Dependabot and CI. Nothing that needs an organisation's values, editor taste or repo admin."

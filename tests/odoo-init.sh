@@ -612,10 +612,12 @@ addons_repo
 run --addons --skip-lock --offline --standards recommended
 check "--addons --standards: the scaffold ran first" eval 'test -f flake.nix && test -f nix/pyproject.toml && test -f .odoo-series'
 check "--addons --standards: the scaffold is staged for the sync" eval 'git ls-files --error-unmatch flake.nix nix/pyproject.toml >/dev/null'
-# Until core CR1 (DESIGN.md §10) the core reads [tool.odoo-nix] from the root
-# pyproject.toml only: the sync refuses an addon repository, writing nothing.
-expect_rc 2
-check "--addons --standards: the sync's refusal until core CR1" hasF 'keeps [tool.odoo-nix] in nix/pyproject.toml' err
+# An addon repository keeps [tool.odoo-nix] in nix/pyproject.toml (core CR1,
+# DESIGN.md §2.3): the sync creates the table there.
+expect_rc 0
+check "--addons --standards: the table is in nix/pyproject.toml" has '^\[tool\.odoo-nix\]$' nix/pyproject.toml
+check "--addons --standards: the table names the profile" has '^profile = "recommended"$' nix/pyproject.toml
+check "--addons --standards: the sync wrote the managed files" test -f .pre-commit-config.yaml
 check "--addons --standards: no root pyproject.toml is created" test ! -e pyproject.toml
 unset ODOO_NIX_ALLOW_SKEW
 

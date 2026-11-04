@@ -96,9 +96,10 @@ PRODUCT = Product(
         sync_command="odoo-init --sync",
         opt_in_hint=OPT_IN_HINT,
         docs_url=DOCS,
-        # The project value; hooks.config_file picks per shape once the core has CR1
-        # (DESIGN.md §10), with config_paths=("pyproject.toml", "nix/pyproject.toml").
-        config_file="pyproject.toml",
+        # The default file; hooks.config_file picks per checkout (DESIGN.md §2.3, CR1):
+        # a project's root pyproject.toml, an addon repository's nix/pyproject.toml.
+        config_file=discover.PROJECT_CONFIG,
+        config_paths=(discover.PROJECT_CONFIG, discover.ADDONS_CONFIG),
         # A missing file reads {}: exit 2 with the hint. --standards creates the table (a
         # project's root file; an addon repository's nix/pyproject.toml must already exist).
         config_required=False,
@@ -181,8 +182,8 @@ PRODUCT = Product(
         # The per-series release pattern, and a project's integration ruleset without
         # bypass (DESIGN.md §2.2).
         repo_policy_values=fleet.repo_policy_values,
-        # config_file=discover.config_file: CR1 (DESIGN.md §10), with
-        # Identity.config_paths, in the commit that pins a core with it.
+        # pyproject.toml in a project, nix/pyproject.toml in addons mode (CR1).
+        config_file=discover.config_file,
     ),
     sync=SyncHooks(
         # A project's submodules before phase A locks the flake (DESIGN.md §2.5).

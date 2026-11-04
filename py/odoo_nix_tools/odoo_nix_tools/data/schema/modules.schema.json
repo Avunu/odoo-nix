@@ -204,7 +204,7 @@
             "minimum": 0,
             "maximum": 100,
             "default": 80,
-            "description": "The coverage the report shows as the goal; never a gate."
+            "description": "The coverage goal, recorded for reference (no report shows it yet); never a gate."
           },
           "checklog": {
             "type": "boolean",

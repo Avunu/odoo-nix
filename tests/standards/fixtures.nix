@@ -16,16 +16,14 @@
 #
 # ODOO_NIX_ALLOW_SKEW=1: no caller SHA or core rev matches a fixture lock's fake rev.
 #
-# The project runs the `odoo-nix` command (packages.odoo-nix). The addon repository's
-# [tool.odoo-nix] is in nix/pyproject.toml, which the core reads only once it has CR1
-# (DESIGN.md §10): until then it runs the core's CLI with the suites' stand-in product
-# (tests/support.py ADDONS_PRODUCT), whose config file is that path.
+# Both run the `odoo-nix` command (packages.odoo-nix): the project's [tool.odoo-nix] is
+# in its root pyproject.toml, the addon repository's in nix/pyproject.toml (core CR1,
+# DESIGN.md §2.3).
 {
   pkgs,
   lib,
   scriptCheck,
   odooNix,
-  odooNixTools,
   # lib/standards/shell.nix over a checkout (flake.nix standardsShellFor).
   standardsShell,
 }:
@@ -39,26 +37,15 @@ let
       ../fixtures/standards-locks
     ];
   };
-  python = odooNixTools.pythonModule.withPackages (_: [ odooNixTools ]);
-  addonsCli = pkgs.writeShellScript "odoo-nix-addons" ''
-    exec ${python}/bin/python -c '
-    import sys
-    sys.path.insert(0, "${odooNixTools.src}/tests")
-    from standards_core.cli import main
-    from support import ADDONS_PRODUCT
-    sys.exit(main(ADDONS_PRODUCT, sys.argv[1:]))
-    ' "$@"
-  '';
+  cli = lib.getExe odooNix;
 
   shapes = {
     project = {
       config = "pyproject.toml";
-      cli = lib.getExe odooNix;
       addon = "custom/fixture_sale";
     };
     addons = {
       config = "nix/pyproject.toml";
-      cli = addonsCli;
       addon = "fixture_a";
     };
   };
@@ -106,9 +93,6 @@ let
 
   run =
     name:
-    let
-      s = shapes.${name};
-    in
     scriptCheck "standards-fixtures-${name}"
       {
         tools = [
@@ -125,16 +109,16 @@ let
           echo "== standards-${name} × $profile"
           w="$TMPDIR/$profile/fixture-${name}"
           fixture "$profile" "$w"
-          (cd "$w" && ${s.cli} sync --write --offline)
+          (cd "$w" && ${cli} sync --write --offline)
           git -C "$w" add -A
           git -C "$w" commit -q -m synced
-          (cd "$w" && ${s.cli} sync --write --offline)
+          (cd "$w" && ${cli} sync --write --offline)
           test -z "$(git -C "$w" status --porcelain)" || {
             git -C "$w" status --porcelain
             echo "a second sync --write changed the files above" >&2
             exit 1
           }
-          (cd "$w" && ${s.cli} sync --check)
+          (cd "$w" && ${cli} sync --check)
         done
       '';
 
@@ -155,7 +139,6 @@ let
   synced =
     name:
     let
-      s = shapes.${name};
       shell = toolsOf name;
     in
     ''
@@ -164,7 +147,7 @@ let
         local w=$1
         fixture example-org "$w" \
           '[ ! -f .vscode/extensions.json ] || [ -z "$(tail -c1 .vscode/extensions.json)" ] || echo >> .vscode/extensions.json'
-        (cd "$w" && ${s.cli} sync --write --offline)
+        (cd "$w" && ${cli} sync --write --offline)
         git -C "$w" add -A
         git -C "$w" commit -q -m synced
         mkdir -p "$w/tools"
@@ -285,7 +268,7 @@ let
       ${fixture name}
       w="$TMPDIR/workflows-${name}"
       fixture example-org "$w"
-      (cd "$w" && ${shapes.${name}.cli} sync --write --offline)
+      (cd "$w" && ${cli} sync --write --offline)
       cd "$w"
       echo "== standards-${name}: zizmor over the synced .github"
       zizmor --offline --no-progress --config .github/zizmor.yml .github/workflows

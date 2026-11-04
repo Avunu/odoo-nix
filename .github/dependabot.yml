@@ -52,6 +52,11 @@ updates:
       default-days: 7
     commit-message:
       prefix: "fix(deps)"
+    # python-devops-nix is standards-core too: its lock node moves with the
+    # standards-core URL and the actions' SHAs, all at once (`nix run .#bump-base`;
+    # checks.standards-core-pins fails a lone bump).
+    ignore:
+      - dependency-name: python-devops-nix
     groups:
       ocb:
         patterns: ["ocb-*"]
@@ -74,7 +79,8 @@ updates:
       pre-commit-hooks:
         patterns: ["*"]
 
-  # GitHub Actions used by the workflows in .github/workflows.
+  # GitHub Actions used by the workflows in .github/workflows. python-devops-nix's
+  # actions and reusable workflows move with its other pins (`nix run .#bump-base`).
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -83,6 +89,26 @@ updates:
       default-days: 7
     commit-message:
       prefix: "fix(deps)"
+    ignore:
+      - dependency-name: "Avunu/python-devops-nix*"
     groups:
       github-actions:
+        patterns: ["*"]
+
+  # odoo-nix-tools' dev lock (py/odoo_nix_tools/uv.lock), which its suites run from
+  # without Nix (`uv run python -m unittest discover -s tests`). Development only:
+  # the package build and `uv tool install` never read it. standards-core moves with
+  # every other python-devops-nix pin (`nix run .#bump-base`), never on its own.
+  - package-ecosystem: uv
+    directory: /py/odoo_nix_tools
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore(deps)"
+    ignore:
+      - dependency-name: standards-core
+    groups:
+      odoo-nix-tools-dev:
         patterns: ["*"]

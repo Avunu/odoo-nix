@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from support import ADDONS_PRODUCT, PRODUCT, SHAPES, SyncCase, need_root
+from support import PRODUCT, SHAPES, SyncCase, need_root
 
 BEGIN = "# >>> odoo-nix: dev-shell (managed) >>>"
 END = "# <<< odoo-nix: dev-shell (managed) <<<"
@@ -34,7 +34,7 @@ BODY = [
 GITIGNORE = {
     "edi-addons": (
         "standards-addons",
-        ADDONS_PRODUCT,
+        PRODUCT,
         ["*.egg-info/", "node_modules/", ".ruff_cache/"],
     ),
     "millrun": (
@@ -85,7 +85,7 @@ class Gitignore(SyncCase):
         root = self.profile_fixture(
             "standards-addons", "minimal", {".gitignore": before}
         )
-        self.write(root, product=ADDONS_PRODUCT)
+        self.write(root)
         after = (root / ".gitignore").read_text()
         self.assertNotIn("# odoo-nix addons mode", after)
         self.assertNotIn("# devenv state", after)
@@ -111,7 +111,7 @@ class ReadmeTable(SyncCase):
     def test_rows_from_manifests(self) -> None:
         root = self.profile_fixture("standards-addons", "example-org")
         before = (root / "README.md").read_text()
-        self.write(root, product=ADDONS_PRODUCT)
+        self.write(root)
         self.assertTrue((root / "README.md").read_text().startswith(before))
         summary = "A stand-in addon for odoo-nix's standards fixtures"
         self.assertEqual(
@@ -148,7 +148,7 @@ class ReadmeTable(SyncCase):
                 "fixture_b/README.md": None,
             },
         )
-        self.write(root, product=ADDONS_PRODUCT, ok=False)
+        self.write(root, ok=False)
         self.assertIn(
             "| [fixture_b](fixture_b/) | A \\| piped stand-in addon for",
             "\n".join(self.table(root)),
@@ -156,11 +156,11 @@ class ReadmeTable(SyncCase):
 
     def test_off_by_default_and_retracted(self) -> None:
         root = self.profile_fixture("standards-addons", "example-org")
-        self.write(root, product=ADDONS_PRODUCT)
+        self.write(root)
         self.commit(root)
         profile = root / ".standards-profile" / "profile.toml"
         profile.write_text(profile.read_text().replace("addons-table = true\n", ""))
-        self.write(root, product=ADDONS_PRODUCT)
+        self.write(root)
         repo = need_root(self)
         self.assertEqual(
             (root / "README.md").read_text(),

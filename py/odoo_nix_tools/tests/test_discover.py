@@ -11,7 +11,7 @@ from odoo_nix_tools import discover
 from odoo_nix_tools.pngsize import png_size
 from standards_core.common.report import ConfigError
 from standards_core.scaffold.context import Checkout
-from support import HAS_CR1, NEEDS_CR1, SHAPES, TempRepos, git
+from support import SHAPES, TempRepos, git, run_cli
 
 TABLE = '[tool.odoo-nix]\nschema = 1\nprofile = "recommended"\n'
 ADDONS_FLAKE = """{
@@ -63,12 +63,42 @@ class ConfigFile(Discovery):
         root = self.make_tree({"nix/pyproject.toml": TABLE, "flake.nix": ADDONS_FLAKE})
         self.assertEqual(discover.config_file(root), "nix/pyproject.toml")
 
-    def test_both_is_exit_2(self) -> None:
+    def test_both_answers_the_default_and_the_checkout_is_exit_2(self) -> None:
+        # The core asks the hook about every directory while it finds the root, so the
+        # hook answers; loading the checkout at that root refuses (core §14 Stage 10).
         root = self.make_tree({"pyproject.toml": TABLE, "nix/pyproject.toml": TABLE})
+        self.assertEqual(discover.config_file(root), "pyproject.toml")
         with self.assertRaisesRegex(
             ConfigError, "both pyproject.toml and nix/pyproject.toml"
         ):
-            discover.config_file(root)
+            discover.load_checkout(root)
+        code, out, err = run_cli("sync", "--check", cwd=root)
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("both pyproject.toml and nix/pyproject.toml", out + err)
+
+    def test_outside_git(self) -> None:
+        # No tracked files to read: the default file, and nothing raised.
+        plain = self.tmp / "plain"
+        (plain / "nix").mkdir(parents=True)
+        (plain / "flake.nix").write_text(ADDONS_FLAKE)
+        (plain / "nix/pyproject.toml").write_text("[project]\n")
+        self.assertEqual(discover.config_file(plain), "pyproject.toml")
+        (plain / "nix/pyproject.toml").write_text(TABLE)
+        self.assertEqual(discover.config_file(plain), "nix/pyproject.toml")
+
+    def test_an_addon_directory_is_asked_too(self) -> None:
+        # From inside an addon with its own pyproject.toml the core walks up to the
+        # checkout whose nix/pyproject.toml opens the table.
+        root = self.make_tree(
+            {
+                "nix/pyproject.toml": TABLE,
+                "flake.nix": ADDONS_FLAKE,
+                "x/pyproject.toml": "[project]\nname = 'x'\n",
+                "x/__manifest__.py": manifest(),
+            }
+        )
+        self.assertEqual(discover.config_file(root / "x"), "pyproject.toml")
+        self.assertEqual(discover.config_file(root / "nix"), "pyproject.toml")
 
     def test_neither_follows_the_shape(self) -> None:
         addons = self.make_tree(
@@ -409,8 +439,7 @@ class Derive(Discovery):
         discover.derive(empty, None)
         self.assertEqual(empty["addon-manifest"]["licenses-allowed"], [])
 
-    @unittest.skipUnless(HAS_CR1, NEEDS_CR1)
-    def test_addons_fixture_through_the_core(self) -> None:  # pragma: no cover - CR1
+    def test_addons_fixture_through_the_core(self) -> None:
         checkout = discover.load_checkout(self.fixture("standards-addons"))
         cfg = {"integration-branch": "develop", "dependabot": {"target-branches": []}}
         discover.derive(cfg, checkout)

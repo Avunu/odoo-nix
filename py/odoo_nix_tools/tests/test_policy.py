@@ -20,7 +20,7 @@ import unittest
 from odoo_nix_tools import policy
 from odoo_nix_tools.product import PRODUCT
 from standards_core.commands import policy as core_policy
-from support import ADDONS_PRODUCT, SyncCase, TempRepos, git, need_root, run_cli
+from support import SyncCase, TempRepos, git, need_root, run_cli
 
 
 class CommittedArgv(TempRepos):
@@ -59,7 +59,7 @@ class PrChecks(SyncCase):
 
     def checks(self, base: str = "develop") -> list[str]:
         rules = core_policy.rules_for(
-            ADDONS_PRODUCT, self.root, major_free=False, base_branch="main"
+            PRODUCT, self.root, major_free=False, base_branch="main"
         )
         head = git(self.root, "rev-parse", "HEAD").strip()
         pr = core_policy.pr_context(

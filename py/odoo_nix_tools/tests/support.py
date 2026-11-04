@@ -16,53 +16,17 @@ import tempfile
 import unittest
 import zlib
 from collections.abc import Mapping
-from dataclasses import fields, replace
 from pathlib import Path
 
-from odoo_nix_tools import cli, discover
+from odoo_nix_tools import cli
 from odoo_nix_tools.commands import EXTRA
 from odoo_nix_tools.product import PRODUCT
 from standards_core import cli as core_cli
-from standards_core.product import Hooks, Product
+from standards_core.product import Product
 from standards_core.testing import fakes
 
 PACKAGE = Path(__file__).resolve().parent.parent
 SHAPES = Path(__file__).resolve().parent / "shapes"
-
-# Core change request CR1 (DESIGN.md §10): without it the core reads [tool.odoo-nix]
-# from the root pyproject.toml only, so an addon repository's nix/pyproject.toml table
-# is not seen.
-HAS_CR1 = "config_file" in {f.name for f in fields(Hooks)}
-NEEDS_CR1 = (
-    "needs core CR1 (DESIGN.md §10): the core reads [tool.odoo-nix] from the root"
-    " pyproject.toml only, and an addon repository's table is in nix/pyproject.toml"
-)
-
-
-def _addons_product() -> Product:
-    """``PRODUCT`` as core CR1 would serve an addon repository: ``[tool.odoo-nix]`` in
-    ``nix/pyproject.toml``. The engine resolves with the checkout's root (core stage 2),
-    so a product whose config file is that path syncs the addons fixture; only the
-    per-checkout choice (``hooks.config_file``) is missing. Once the core has CR1 this
-    is ``PRODUCT`` itself."""
-    if HAS_CR1:
-        return PRODUCT
-    made: dict[str, Product] = {}
-    hooks = replace(
-        PRODUCT.hooks,
-        load_checkout=lambda root: discover.load_checkout(root, made["p"]),
-    )
-    identity = replace(PRODUCT.identity, config_file=discover.ADDONS_CONFIG)
-    made["p"] = replace(PRODUCT, identity=identity, hooks=hooks)
-    return made["p"]
-
-
-ADDONS_PRODUCT = _addons_product()
-
-
-def product_for(fixture: str) -> Product:
-    """The product that syncs ``tests/fixtures/<fixture>``."""
-    return ADDONS_PRODUCT if fixture == "standards-addons" else PRODUCT
 
 
 def odoo_nix_root() -> Path | None:
@@ -139,8 +103,8 @@ def run_cli(
     *argv: str, cwd: Path | None = None, product: Product = PRODUCT
 ) -> tuple[int, str, str]:
     """``odoo-nix <argv>`` in-process: (exit code, stdout, stderr). ``product`` other
-    than ``PRODUCT`` (the CR1 stand-in) runs the core's CLI with it and odoo-nix's own
-    commands."""
+    than ``PRODUCT`` (a test's variant of it) runs the core's CLI with it and odoo-nix's
+    own commands."""
     if product is not PRODUCT:
         return fakes.run_cli(
             product,

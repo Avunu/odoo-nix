@@ -7,8 +7,7 @@ import json
 import unittest
 
 from odoo_nix_tools import checks
-from odoo_nix_tools.product import PRODUCT
-from support import ADDONS_PRODUCT, SyncCase, git, need_root
+from support import SyncCase, git, need_root
 
 ADDONS = "standards-addons"
 PROJECT = "standards-project"
@@ -102,8 +101,8 @@ class LockChecks(unittest.TestCase):
 
 
 class Preflight(SyncCase):
-    def refused(self, root, needle: str, product=ADDONS_PRODUCT) -> None:
-        code, text = self.check(root, product=product, ok=False)
+    def refused(self, root, needle: str) -> None:
+        code, text = self.check(root, ok=False)
         self.assertEqual(code, 2, text)
         self.assertIn(needle, text)
 
@@ -176,7 +175,7 @@ class Preflight(SyncCase):
         root = self.profile_fixture(
             PROJECT, "recommended", {"flake.nix": None, "flake.lock": None}
         )
-        self.refused(root, "has no flake.nix", product=PRODUCT)
+        self.refused(root, "has no flake.nix")
 
 
 class Notices(SyncCase):
@@ -192,42 +191,37 @@ class Notices(SyncCase):
         root = self.profile_fixture(
             ADDONS, "recommended", {"modules.txt": "queue_job\n"}
         )
-        _, text = self.write(root, product=ADDONS_PRODUCT)
+        _, text = self.write(root)
         self.assertIn("both addons-mode and project signals; using addons", text)
 
 
 class Checks(SyncCase):
-    def drift(self, root, needle: str, product=ADDONS_PRODUCT) -> None:
-        code, text = self.check(root, product=product, ok=False)
+    def drift(self, root, needle: str) -> None:
+        code, text = self.check(root, ok=False)
         self.assertEqual(code, 1, text)
         self.assertIn(needle, text)
 
     def synced(self, name: str, profile: str, edit: dict | None = None):
-        product = ADDONS_PRODUCT if name == ADDONS else PRODUCT
         root = self.profile_fixture(name, profile, edit or {})
-        self.write(root, product=product, ok=False)
+        self.write(root, ok=False)
         self.commit(root)
-        return root, product
+        return root
 
     def test_readme(self) -> None:
-        root, product = self.synced(
-            ADDONS, "example-org", {"fixture_b/README.md": None}
-        )
-        self.drift(root, "addon fixture_b has no README.md", product)
+        root = self.synced(ADDONS, "example-org", {"fixture_b/README.md": None})
+        self.drift(root, "addon fixture_b has no README.md")
 
     def test_submodule_branch(self) -> None:
-        root, product = self.synced(PROJECT, "recommended")
+        root = self.synced(PROJECT, "recommended")
         modules = root / ".gitmodules"
         modules.write_text(
             modules.read_text().replace("branch = 18.0", "branch = 17.0", 1)
         )
-        self.drift(root, "submodule odoo follows 17.0, not branch = 18.0", product)
+        self.drift(root, "submodule odoo follows 17.0, not branch = 18.0")
 
     def test_packaging(self) -> None:
-        root, product = self.synced(
-            ADDONS, "example-org", {"fixture_b/pyproject.toml": None}
-        )
-        self.drift(root, "addon fixture_b has no whool pyproject.toml", product)
+        root = self.synced(ADDONS, "example-org", {"fixture_b/pyproject.toml": None})
+        self.drift(root, "addon fixture_b has no whool pyproject.toml")
         config = root / "nix/pyproject.toml"
         config.write_text(
             config.read_text().replace(
@@ -235,20 +229,20 @@ class Checks(SyncCase):
             )
         )
         git(root, "add", "-A")
-        self.drift(root, "nix/uv.lock predates fixture_a/pyproject.toml", product)
+        self.drift(root, "nix/uv.lock predates fixture_a/pyproject.toml")
 
     def test_ruff_table_in_the_config_file(self) -> None:
-        root, product = self.synced(PROJECT, "recommended")
+        root = self.synced(PROJECT, "recommended")
         config = root / "pyproject.toml"
         config.write_text(
             config.read_text().replace(
                 "[tool.odoo-nix]", "[tool.ruff]\nline-length = 100\n\n[tool.odoo-nix]"
             )
         )
-        self.drift(root, "[tool.ruff] is ignored", product)
+        self.drift(root, "[tool.ruff] is ignored")
 
     def test_series_disagreement(self) -> None:
-        root, product = self.synced(ADDONS, "recommended")
+        root = self.synced(ADDONS, "recommended")
         lock = root / "flake.lock"
         doc = json.loads(lock.read_text())
         ocb = doc["nodes"][doc["nodes"]["root"]["inputs"]["ocb"]]
@@ -258,25 +252,25 @@ class Checks(SyncCase):
         flake.write_text(
             flake.read_text().replace("github:OCA/OCB/18.0", "github:OCA/OCB/19.0")
         )
-        self.drift(root, "series 18.0, but flake.lock's ocb names 19.0", product)
+        self.drift(root, "series 18.0, but flake.lock's ocb names 19.0")
 
     def test_stale_tools_lock(self) -> None:
-        root, product = self.synced(PROJECT, "recommended")
+        root = self.synced(PROJECT, "recommended")
         path = root / "tools/pyproject.toml"
         path.write_text(path.read_text().replace('"ruff==0.6.8"', '"ruff==0.7.0"'))
-        self.drift(root, "tools/uv.lock predates tools/pyproject.toml", product)
+        self.drift(root, "tools/uv.lock predates tools/pyproject.toml")
         # --write --offline names the command and leaves the lock to it.
-        code, text = self.write(root, product=product, ok=False)
+        code, text = self.write(root, ok=False)
         self.assertEqual(code, 0, text)
         self.assertIn("(offline: run `uv lock --project tools`)", text)
 
     def test_stale_npm_lock(self) -> None:
-        root, product = self.synced(PROJECT, "recommended")
+        root = self.synced(PROJECT, "recommended")
         path = root / "package.json"
         doc = json.loads(path.read_text())
         doc["devDependencies"]["prettier"] = "3.4.0"
         path.write_text(json.dumps(doc, indent=2) + "\n")
-        self.drift(root, "package-lock.json predates package.json", product)
+        self.drift(root, "package-lock.json predates package.json")
 
 
 class FirstOptIn(SyncCase):

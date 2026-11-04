@@ -1,4 +1,5 @@
-# odoo-nix built-in profile `minimal`. Frozen for all of odoo-nix 2.x: it never turns a module on.
+# odoo-nix built-in profile `minimal`. Frozen for all of odoo-nix 2.x: it never turns a module on
+# (test_profiles.Frozen compares its bytes with the digest it records).
 schema = 1
 name = "minimal"
 description = "The odoo-nix dev shell only: the flake.nix inputs block, .envrc and the .gitignore block."

@@ -1,7 +1,8 @@
 name: odoo-release
 
 # The develop+series release flow of an addon repository (py/odoo_nix_tools/DESIGN.md §2.2,
-# §6.4; core DESIGN.md §8.2), reusable. After a merge to the integration branch:
+# §6.4; core DESIGN.md §8.2), reusable. After a merge to the integration branch,
+# python-devops-nix's standards-release-ff (`bump: true`) runs:
 #
 # 1. `odoo-nix ci bump --base origin/<series> --push`: each addon whose code changed since
 #    the series branch gets its next `<series>.x.y.z` from the conventional commits that
@@ -12,6 +13,9 @@ name: odoo-release
 #    branch moves to that commit once its required checks are green (the push-triggered
 #    ci.yml and pr-policy.yml); still pending, the next trigger (the caller's
 #    `workflow_run` of ci) retries.
+#
+# odoo-nix is the odoo-nix-tools of the odoo-nix the checkout's flake.lock pins
+# (standards-install, `uv tool install`).
 #
 # The checkout is the integration branch's head, not github.sha: a run started by an
 # older merge would otherwise bump a stale tree. A push that still loses the race is not a
@@ -97,22 +101,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        if: runner.environment == 'github-hosted'
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
         with:
-          determinate: false
-
-      - name: odoo-nix from the odoo-nix flake.lock pins
-        run: |
-          set -euo pipefail
-          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
-          case "$(jq -r .type <<<"$node")" in
-            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
-            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
-            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
-          esac
-          echo "$(nix build --no-link --print-out-paths "$ref#odoo-nix")/bin" >> "$GITHUB_PATH"
-          echo "ODOO_NIX_EXPECT_REV=$(jq -r .rev <<<"$node")" >> "$GITHUB_ENV"
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
 
       - name: The series branch is the checkout's series
         env:
@@ -125,35 +120,27 @@ jobs:
             exit 1
           fi
 
-      # The commit is the App's bot's; the push authenticates with its token through a
-      # header given to this step's git commands only (nothing is written to .git/config).
-      - id: bump
-        name: odoo-nix ci bump
+      # The bump commit is the App's bot's, from the integration head checked out above.
+      - id: who
+        name: The App's bot and the integration head
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SLUG: ${{ steps.app-token.outputs.app-slug }}
-          RELEASE: ${{ inputs.release-branch }}
-          INTEGRATION: ${{ inputs.integration-branch }}
         run: |
           set -euo pipefail
           id="$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)"
-          git config user.name "${SLUG}[bot]"
-          git config user.email "${id}+${SLUG}[bot]@users.noreply.github.com"
-          GIT_CONFIG_COUNT=1
-          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
-          echo "::add-mask::$GIT_CONFIG_VALUE_0"
-          odoo-nix ci bump --base "origin/$RELEASE" --integration "$INTEGRATION" --push
+          echo "git-user=${SLUG}[bot] <${id}+${SLUG}[bot]@users.noreply.github.com>" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: odoo-nix ci fast-forward
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          REPO: ${{ github.repository }}
-          RELEASE: ${{ inputs.release-branch }}
-          INTEGRATION: ${{ inputs.integration-branch }}
-          SHA: ${{ steps.bump.outputs.sha }}
-        run: |
-          set -euo pipefail
-          odoo-nix ci fast-forward --repo "$REPO" --release-branch "$RELEASE" \
-            --integration "$INTEGRATION" --sha "${SHA:-$(git rev-parse HEAD)}" --wait-checks 900
+      # The push authenticates with the App's token through a header given to the
+      # action's git commands only (nothing is written to .git/config).
+      - uses: Avunu/python-devops-nix/.github/actions/standards-release-ff@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+        with:
+          cli: odoo-nix
+          release-branch: ${{ inputs.release-branch }}
+          sha: ${{ steps.who.outputs.sha }}
+          bump: "true"
+          base: origin/${{ inputs.release-branch }}
+          wait-checks: "900"
+          token: ${{ steps.app-token.outputs.token }}
+          git-user: ${{ steps.who.outputs.git-user }}

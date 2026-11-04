@@ -17,7 +17,7 @@ import tomllib
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
@@ -28,9 +28,6 @@ from standards_core.scaffold.context import Checkout, default_load_checkout
 
 from odoo_nix_tools import manifests, series
 from odoo_nix_tools.pngsize import png_size
-
-if TYPE_CHECKING:
-    from standards_core.product import Product
 
 PROJECT_CONFIG = "pyproject.toml"
 ADDONS_CONFIG = "nix/pyproject.toml"
@@ -147,50 +144,62 @@ def shape(
 # --- the config file (CR1) -----------------------------------------------------------
 
 
+def _opted_in_files(root: Path) -> list[str]:
+    """Which of ``pyproject.toml`` and ``nix/pyproject.toml`` open ``[tool.odoo-nix]``."""
+    return [
+        rel
+        for rel in (PROJECT_CONFIG, ADDONS_CONFIG)
+        if (root / rel).is_file() and _opted_in(_read(root, rel))
+    ]
+
+
 def config_file(root: Path) -> str:
     """The file holding ``[tool.odoo-nix]``, relative to ``root`` (DESIGN.md §2.3, CR1):
-    whichever of ``pyproject.toml`` and ``nix/pyproject.toml`` opens the table; both is
-    exit 2; neither is the one of the checkout's shape (where ``--standards`` writes)."""
+    whichever of ``pyproject.toml`` and ``nix/pyproject.toml`` opens the table; neither
+    is the one of the checkout's shape (where ``--standards`` writes).
+
+    The core's ``hooks.config_file``: it is also asked about every directory between the
+    current one and the work tree's root, and outside git, while the checkout root is
+    found, so it never raises. Outside git (no tracked files) and where both files open
+    the table it answers the default ``pyproject.toml``; ``load_checkout`` refuses the
+    second case at a checkout's root."""
     root = Path(root)
-    tracked = repo.ls_files(root)
-    has = {
-        rel: _opted_in(_read(root, rel))
-        for rel in (PROJECT_CONFIG, ADDONS_CONFIG)
-        if (root / rel).is_file()
-    }
-    if has.get(PROJECT_CONFIG) and has.get(ADDONS_CONFIG):
+    opted = _opted_in_files(root)
+    if len(opted) == 1:
+        return opted[0]
+    if opted:
+        return PROJECT_CONFIG
+    try:
+        tracked = repo.ls_files(root)
+        gitlinks = _gitlinks(root)
+    except EnvError:
+        return PROJECT_CONFIG
+    signals = shape_signals(tracked, _flake_text(root, tracked), gitlinks)
+    return ADDONS_CONFIG if signals["addons"] else PROJECT_CONFIG
+
+
+def load_checkout(root: Path) -> Checkout:
+    """The core's checkout plus ``extra``: the comment-stripped ``flake.nix``, the
+    gitlinks and the config file's path. A checkout whose ``pyproject.toml`` and
+    ``nix/pyproject.toml`` both open the table is exit 2."""
+    from odoo_nix_tools.product import PRODUCT
+
+    checkout = default_load_checkout(PRODUCT, root)
+    if len(_opted_in_files(checkout.root)) > 1:
         raise ConfigError(
             f"both {PROJECT_CONFIG} and {ADDONS_CONFIG} open [tool.{TABLE}]: keep the one"
             " of this repository's shape"
         )
-    if has.get(PROJECT_CONFIG):
-        return PROJECT_CONFIG
-    if has.get(ADDONS_CONFIG):
-        return ADDONS_CONFIG
-    signals = shape_signals(tracked, _flake_text(root, tracked), _gitlinks(root))
-    return ADDONS_CONFIG if signals["addons"] else PROJECT_CONFIG
-
-
-def load_checkout(root: Path, product: Product | None = None) -> Checkout:
-    """The core's checkout plus ``extra``: the comment-stripped ``flake.nix``, the
-    gitlinks and the config file's path. ``product`` is ``PRODUCT`` but in the tests'
-    stand-in for core CR1, whose config file is ``nix/pyproject.toml``."""
-    if product is None:
-        from odoo_nix_tools.product import PRODUCT
-
-        product = PRODUCT
-    checkout = default_load_checkout(product, root)
-    checkout.extra = MappingProxyType(
-        {
-            "flake": _flake_text(checkout.root, checkout.tracked),
-            "gitlinks": MappingProxyType(_gitlinks(checkout.root)),
-            "config_path": config_file(checkout.root),
-            # The file the core reads the table from (and --standards writes it to):
-            # the root pyproject.toml until core CR1 lets hooks.config_file choose.
-            "core_config": engine.config_file(product, checkout.root),
-        }
-    )
+    checkout.extra = MappingProxyType(_extra(checkout))
     return checkout
+
+
+def _extra(checkout: Checkout) -> dict[str, Any]:
+    return {
+        "flake": _flake_text(checkout.root, checkout.tracked),
+        "gitlinks": MappingProxyType(_gitlinks(checkout.root)),
+        "config_path": config_file(checkout.root),
+    }
 
 
 def checkout_extra(checkout: Checkout) -> Mapping[str, Any]:
@@ -198,27 +207,7 @@ def checkout_extra(checkout: Checkout) -> Mapping[str, Any]:
     ``Checkout`` built without ``load_checkout``)."""
     if "flake" in checkout.extra:
         return checkout.extra
-    from odoo_nix_tools.product import PRODUCT
-
-    return {
-        "flake": _flake_text(checkout.root, checkout.tracked),
-        "gitlinks": _gitlinks(checkout.root),
-        "config_path": config_file(checkout.root),
-        "core_config": engine.config_file(PRODUCT, checkout.root),
-    }
-
-
-def _config_doc(checkout: Checkout, extra: Mapping[str, Any]) -> dict[str, Any]:
-    """The parsed config file: ``checkout.config`` when it is the root file (the one the
-    core reads until CR1), else ``nix/pyproject.toml`` read here."""
-    rel = extra["config_path"]
-    if rel == PROJECT_CONFIG:
-        return checkout.config
-    text = _read(checkout.root, rel)
-    try:
-        return tomllib.loads(text) if text else {}
-    except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f"{rel}: {e}") from e
+    return _extra(checkout)
 
 
 # --- series --------------------------------------------------------------------------
@@ -483,7 +472,7 @@ def _resolve(
 ) -> tuple[Mapping[str, Any], dict[str, Any]]:
     """``(table, partial facts)``: shape, series and addons, which ``derive`` needs too."""
     extra = checkout_extra(checkout)
-    doc = _config_doc(checkout, extra)
+    doc = checkout.config
     table = {**_table(doc), **{k: cfg[k] for k in ("shape", "series") if k in cfg}}
     flake = extra["flake"]
     gitlinks = extra["gitlinks"]

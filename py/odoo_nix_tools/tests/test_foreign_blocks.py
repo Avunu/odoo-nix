@@ -13,12 +13,12 @@ import unittest
 
 from odoo_nix_tools.product import PRODUCT
 from standards_core.scaffold import blocks
-from support import ADDONS_PRODUCT, SHAPES, SyncCase, git, need_root
+from support import SHAPES, SyncCase, git, need_root
 
-# shape → (fixture, config file, product)
+# shape → (fixture, config file)
 CASES = {
-    "ruckus.toml": ("standards-project", "pyproject.toml", PRODUCT),
-    "edi-addons-nix.toml": ("standards-addons", "nix/pyproject.toml", ADDONS_PRODUCT),
+    "ruckus.toml": ("standards-project", "pyproject.toml"),
+    "edi-addons-nix.toml": ("standards-addons", "nix/pyproject.toml"),
 }
 NAMES = ("install set", "module sources", "sdist build deps")
 REGION = re.compile(
@@ -54,7 +54,7 @@ class Scan(unittest.TestCase):
 class ThroughSync(SyncCase):
     def test_kept_byte_for_byte(self) -> None:
         need_root(self)
-        for name, (fixture, config, product) in CASES.items():
+        for name, (fixture, config) in CASES.items():
             for profile in ("recommended", "example-org"):
                 with self.subTest(shape=name, profile=profile):
                     ref = (
@@ -64,16 +64,16 @@ class ThroughSync(SyncCase):
                     )
                     text = shape(name) + TABLE.replace('"recommended"', f'"{ref}"')
                     root = self.profile_fixture(fixture, profile, {config: text})
-                    code, out = self.write(root, product=product, ok=False)
+                    code, out = self.write(root, ok=False)
                     self.assertIn(code, (0, 1), out)
                     self.assertEqual((root / config).read_text(), text)
                     self.commit(root)
-                    self.write(root, product=product, ok=False)
+                    self.write(root, ok=False)
                     self.assertEqual((root / config).read_text(), text)
 
     def test_standards_adds_the_table_after_them(self) -> None:
         need_root(self)
-        for name, (fixture, config, product) in CASES.items():
+        for name, (fixture, config) in CASES.items():
             with self.subTest(shape=name):
                 text = shape(name)
                 root = self.fixture(fixture, {config: text})
@@ -83,7 +83,6 @@ class ThroughSync(SyncCase):
                     "--offline",
                     "--standards",
                     "recommended",
-                    product=product,
                     ok=False,
                 )
                 self.assertIn(code, (0, 1), out)

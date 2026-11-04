@@ -6,9 +6,8 @@
   table is created: nothing is written;
 - a repository whose default branch is its series branch (odoo-studio's ``origin/HEAD``
   is ``18.0``) cannot take ``releases`` under ``develop+series``: exit 2, nothing written;
-- until core CR1 (DESIGN.md §10), ``odoo-nix`` (``PRODUCT``) refuses to opt in an addon
-  repository at all rather than create ``[tool.odoo-nix]`` in a root ``pyproject.toml``;
-  the CR1 stand-in (``ADDONS_PRODUCT``) opts the same tree in, into ``nix/pyproject.toml``.
+- an addon repository with its addons-mode files opts in into ``nix/pyproject.toml``
+  (core CR1, ``hooks.config_file``); no root ``pyproject.toml`` is created.
 
 ``odoo-init --addons --standards`` (scaffold, then sync, §5.5) is odoo-init's, which is
 not part of this package: tests/odoo-init.sh (checks.scaffold) runs it.
@@ -19,9 +18,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from odoo_nix_tools.product import PRODUCT
 from support import (
-    ADDONS_PRODUCT,
     IN_REPO_PROFILE,
     ORG_PROFILES,
     SyncCase,
@@ -67,16 +64,8 @@ class OptIn(SyncCase):
         self._trees = getattr(self, "_trees", 0) + 1
         return self.make_tree(files, name=f"{ADDONS}-{self._trees}")
 
-    def opt_in(self, root: Path, product, profile: str = "recommended"):
-        return self.sync(
-            root,
-            "--write",
-            "--offline",
-            "--standards",
-            profile,
-            product=product,
-            ok=False,
-        )
+    def opt_in(self, root: Path, profile: str = "recommended"):
+        return self.sync(root, "--write", "--offline", "--standards", profile, ok=False)
 
     def assert_untouched(self, root: Path) -> None:
         self.assertEqual(
@@ -84,33 +73,19 @@ class OptIn(SyncCase):
         )
 
     def test_develop_shape_is_refused_with_the_hint(self) -> None:
-        for product in (PRODUCT, ADDONS_PRODUCT):
-            with self.subTest(
-                product="cr1" if product is ADDONS_PRODUCT else "odoo-nix"
-            ):
-                root = self.tree(develop=True)
-                for path in ADDONS_MODE:
-                    self.assertFalse((root / path).exists(), path)
-                code, text = self.opt_in(root, product)
-                self.assertEqual(code, 2, text)
-                self.assertIn(HINT, text)
-                self.assert_untouched(root)
-                self.assertFalse((root / "pyproject.toml").exists())
-
-    def test_without_cr1_an_addon_repository_is_refused(self) -> None:
-        root = self.tree(develop=False)
-        code, text = self.opt_in(root, PRODUCT)
+        root = self.tree(develop=True)
+        for path in ADDONS_MODE:
+            self.assertFalse((root / path).exists(), path)
+        code, text = self.opt_in(root)
         self.assertEqual(code, 2, text)
-        self.assertIn(
-            "an addon repository keeps [tool.odoo-nix] in nix/pyproject.toml", text
-        )
+        self.assertIn(HINT, text)
         self.assert_untouched(root)
         self.assertFalse((root / "pyproject.toml").exists())
 
-    def test_with_cr1_the_table_goes_into_nix_pyproject(self) -> None:
+    def test_the_table_goes_into_nix_pyproject(self) -> None:
         root = self.tree(develop=False)
         before = (root / CONFIG).read_text()
-        code, text = self.opt_in(root, ADDONS_PRODUCT)
+        code, text = self.opt_in(root)
         self.assertEqual(code, 0, text)
         after = (root / CONFIG).read_text()
         self.assertTrue(after.startswith(before))
@@ -130,7 +105,7 @@ class OptIn(SyncCase):
         git(
             root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/18.0"
         )
-        code, text = self.opt_in(root, ADDONS_PRODUCT, f"./{IN_REPO_PROFILE}")
+        code, text = self.opt_in(root, f"./{IN_REPO_PROFILE}")
         self.assertEqual(code, 2, text)
         self.assertIn("create develop and make it the default branch", text)
         self.assert_untouched(root)

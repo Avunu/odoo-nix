@@ -102,15 +102,6 @@ def preflight(checkout: Checkout, resolved: Resolved) -> None:
             f" {'an addon repository' if shape == 'addons' else 'a project'}: move the"
             f" table to {expected}"
         )
-    core_config = discover.checkout_extra(checkout)["core_config"]
-    if core_config != expected:
-        # Core CR1 (DESIGN.md §10): until hooks.config_file exists, the core reads and
-        # --standards writes the root pyproject.toml, which an addon repository has not.
-        raise ConfigError(
-            f"an addon repository keeps [tool.odoo-nix] in {expected}, and this"
-            f" odoo-nix-tools reads it from {core_config} only (its standards-core has"
-            " no per-checkout config file yet): nothing was written"
-        )
     if shape == "addons":
         lock_dir = facts["flake"]["lock_dir_literal"]
         if lock_dir is not None and lock_dir != "nix":

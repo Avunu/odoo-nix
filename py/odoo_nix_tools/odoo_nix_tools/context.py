@@ -12,6 +12,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from functools import cache
+from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -165,6 +166,50 @@ def ide_data() -> Mapping[str, Any]:
     return json.loads((DATA / "ide" / "vscode.json").read_text())
 
 
+def _merged(seed: Mapping[str, Any], managed: Mapping[str, Any]) -> dict[str, Any]:
+    """``seed`` under ``managed``, dict by dict (a ``set`` dict's sub-keys are leaves)."""
+    out = dict(seed)
+    for key, value in managed.items():
+        have = out.get(key)
+        out[key] = (
+            _merged(have, value)
+            if isinstance(have, Mapping) and isinstance(value, Mapping)
+            else value
+        )
+    return out
+
+
+def ide_specs(root: Path) -> dict[str, dict[str, Any]]:
+    """The ``ide`` module's jsonc-merge specs, by file (``settings``, ``extensions``).
+
+    A file the checkout does not have yet gets the dev shell's seed as well: sync makes
+    it before the shell is ever entered (``odoo-init --standards``), and the shell seeds
+    only a missing file (modules/devenv.nix), so the seed would never land. Once the
+    file exists its seed leaves are the checkout's: the next plan's spec, without them,
+    neither checks nor retracts them (DESIGN.md §14 O9-16)."""
+    data = ide_data()
+    managed = data["managed"]
+    settings = {
+        "set": managed["set"],
+        "forbidden": managed["forbidden"],
+        "never": managed["never"],
+    }
+    extensions = {"union": managed["union"]}
+    if not (root / ".vscode" / "settings.json").exists():
+        settings["set"] = _merged(data["seed"], managed["set"])
+    if not (root / ".vscode" / "extensions.json").exists():
+        extensions["union"] = {
+            key: {
+                **spec,
+                "ensure": list(
+                    dict.fromkeys([*data["seed_extensions"], *spec["ensure"]])
+                ),
+            }
+            for key, spec in managed["union"].items()
+        }
+    return {"settings": settings, "extensions": extensions}
+
+
 def template_globals(
     checkout: Checkout, resolved: Resolved, base_ctx: NS
 ) -> dict[str, Any]:
@@ -198,6 +243,7 @@ def template_globals(
         "website": series.website(cfg),
         "scopes": scopes(cfg, facts),
         "ide": ide_data(),
+        "ide_specs": ide_specs(Path(checkout.root)),
     }
 
 

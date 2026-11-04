@@ -29,7 +29,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE.parent), str(HERE.parent / "tests")]
 
-from support import LOCKS, fixture_files, product_for, run_cli
+from support import LOCKS, fixture_files, run_cli
 
 REPO = HERE.parent.parent.parent
 FIXTURES = ("standards-project", "standards-addons")
@@ -58,9 +58,7 @@ def relock(name: str, profile: str, work: Path) -> None:
     git(root, "init", "-q", "-b", "main")
     git(root, "add", "-A")
     git(root, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "fixture")
-    code, out, err = run_cli(
-        "sync", "--write", "--offline", cwd=root, product=product_for(name)
-    )
+    code, out, err = run_cli("sync", "--write", "--offline", cwd=root)
     if code not in (0, 1):
         raise SystemExit(f"{name} × {profile}: sync exited {code}\n{out}{err}")
     target = REPO / LOCKS / name / profile

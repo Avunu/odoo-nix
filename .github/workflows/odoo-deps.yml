@@ -19,6 +19,11 @@ name: odoo-deps
 # With the CI App (ci.github-app) the pushes, PRs and merges use its token, so they start
 # CI by themselves; without one, GITHUB_TOKEN, whose events start no workflow, and CI is
 # dispatched on the new head.
+#
+# odoo-nix is the odoo-nix-tools of the odoo-nix the integration branch's flake.lock pins
+# (python-devops-nix's standards-install, `uv tool install`), never the PR's; the verdict
+# and the branch updates are python-devops-nix's standards-deps-automerge and
+# standards-update-branches. Nix runs only the relock and `odoo project update`.
 
 on:
   workflow_call:
@@ -112,21 +117,24 @@ jobs:
           determinate: false
 
       # From the integration branch's flake.lock, never the PR's.
-      - name: odoo-nix from the odoo-nix the integration branch pins
+      - name: The integration branch's flake.lock
         env:
           GH_TOKEN: ${{ github.token }}
           INTEGRATION: ${{ inputs.integration-branch }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          lock="$(gh api "repos/$REPO/contents/flake.lock?ref=$INTEGRATION" --jq .content | base64 -d)"
-          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' <<<"$lock")"
-          case "$(jq -r .type <<<"$node")" in
-            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
-            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
-            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
-          esac
-          echo "$(nix build --no-link --print-out-paths "$ref#odoo-nix")/bin" >> "$GITHUB_PATH"
+          mkdir -p "$RUNNER_TEMP/base"
+          gh api "repos/$REPO/contents/flake.lock?ref=$INTEGRATION" --jq .content | base64 -d > "$RUNNER_TEMP/base/flake.lock"
+
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+          working-directory: ${{ runner.temp }}/base
 
       - id: inputs
         name: Does the PR move odoo-nix or the standards profile?
@@ -238,23 +246,15 @@ jobs:
           path: .base
           persist-credentials: false
 
-      - if: inputs.auto-merge && runner.environment == 'github-hosted'
-        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        with:
-          determinate: false
-
       - if: inputs.auto-merge
-        name: odoo-nix from the odoo-nix the integration branch pins
-        working-directory: .base
-        run: |
-          set -euo pipefail
-          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
-          case "$(jq -r .type <<<"$node")" in
-            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
-            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
-            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
-          esac
-          echo "$(nix build --no-link --print-out-paths "$ref#odoo-nix")/bin" >> "$GITHUB_PATH"
+        uses: Avunu/python-devops-nix/.github/actions/standards-install@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+          working-directory: .base
 
       - if: inputs.auto-merge
         name: Auto-merge, where required checks protect the integration branch
@@ -292,39 +292,40 @@ jobs:
             find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
           fi
 
-      - id: meta
-        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
-        with:
-          github-token: ${{ github.token }}
-
       # The integration branch, never the PR: its configuration says which gates are required.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.integration-branch }}
           persist-credentials: false
 
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        if: runner.environment == 'github-hosted'
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
         with:
-          determinate: false
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
 
+      # `$engine` in the decision table: the odoo-nix repository flake.lock locks.
       - id: engine
-        name: odoo-nix from the odoo-nix the integration branch pins
+        name: The odoo-nix repository the integration branch pins
+        run: echo "repo=$(jq -r '.nodes[.nodes.root.inputs["odoo-nix"]].locked | "\(.owner)/\(.repo)"' flake.lock)" >> "$GITHUB_OUTPUT"
+
+      # A nix PR in an addon repository went through relock-plan; in a project nothing
+      # relocks it here, so it has no relock state and its verdict leaves it to a person.
+      - id: relock
+        name: The relock plan's state
+        env:
+          STATE: ${{ needs.relock-plan.outputs.state }}
+          EMPTY: ${{ needs.relock-plan.outputs.empty }}
         run: |
           set -euo pipefail
-          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
-          case "$(jq -r .type <<<"$node")" in
-            github)
-              ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")"
-              repo="$(jq -r '"\(.owner)/\(.repo)"' <<<"$node")" ;;
-            git)
-              ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")"
-              # owner/name from a github.com URL; any other host leaves $engine out.
-              repo="$(jq -r '(.url | capture("^(https|ssh|git)://([^@/]+@)?github\\.com/(?<r>[^/]+/[^/]+?)(\\.git)?/?$") | .r) // ""' <<<"$node")" ;;
-            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
+          case "$STATE" in
+            "") relock="" ;;
+            rollout-input-moved) relock="rollout-input-moved" ;;
+            *) if [ "$EMPTY" = true ]; then relock="empty"; else relock="patch"; fi ;;
           esac
-          echo "$(nix build --no-link --print-out-paths "$ref#odoo-nix")/bin" >> "$GITHUB_PATH"
-          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "relock=$relock" >> "$GITHUB_OUTPUT"
 
       - id: app
         name: Whether the caller passes the CI App
@@ -341,39 +342,16 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      - name: The decision table
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          INTEGRATION: ${{ inputs.integration-branch }}
-          METHOD: ${{ inputs.merge-method }}
-          POLICY: ${{ inputs.auto-merge-policy }}
-          ENGINE_REPO: ${{ steps.engine.outputs.repo }}
-          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
-          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
-          GROUP: ${{ steps.meta.outputs.dependency-group }}
-          NAMES: ${{ steps.meta.outputs.dependency-names }}
-          DIRECTORY: ${{ steps.meta.outputs.directory }}
-          RELOCK_STATE: ${{ needs.relock-plan.outputs.state }}
-          RELOCK_EMPTY: ${{ needs.relock-plan.outputs.empty }}
-          MOVED: ${{ needs.relock-plan.outputs.moved }}
-        run: |
-          set -euo pipefail
-          args=(--pr-url "$PR_URL" --integration "$INTEGRATION" --merge-method "$METHOD" --policy "$POLICY"
-            --ecosystem "$ECOSYSTEM" --update-type "$UPDATE_TYPE" --dependency-group "$GROUP"
-            --dependency-names "$NAMES" --directory "$DIRECTORY" --engine-repo "$ENGINE_REPO")
-          # A nix PR in an addon repository went through relock-plan; in a project nothing
-          # relocks it here, so its relock verdict leaves it to a person.
-          if [ "$ECOSYSTEM" = nix ] && [ -n "$RELOCK_STATE" ]; then
-            if [ "$RELOCK_STATE" = rollout-input-moved ]; then
-              args+=(--relock rollout-input-moved --moved "$MOVED")
-            elif [ "$RELOCK_EMPTY" = true ]; then
-              args+=(--relock empty)
-            else
-              args+=(--relock patch)
-            fi
-          fi
-          odoo-nix ci automerge "${args[@]}"
+      - uses: Avunu/python-devops-nix/.github/actions/standards-deps-automerge@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+        with:
+          cli: odoo-nix
+          integration: ${{ inputs.integration-branch }}
+          merge-method: ${{ inputs.merge-method }}
+          policy: ${{ inputs.auto-merge-policy }}
+          engine-repo: ${{ steps.engine.outputs.repo }}
+          relock: ${{ steps.relock.outputs.relock }}
+          moved: ${{ needs.relock-plan.outputs.moved }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
   update-branches:
     if: inputs.update-branches && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -408,21 +386,13 @@ jobs:
           ref: ${{ inputs.integration-branch }}
           persist-credentials: false
 
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        if: runner.environment == 'github-hosted'
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
         with:
-          determinate: false
-
-      - name: odoo-nix from the odoo-nix the integration branch pins
-        run: |
-          set -euo pipefail
-          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
-          case "$(jq -r .type <<<"$node")" in
-            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
-            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
-            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
-          esac
-          echo "$(nix build --no-link --print-out-paths "$ref#odoo-nix")/bin" >> "$GITHUB_PATH"
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
 
       - id: app
         name: Whether the caller passes the CI App
@@ -452,19 +422,13 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      - name: Bring bot PRs that are behind up to date
-        env:
-          GH_TOKEN: ${{ steps.app-token-workflows.outputs.token || steps.app-token.outputs.token || github.token }}
-          APP: ${{ steps.app-token-workflows.outputs.token != '' || steps.app-token.outputs.token != '' }}
-          INTEGRATION: ${{ inputs.integration-branch }}
-        run: |
-          set -euo pipefail
-          args=(--repo "$GITHUB_REPOSITORY" --integration "$INTEGRATION")
-          if [ "$APP" != true ]; then
-            # A GITHUB_TOKEN update raises no event.
-            args+=(--dispatch-ci)
-          fi
-          odoo-nix ci update-branches "${args[@]}"
+      # A GITHUB_TOKEN update raises no event: then CI is dispatched on each new head.
+      - uses: Avunu/python-devops-nix/.github/actions/standards-update-branches@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+        with:
+          cli: odoo-nix
+          integration: ${{ inputs.integration-branch }}
+          token: ${{ steps.app-token-workflows.outputs.token || steps.app-token.outputs.token || github.token }}
+          dispatch-ci: ${{ steps.app-token-workflows.outputs.token == '' && steps.app-token.outputs.token == '' }}
 
   project-update:
     if: >-
@@ -593,16 +557,13 @@ jobs:
           gh workflow run pr-policy.yml --repo "$GITHUB_REPOSITORY" --ref standards/project-update
 
       - if: steps.update.outputs.changed == 'true' && inputs.auto-merge
-        name: odoo-nix from the odoo-nix flake.lock pins
-        run: |
-          set -euo pipefail
-          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
-          case "$(jq -r .type <<<"$node")" in
-            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
-            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
-            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
-          esac
-          echo "$(nix build --no-link --print-out-paths "$ref#odoo-nix")/bin" >> "$GITHUB_PATH"
+        uses: Avunu/python-devops-nix/.github/actions/standards-install@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
 
       - if: steps.update.outputs.changed == 'true' && inputs.auto-merge
         name: Auto-merge, where required checks protect the integration branch
