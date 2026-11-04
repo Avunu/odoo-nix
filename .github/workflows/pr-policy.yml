@@ -1,9 +1,11 @@
 name: pr-policy
 
-# odoo-nix's pr-policy check (lib/pr_policy.py; docs/reference/layout.md, "What CI runs"): the base is
-# main, and the title and every commit pass `committed` (committed.toml) and
-# refuse `!` and BREAKING CHANGE, because an odoo-nix major release is a
-# deliberate `Release-As: <N>.0.0` footer.
+# odoo-nix's pr-policy check (docs/reference/layout.md, "What CI runs"):
+# `odoo-nix policy --pr --major-free`, the standards core's policy with no version
+# scheme: the base is main, and the title and every commit pass `committed`
+# (committed.toml) and refuse `!` and BREAKING CHANGE, because an odoo-nix major
+# release is a deliberate `Release-As: <N>.0.0` footer. Dependabot's pull requests
+# skip committed's subject length only (their titles name SHA pins).
 #
 # Its own file, not a check.yml job, so a retitle (`edited`) re-runs this alone
 # and never rebuilds `flake`. release.yml dispatches it on the release pull
@@ -24,7 +26,7 @@ jobs:
   pr-policy:
     name: pr-policy
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
-    timeout-minutes: 5
+    timeout-minutes: 30
     permissions:
       contents: read # the checkout
       pull-requests: read # the PR's title and base (a dispatch looks the PR up)
@@ -34,19 +36,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        if: runner.environment == 'github-hosted'
+        with:
+          determinate: false
 
-      # committed's version is nixpkgs' (checks.pr-policy runs the same tests with it).
-      - name: Install committed
-        run: uv tool install --python 3.14 committed==1.1.11
+      # This tree's odoo-nix (packages.odoo-nix) and the engine's committed
+      # (packages.committed, nixpkgs'), the ones the standards' pr-policy runs.
+      - name: odoo-nix and committed
+        run: |
+          set -euo pipefail
+          for package in odoo-nix committed; do
+            echo "$(nix build --no-link --print-out-paths ".#$package")/bin" >> "$GITHUB_PATH"
+          done
 
-      - name: lib/pr_policy.py
+      - name: odoo-nix policy --pr --major-free
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           REF_NAME: ${{ github.ref_name }}
-        run: python3 -I lib/pr_policy.py --base-branch main
+        run: odoo-nix policy --pr --major-free --base-branch main

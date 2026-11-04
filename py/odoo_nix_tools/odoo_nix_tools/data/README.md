@@ -12,6 +12,7 @@ core's own data (`core.schema.json`) comes after these: a file here shadows it.
 | `ide/vscode.json` | the VS Code data: `seed`/`seed_extensions`, what the dev shell writes into a missing `.vscode/settings.json`/`extensions.json` (`modules/devenv.nix` reads this file), and `managed`, the `ide` module's jsonc-merge spec, which repeats no seeded leaf | `context.ide_data` (`templates/ide/*.json.j2`), `modules/devenv.nix` |
 | `schema/modules.schema.json` | every module's parameters and defaults, and the checkout-only keys (`shape`, `series`, `untested`) | the core's schema composition |
 | `schema/fleet-entry.schema.json` | one entry of a fleet file | `odoo-nix repo …` |
+| `schema/gate-report.schema.json` | the report `odoo-nix gate lint\|test` writes (`.odoo-nix/gate/<gate>.json`) | `commands/gate.py`, `tests/test_gate.py` |
 | `profiles/minimal.toml`, `profiles/recommended@<minor>.toml` | the built-in profiles; frozen once released | the core's profile resolution |
 | `manifest.d/<nn>-<area>.json` | the managed files: one entry per file (strategy, module, template, local regions), the retire rules | the core's manifest (`scaffold.manifest`) |
 | `templates/` | the managed files' templates; the generated bodies come from `context.Gen` (`.ruff.toml`, `.pylintrc*`, the pre-commit hooks and exclude, the eslint and prettier configs) | the core's renderer |

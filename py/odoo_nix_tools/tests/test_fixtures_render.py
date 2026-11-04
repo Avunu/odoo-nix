@@ -287,7 +287,13 @@ class ShippedFixtures(unittest.TestCase):
         for path in ("flake.nix", "flake.lock", "tools/uv.lock", "package-lock.json"):
             self.assertIn(path, files)
 
-    def test_conformance_render_part(self) -> None:
+    def test_table_turns_commits_on(self) -> None:
+        # The conformance CI part turns releases on, which needs commits (CR8 fallback).
+        self.assertEqual(PRODUCT.fixtures["project"].table, "commits.enable = true\n")
+
+    def test_conformance_render_and_ci_parts(self) -> None:
+        # The render part, then the CI part: under develop+series the fixture's ci.yml
+        # and pr-policy.yml run on push to the integration branch.
         saved = dict(os.environ)
         try:
             self.assertEqual(conformance.check(PRODUCT), [])

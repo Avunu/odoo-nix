@@ -29,11 +29,11 @@ manifest fragments) lives under `odoo_nix_tools/data/` and is read through
 | `sync` | core | write or check the managed files (`odoo-init --sync` runs it) |
 | `config`, `profile` | core | the resolved configuration; show, list and validate profiles |
 | `data-path`, `pin-path` | core | a packaged data file; a locked flake input's tree |
-| `policy`, `ci` | core | commit and pull-request policy; the CI and release steps (to come) |
+| `policy`, `ci` | core | commit and pull-request policy (with odoo-nix's rule: no version moved by hand under `develop+series`); the CI, Dependabot and release steps (`ci bump` raises each changed addon's `<series>.x.y.z`) |
 | `repo` | core | apply, audit, roll out and doctor a fleet of repositories (to come) |
-| `gate lint\|test` | odoo-nix | the lint and test gates CI runs (to come) |
-| `check manifests\|icons\|submodules` | odoo-nix | addon manifests, icons, submodule state (to come) |
-| `ratchet coverage` | odoo-nix | the coverage floor (to come) |
+| `gate lint\|test` | odoo-nix | the lint and test gates CI runs, step by step, with a JSON report (`.odoo-nix/gate/<gate>.json`) |
+| `check manifests\|icons\|submodules` | odoo-nix | what no hook checks: manifest website and series version, addon icons (`--fix` adds the org's), submodule branches |
+| `ratchet coverage` | odoo-nix | the coverage floor only rises (`--base`), and `--raise` lifts it to the measured total |
 
 `odoo-nix config shape`, `config series` and `profile show` read what discovery finds:
 the shape (`project` or `addons`), the Odoo series and the addons, from the tracked files
@@ -54,7 +54,8 @@ and `recommended` (`recommended@2.3`); `odoo-nix profile list` shows them.
 The tests are `unittest` suites under `tests/`; the Nix build runs them
 (`nix build .#checks.<system>.standards-unit`), and `standards-conformance` checks the
 product against the core's contract. Some suites read odoo-nix files outside the package
-(`tests/fixtures/standards-*`, `version.txt`, `lib/odoo-presets.json`): from the working
+(`tests/fixtures/standards-*`, `version.txt`, `committed.toml`, `lib/odoo-presets.json`,
+`lib/odoo_nix_cli/testrun.py`): from the working
 tree they are found two directories up, in the Nix build through `$ODOO_NIX_TOOLS_REPO`.
 By hand, from this directory, with the core on the path:
 

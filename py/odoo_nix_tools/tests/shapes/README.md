@@ -3,7 +3,7 @@ the suites that edit them. Refresh a copy with `git show <rev>:<path>` and say s
 
 | Directory | Files | From | Read by |
 | --- | --- | --- | --- |
-| `manifests/` | addon manifests | see `manifests/README.md` | `test_discover` |
+| `manifests/` | addon manifests | see `manifests/README.md` | `test_discover`, `test_release` |
 | `vscode/` | `ruckus-settings.json`, `ruckus-extensions.json` | `Walnook-LLC/odoo-ruckus` `master` `35bd79c` `.vscode/` | `test_ide_real` |
 | `vscode/` | `millrun-settings.json`, `millrun-extensions.json` | `Avunu/millrun` `main` `f7530da` `.vscode/` | `test_ide_real` |
 | `flakes/` | `ruckus.nix`, `millrun.nix` | the same commits' `flake.nix` | `test_flake_block` |
@@ -13,3 +13,6 @@ the suites that edit them. Refresh a copy with `git show <rev>:<path>` and say s
 
 The flakes are not linted (`flake.nix` `nixLintIgnore`): odoo-ruckus's and millrun's carry
 the unused `self` deadnix reports (DESIGN.md §8.3), which is part of what they test.
+
+The three icon shapes (`ok-128`, `wide-200x100`, `heavy-150k`) are not files: `support.ICONS`
+makes them (`support.png`), so no binary is kept for them.

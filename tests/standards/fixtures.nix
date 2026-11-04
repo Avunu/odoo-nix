@@ -271,8 +271,35 @@ let
           )
         '') (lib.attrNames shapes)
       );
+
+  # checks.workflows' part over the synced fixtures (DESIGN.md §7.3): each fixture
+  # synced under example-org (every module on, the CI App set), its .github under
+  # zizmor; then its callers pointed at this tree's reusable workflows (copied in), so
+  # actionlint checks every caller's inputs and secrets against the workflow it calls.
+  reusable = lib.fileset.toSource {
+    root = ../../.github/workflows;
+    fileset = lib.fileset.fileFilter (f: lib.hasPrefix "odoo-" f.name) ../../.github/workflows;
+  };
+  workflowsScript = lib.concatMapStrings (name: ''
+    (
+      ${fixture name}
+      w="$TMPDIR/workflows-${name}"
+      fixture example-org "$w"
+      (cd "$w" && ${shapes.${name}.cli} sync --write --offline)
+      cd "$w"
+      echo "== standards-${name}: zizmor over the synced .github"
+      zizmor --offline --no-progress --config .github/zizmor.yml .github/workflows
+      cp ${reusable}/odoo-*.yml .github/workflows/
+      chmod u+w .github/workflows/odoo-*.yml
+      sed -i -E 's#uses: [^ ]+/\.github/workflows/(odoo-[a-z-]+\.yml)@[^ ]+( \# .*)?$#uses: ./.github/workflows/\1#' .github/workflows/*.yml
+      refute grep -n 'uses: .*/odoo-nix/' .github/workflows/*.yml
+      echo "== standards-${name}: actionlint, the callers against odoo-nix's reusable workflows"
+      actionlint
+    )
+  '') (lib.attrNames shapes);
 in
 {
+  inherit workflowsScript;
   standards-fixtures-project = run "project";
   standards-fixtures-addons = run "addons";
   standards-prek-project = prek "project";

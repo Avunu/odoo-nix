@@ -30,8 +30,14 @@ DATA = PACKAGE / "odoo_nix_tools" / "data" / "fixtures"
 # name → its config file; the addons fixture ships once core CR1 lands (DESIGN.md §10).
 FIXTURES = {"project": "pyproject.toml"}
 LOCK_PROFILE = "example-org"
+# What each shipped fixture's table sets beside its profile. The conformance CI part
+# (core DESIGN.md §11.4) renders every fixture with `releases` and `ci` turned on, and
+# odoo-nix's `releases` needs `commits`, which no built-in profile turns on; until the
+# core turns on what `releases` needs too (DESIGN.md §10, CR8), the shipped fixture has
+# conventional commits on under every profile.
+TABLE = {"project": "commits.enable = true\n"}
 LOCKS = ("tools/uv.lock", "package-lock.json")
-TABLE = "[tool.odoo-nix]"
+TABLE_HEADER = "[tool.odoo-nix]"
 
 
 def _text(path: Path) -> str | None:
@@ -45,12 +51,12 @@ def without_table(text: str, rel: str) -> str:
     """``text`` up to its ``[tool.odoo-nix]`` table (the last one in the file), with
     the blank lines before it."""
     lines = text.splitlines(keepends=True)
-    at = next((i for i, line in enumerate(lines) if line.strip() == TABLE), None)
+    at = next((i for i, line in enumerate(lines) if line.strip() == TABLE_HEADER), None)
     if at is None:
-        raise SystemExit(f"{rel} has no {TABLE} table")
+        raise SystemExit(f"{rel} has no {TABLE_HEADER} table")
     rest = [line for line in lines[at + 1 :] if line.strip()]
     if any(line.lstrip().startswith("[") for line in rest):
-        raise SystemExit(f"{rel}: {TABLE} must be the file's last table")
+        raise SystemExit(f"{rel}: {TABLE_HEADER} must be the file's last table")
     return "".join(lines[:at]).rstrip("\n") + "\n"
 
 
@@ -79,7 +85,7 @@ def build(repo: Path, name: str) -> dict:
             f" tests/fixtures/standards-{name} and its {LOCK_PROFILE} locks; do not edit."
         ),
         "config_file": config,
-        "table": "",
+        "table": TABLE.get(name, ""),
         "files": dict(sorted(files.items())),
     }
 

@@ -10,7 +10,8 @@
 # built here does not satisfy py/odoo_nix_tools/pyproject.toml. The unittest
 # suites in py/odoo_nix_tools/tests run as the check phase, with the odoo-nix
 # files they read from outside the package (the standards fixtures,
-# version.txt, lib/odoo-presets.json) under $ODOO_NIX_TOOLS_REPO.
+# version.txt, committed.toml, lib/odoo-presets.json, `odoo test`'s
+# lib/odoo_nix_cli/testrun.py) under $ODOO_NIX_TOOLS_REPO.
 {
   lib,
   base,
@@ -20,6 +21,7 @@
   flit-core,
   unittestCheckHook,
   git,
+  committed,
   coreRev ? null,
 }:
 let
@@ -29,7 +31,9 @@ let
     root = ../..;
     fileset = lib.fileset.unions [
       ../../version.txt
+      ../../committed.toml
       ../odoo-presets.json
+      ../odoo_nix_cli/testrun.py
       ../../tests/fixtures/standards-project
       ../../tests/fixtures/standards-addons
       ../../tests/fixtures/standards-profiles
@@ -62,9 +66,12 @@ buildPythonPackage {
   build-system = [ flit-core ];
   dependencies = [ standardsCore ];
 
+  # committed: test_policy runs odoo-nix's own pr-policy (`policy --pr --major-free`)
+  # with committed.toml.
   nativeCheckInputs = [
     unittestCheckHook
     git
+    committed
   ];
   unittestFlags = [
     "-s"

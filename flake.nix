@@ -314,7 +314,7 @@
       #   ci-pins, dependabot, check-names, env-vars, command-flags
       #                                                       python-devops-nix's conformance checks (all systems)
       #   option-paths, config-blocks                         the same over the modules' options (Linux only)
-      #   pr-policy, workflows                                the PR policy script; actionlint and zizmor on .github (all systems)
+      #   workflows                                           actionlint and zizmor on .github and the synced standards fixtures' (all systems)
       #   standards-shell-eval-*                              the standards' dev-shell additions, opted in and not (Linux only)
       #   standards-unit, standards-version                   odoo-nix-tools' suites on python3 and python311; one version (all systems)
       #   standards-conformance                               odoo-nix-tools against the core's contract (all systems)
@@ -372,6 +372,14 @@
             in
             evalChecks "-${major}" s.eval // suffixed (s.all // lib.optionalAttrs isLinux s.linux)
           ) ocbInputs;
+          # The standards fixtures, synced (tests/standards/fixtures.nix).
+          standardsFixtures = import ./tests/standards/fixtures.nix {
+            inherit pkgs lib;
+            scriptCheck = scriptCheck pkgs;
+            odooNix = odooNixCli pkgs;
+            odooNixTools = odooNixTools pkgs pkgs.python3;
+            standardsShell = standardsShellFor pkgs;
+          };
         in
         evalChecks "" evalTests.pairs
         # The addons' JavaScript (lib/node.nix): discovery over a fixture
@@ -583,21 +591,6 @@
             product = "odoo-nix";
           };
 
-          # The pr-policy check (lib/pr_policy.py) against throwaway git
-          # repositories, through the real committed and committed.toml.
-          pr-policy =
-            scriptCheck pkgs "pr-policy"
-              {
-                tools = [
-                  pkgs.git
-                  pkgs.committed
-                ];
-              }
-              ''
-                export HOME="$TMPDIR" GIT_CONFIG_GLOBAL=/dev/null
-                ${pkgs.python3.interpreter} -I ${./tests/test_pr_policy.py} ${./lib/pr_policy.py} ${./committed.toml}
-              '';
-
           # odoo-nix-tools' unittest suites: the package's check phase on
           # python3, and again on python311, the core's floor.
           standards-unit = scriptCheck pkgs "standards-unit" { } ''
@@ -624,14 +617,7 @@
           # synced offline and checked (tests/standards/fixtures.nix).
           # The same synced under example-org with their tools linked: the managed
           # files under their own hooks, and prettier's form (DESIGN.md §7.3).
-          inherit
-            (import ./tests/standards/fixtures.nix {
-              inherit pkgs lib;
-              scriptCheck = scriptCheck pkgs;
-              odooNix = odooNixCli pkgs;
-              odooNixTools = odooNixTools pkgs pkgs.python3;
-              standardsShell = standardsShellFor pkgs;
-            })
+          inherit (standardsFixtures)
             standards-fixtures-project
             standards-fixtures-addons
             standards-prek-project
@@ -664,7 +650,10 @@
             };
 
           # The workflows: actionlint (with shellcheck over each `run:`) and
-          # zizmor offline, with .github/zizmor.yml (every `uses:` SHA-pinned).
+          # zizmor offline, with .github/zizmor.yml (every `uses:` SHA-pinned);
+          # then the same over both standards fixtures synced under example-org,
+          # their callers checked against the reusable workflows here
+          # (tests/standards/fixtures.nix).
           workflows =
             scriptCheck pkgs "workflows"
               {
@@ -673,17 +662,26 @@
                   actionlint
                   shellcheck
                   zizmor
+                  gnused
+                  gnugrep
+                  coreutils
                 ];
               }
               ''
-                export HOME="$TMPDIR" GIT_CONFIG_GLOBAL=/dev/null
+                export HOME="$TMPDIR" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+                export ODOO_NIX_ALLOW_SKEW=1 PYTHONDONTWRITEBYTECODE=1
+                export GIT_AUTHOR_NAME=fixtures GIT_AUTHOR_EMAIL=fixtures@example.org
+                export GIT_COMMITTER_NAME=fixtures GIT_COMMITTER_EMAIL=fixtures@example.org
                 mkdir repo
                 cp -r ${./.github} repo/.github
                 chmod -R u+w repo
-                cd repo
-                git init -q
-                actionlint
-                zizmor --offline --config .github/zizmor.yml .github/workflows
+                (
+                  cd repo
+                  git init -q
+                  actionlint
+                  zizmor --offline --config .github/zizmor.yml .github/workflows
+                )
+                ${standardsFixtures.workflowsScript}
               '';
 
           # The scaffolder, offline (odoo-nix-sources and uv stood in, git
@@ -1206,8 +1204,9 @@
         # command (the package behind a wrapper).
         odoo-nix-tools = odooNixTools pkgs pkgs.python3;
         odoo-nix = odooNixCli pkgs;
-        # The engine's committed, for the pr-policy workflow: installed from the
-        # locked engine, never by evaluating a project's flake (DESIGN.md §6.4).
+        # The engine's committed, for the pr-policy workflows (odoo-nix's own and
+        # odoo-pr-policy.yml): built from the locked engine, never by evaluating a
+        # project's flake (DESIGN.md §6.4).
         inherit (pkgs) committed;
         default = odoo-init;
       });

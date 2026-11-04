@@ -1,0 +1,159 @@
+name: odoo-release
+
+# The develop+series release flow of an addon repository (py/odoo_nix_tools/DESIGN.md §2.2,
+# §6.4; core DESIGN.md §8.2), reusable. After a merge to the integration branch:
+#
+# 1. `odoo-nix ci bump --base origin/<series> --push`: each addon whose code changed since
+#    the series branch gets its next `<series>.x.y.z` from the conventional commits that
+#    touch it, in one `chore(release): bump <addons>` commit pushed to the integration
+#    branch with the CI App's token (the integration ruleset lets the App bypass its
+#    pull-request rule);
+# 2. `odoo-nix ci fast-forward --release-branch <series> --wait-checks 900`: the series
+#    branch moves to that commit once its required checks are green (the push-triggered
+#    ci.yml and pr-policy.yml); still pending, the next trigger (the caller's
+#    `workflow_run` of ci) retries.
+#
+# The checkout is the integration branch's head, not github.sha: a run started by an
+# older merge would otherwise bump a stale tree. A push that still loses the race is not a
+# failure: the run of the new head bumps (core CR6). The caller runs one release at a time
+# (concurrency `release`, never cancelled).
+
+on:
+  workflow_call:
+    inputs:
+      integration-branch:
+        description: the checkout's integration branch
+        type: string
+        default: develop
+      release-branch:
+        description: the series branch .odoo-series names (18.0)
+        type: string
+        required: true
+      runs-on:
+        description: >-
+          The runner, as JSON: a label or a list of labels (`["self-hosted", "nixos"]`).
+        type: string
+        default: '["ubuntu-latest"]'
+      client-id:
+        description: "ci.github-app: the CI App's client ID (an Actions variable)"
+        type: string
+        default: ""
+    secrets:
+      APP_PRIVATE_KEY:
+        description: "ci.github-app: the CI App's private key (PEM)"
+        required: false
+
+permissions: {}
+
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  release:
+    name: release
+    # A failed ci run has nothing to release; the fix's own merge starts the next run.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 30
+    permissions:
+      contents: read # the checkout; every write uses the App's token
+    steps:
+      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
+      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
+      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
+      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
+      - if: runner.environment != 'github-hosted'
+        name: Clear what an earlier job left in the runner's temp dir and workspace
+        working-directory: ${{ runner.temp }}
+        run: |
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
+          if [ -d "$GITHUB_WORKSPACE" ]; then
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
+          fi
+
+      - name: The release flow needs the CI App
+        env:
+          ENABLED: ${{ inputs.client-id != '' && secrets.APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$ENABLED" != true ]; then
+            echo "::error::the develop+series release pushes the bump commit and moves the series branch with the CI App's token: set ci.github-app (\`odoo-nix repo doctor\` lists what the flow needs)"
+            exit 1
+          fi
+
+      # Contents write (the bump commit, the series branch) and Workflows write (a release
+      # that carries .github/workflows/ changes).
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.client-id }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.integration-branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        if: runner.environment == 'github-hosted'
+        with:
+          determinate: false
+
+      - name: odoo-nix from the odoo-nix flake.lock pins
+        run: |
+          set -euo pipefail
+          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
+          case "$(jq -r .type <<<"$node")" in
+            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
+            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
+            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
+          esac
+          echo "$(nix build --no-link --print-out-paths "$ref#odoo-nix")/bin" >> "$GITHUB_PATH"
+          echo "ODOO_NIX_EXPECT_REV=$(jq -r .rev <<<"$node")" >> "$GITHUB_ENV"
+
+      - name: The series branch is the checkout's series
+        env:
+          RELEASE: ${{ inputs.release-branch }}
+        run: |
+          set -euo pipefail
+          series="$(odoo-nix config series)"
+          if [ "$series" != "$RELEASE" ]; then
+            echo "::error::release-branch is $RELEASE, but the checkout's series is $series: run odoo-init --sync"
+            exit 1
+          fi
+
+      # The commit is the App's bot's; the push authenticates with its token through a
+      # header given to this step's git commands only (nothing is written to .git/config).
+      - id: bump
+        name: odoo-nix ci bump
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SLUG: ${{ steps.app-token.outputs.app-slug }}
+          RELEASE: ${{ inputs.release-branch }}
+          INTEGRATION: ${{ inputs.integration-branch }}
+        run: |
+          set -euo pipefail
+          id="$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)"
+          git config user.name "${SLUG}[bot]"
+          git config user.email "${id}+${SLUG}[bot]@users.noreply.github.com"
+          GIT_CONFIG_COUNT=1
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+          echo "::add-mask::$GIT_CONFIG_VALUE_0"
+          odoo-nix ci bump --base "origin/$RELEASE" --integration "$INTEGRATION" --push
+
+      - name: odoo-nix ci fast-forward
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          RELEASE: ${{ inputs.release-branch }}
+          INTEGRATION: ${{ inputs.integration-branch }}
+          SHA: ${{ steps.bump.outputs.sha }}
+        run: |
+          set -euo pipefail
+          odoo-nix ci fast-forward --repo "$REPO" --release-branch "$RELEASE" \
+            --integration "$INTEGRATION" --sha "${SHA:-$(git rev-parse HEAD)}" --wait-checks 900

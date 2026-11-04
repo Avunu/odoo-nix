@@ -1,0 +1,94 @@
+name: odoo-pr-policy
+
+# The `pr-policy` gate of a repository on odoo-nix's standards
+# (py/odoo_nix_tools/DESIGN.md §6.4), reusable: the caller's job is named `ci`, so the
+# check reads `ci / pr-policy`. `odoo-nix policy --pr` checks the pull request's base,
+# its title and every commit (committed, with the committed.toml sync renders), and
+# odoo-nix's own rules (a version moved by hand under develop+series).
+#
+# On a push to the integration branch the job is skipped, which a required check counts
+# as passed: the release's bump commit needs every required context green.
+#
+# odoo-nix and committed are the builds of the odoo-nix the checkout's flake.lock pins
+# (packages.odoo-nix, packages.committed): no install and no skew, and the checkout's own
+# flake (with its submodules) is never evaluated.
+
+on:
+  workflow_call:
+    inputs:
+      integration-branch:
+        description: the checkout's integration branch
+        type: string
+        default: develop
+      runs-on:
+        description: >-
+          The runner, as JSON: a label or a list of labels (`["self-hosted", "nixos"]`). A pull
+          request from a fork always runs on ubuntu-latest.
+        type: string
+        default: '["ubuntu-latest"]'
+
+permissions: {}
+
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  pr-policy:
+    name: pr-policy
+    if: github.event_name != 'push'
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(inputs.runs-on) }}
+    timeout-minutes: 15
+    permissions:
+      contents: read # the checkout
+      pull-requests: read # the PR's title and base, and the open PRs it may be stacked on
+    steps:
+      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
+      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
+      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
+      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
+      - if: runner.environment != 'github-hosted'
+        name: Clear what an earlier job left in the runner's temp dir and workspace
+        working-directory: ${{ runner.temp }}
+        run: |
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
+          if [ -d "$GITHUB_WORKSPACE" ]; then
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        if: runner.environment == 'github-hosted'
+        with:
+          determinate: false
+
+      - name: odoo-nix and committed from the odoo-nix flake.lock pins
+        run: |
+          set -euo pipefail
+          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
+          case "$(jq -r .type <<<"$node")" in
+            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
+            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
+            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
+          esac
+          for package in odoo-nix committed; do
+            echo "$(nix build --no-link --print-out-paths "$ref#$package")/bin" >> "$GITHUB_PATH"
+          done
+          echo "ODOO_NIX_EXPECT_REV=$(jq -r .rev <<<"$node")" >> "$GITHUB_ENV"
+
+      - name: odoo-nix policy --pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INTEGRATION: ${{ inputs.integration-branch }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          REF_NAME: ${{ github.ref_name }}
+        run: odoo-nix policy --pr

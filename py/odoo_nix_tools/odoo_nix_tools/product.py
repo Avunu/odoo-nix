@@ -1,14 +1,16 @@
 """odoo-nix's product: every value standards-core reads (core DESIGN.md §3).
 
-Stage O6 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields carry
+Stage O7 (DESIGN.md §9): identity, markers, engine, pins and the plain-data fields carry
 their final values; sync's phase hooks (``bootstrap``: the project's submodules, the
-handovers to the locked engine's ``odoo-init``); discovery (``discover``), the template context and the gates
-(``context``), the branching models (``release.BRANCHING``), the managed files'
-handlers (``groups``, ``checks``), preflight, notices and whole-repo checks
-(``checks``), the first-opt-in files and the fixtures (``fixtures``) are wired in; the
-sentinel blocks (``flake.nix`` inputs, ``.gitignore``, the README table) and the editor
-files (jsonc-merge) are the core's handlers over ``data/manifest.d``. Every other hook
-keeps the core's neutral default until its stage (DESIGN.md §14).
+handovers to the locked engine's ``odoo-init``); discovery (``discover``), the template
+context and the gates (``context``), the managed files' handlers (``groups``,
+``checks``), preflight, notices and whole-repo checks (``checks``), the first-opt-in files
+and the fixtures (``fixtures``); the release flow (``release``: the ``odoo-series``
+scheme, the manifest release tool, the branching models), the pull-request rules
+(``policy``) and the Dependabot decision table (``verdict``) are wired in; the sentinel
+blocks (``flake.nix`` inputs, ``.gitignore``, the README table) and the editor files
+(jsonc-merge) are the core's handlers over ``data/manifest.d``. The fleet hooks
+(``fleet``, stage O8) keep the core's neutral defaults (DESIGN.md §14).
 """
 
 from __future__ import annotations
@@ -40,7 +42,9 @@ from odoo_nix_tools import (
     discover,
     fixtures,
     groups,
+    policy,
     release,
+    verdict,
 )
 
 DATA = Path(str(files("odoo_nix_tools") / "data"))
@@ -160,9 +164,13 @@ PRODUCT = Product(
         preflight=checks.preflight,
         notices=checks.notices,
         checks=checks.checks,
+        # tools/.bin/committed when the dev shell linked it, else PATH's (DESIGN.md §5.2).
+        committed_argv=policy.committed_argv,
         new_target_table=discover.new_target_table,
         # YAML/JSON whole files compare as data: prettier owns their layout.
         semantic_compare=lambda ctx: True,
+        # A version moved by hand in a pull request under develop+series.
+        pr_checks=policy.pr_checks,
         write_fixture=fixtures.write,
         # config_file=discover.config_file: CR1 (DESIGN.md §10), with
         # Identity.config_paths, in the commit that pins a core with it.
@@ -200,6 +208,7 @@ PRODUCT = Product(
                 ),
             }
         ),
+        decision_table=verdict.DECISION_TABLE,
         ci_workflow="ci.yml",
         nightly_workflow="",
     ),
@@ -242,8 +251,10 @@ PRODUCT = Product(
             "node-npm-lock": checks.NodeLock(),
         }
     ),
+    version_schemes=MappingProxyType({"odoo-series": release.OdooSeries()}),
     # "develop+series" first (the default), then "trunk".
     branching=release.BRANCHING,
+    release_tool=release.ManifestTool(),
     first_opt_in=checks.FIRST_OPT_IN,
     fixtures=fixtures.FIXTURES,
     fleet_key="repos",

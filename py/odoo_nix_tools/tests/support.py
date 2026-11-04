@@ -9,15 +9,20 @@ A suite that needs them skips when neither has them.
 from __future__ import annotations
 
 import os
+import random
 import shutil
+import struct
 import tempfile
 import unittest
+import zlib
 from collections.abc import Mapping
 from dataclasses import fields, replace
 from pathlib import Path
 
 from odoo_nix_tools import cli, discover
+from odoo_nix_tools.commands import EXTRA
 from odoo_nix_tools.product import PRODUCT
+from standards_core import cli as core_cli
 from standards_core.product import Hooks, Product
 from standards_core.testing import fakes
 
@@ -134,10 +139,47 @@ def run_cli(
     *argv: str, cwd: Path | None = None, product: Product = PRODUCT
 ) -> tuple[int, str, str]:
     """``odoo-nix <argv>`` in-process: (exit code, stdout, stderr). ``product`` other
-    than ``PRODUCT`` (the CR1 stand-in) runs the core's CLI with it."""
+    than ``PRODUCT`` (the CR1 stand-in) runs the core's CLI with it and odoo-nix's own
+    commands."""
     if product is not PRODUCT:
-        return fakes.run_cli(product, *argv, cwd=cwd)
+        return fakes.run_cli(
+            product,
+            *argv,
+            cwd=cwd,
+            main=lambda args: core_cli.main(product, args, extra_commands=EXTRA),
+        )
     return fakes.run_cli(PRODUCT, *argv, cwd=cwd, main=cli.main)
+
+
+def png(width: int, height: int, *, noise: bool = False) -> bytes:
+    """A valid RGB PNG of ``width`` × ``height``: flat grey, or (``noise``) random pixels
+    that do not compress, so its size is about ``3 × width × height`` bytes. The three
+    icon shapes of DESIGN.md §1.1 (``ok-128``, ``wide-200x100``, ``heavy-150k``) are made
+    with it rather than kept as binary files."""
+    rows = bytearray()
+    rand = random.Random(0)
+    for _ in range(height):
+        rows.append(0)
+        rows += rand.randbytes(3 * width) if noise else b"\x80" * (3 * width)
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(bytes(rows), 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+ICONS = {
+    "ok-128": lambda: png(128, 128),
+    "wide-200x100": lambda: png(200, 100),
+    "heavy-150k": lambda: png(224, 224, noise=True),
+}
 
 
 def git(root: Path, *args: str) -> str:
