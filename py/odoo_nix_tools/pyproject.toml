@@ -4,7 +4,7 @@
 #   uv tool install "odoo-nix-tools @ git+https://github.com/Avunu/odoo-nix@<rev>#subdirectory=py/odoo_nix_tools"
 # Every file read at run time lives under odoo_nix_tools/data/.
 [build-system]
-requires = ["flit_core >=3.4,<4"]
+requires = ["flit_core>=3.4,<5"]
 build-backend = "flit_core.buildapi"
 
 [project]
