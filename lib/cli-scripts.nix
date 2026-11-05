@@ -47,6 +47,17 @@
   # odoo-nix-node (lib/node.nix): what `odoo module build` runs. null in a
   # stand-in configuration that has no addons' JavaScript to build.
   nodeBin ? null,
+  # A repository of addons (modules/devenv.nix `addons`): where pyproject.toml
+  # and uv.lock are, and the rendered pyproject.toml its first relock writes
+  # there. "." and null for a project.
+  lockDir ? ".",
+  pyprojectTemplate ? null,
+  # The install set: "modules.txt", or "local" (every installable addon of
+  # layout.customDir: addons mode).
+  installSet ? "modules.txt",
+  # externalSources, [ { name; src; } ]: linked under layout.externalDir before
+  # a lock, as shell entry links them.
+  externalSources ? [ ],
 }:
 
 {
@@ -67,6 +78,11 @@
       buildDeps = lib.getExe buildDeps;
       coreSource = if coreSource == null then null else toString coreSource;
       node = nodeBin;
+      inherit lockDir installSet;
+      externalSources = lib.listToAttrs (
+        map (e: lib.nameValuePair e.name (toString e.src)) externalSources
+      );
+      pyprojectTemplate = if pyprojectTemplate == null then null else toString pyprojectTemplate;
     }
   );
 }

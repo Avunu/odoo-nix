@@ -55,6 +55,7 @@ data/
   oca-repos.txt              # the OCA repositories the catalog is built from
   sync-oca-repos.sh, extract_manifests.py  # refresh the catalog
 templates/project/           # what a new project is laid down from
+templates/addons/            # a repository of addons (addons mode): flake.nix, .envrc, .gitignore, nix/pyproject.toml
 tests/                       # the flake checks, their scripts and fixtures
 docs/                        # these pages
 ```
@@ -70,7 +71,8 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 
 | Checks | What they cover |
 | --- | --- |
-| `addons-*`, `odoo-ini-*`, `odoo-ini-render` | `lib/addons.nix` on synthetic trees and `lib/odoo-ini.nix`'s rendering. |
+| `addons-*`, `odoo-ini-*`, `odoo-ini-render` | `lib/addons.nix` on synthetic trees, `externalSources` and the duplicate-module error included, and `lib/odoo-ini.nix`'s rendering. |
+| `addons-mode-*` | Addons mode over `tests/fixtures/addons-repo` with `tests/fixtures/external-gamma` as its external source: the layout, `addons_path`, the shell's environment, and that its environments and `nix run .#relock` evaluate. |
 | `node-*`, `node-built` | The addons' JavaScript (`lib/node.nix`) over `tests/fixtures/node-project`: which addons are targets, workspace members and builds, what is refused, and an offline npm, yarn and pnpm-workspace build laid into the assembled tree. |
 | `fixture-requires-python-<18\|19\|20>`, `built-odoo-addons-path-<18\|19\|20>`, `built-odoo-version-<18\|19\|20>`, `lock-audit-<18\|19\|20>`, `lock-fresh-<18\|19\|20>`, `build-deps-<18\|19\|20>` | Per series, without running Odoo: the fixture's `requires-python`, `builtOdoo`'s passthru, the fixture lock against the pinned OCB, the managed build-dependency block. |
 | `lock-audit-*` | The stale-lock audit. |
@@ -93,6 +95,8 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 Everything that runs Odoo or a VM is Linux-only. `nix develop` gives a shell for working on odoo-nix itself, with `uv`, `nixfmt-rs` and `odoo-nix-relock-fixtures`; `nix fmt` formats the Nix files.
 
 The fixtures are the smallest project-shaped workspace: a hand-written `pyproject.toml`, a committed `uv.lock` and one custom addon, with no `odoo/` in the tree. The build gets OCB from the `ocb-*` input through `coreSource`, and the tests run in `odooTestEnv`, so they run in the sandbox.
+
+`tests/fixtures/addons-repo` is a repository of addons instead, with its uv project in `nix/`. Its lock is only read at evaluation, never built, so it does not follow the `ocb-18` pin. To regenerate it, wrap the fixture in a flake with `addons.enable` and `gamma` as an external source, as `tests/addons-mode-eval.nix` does, and run that flake's `nix run .#relock`.
 
 ## What CI runs
 

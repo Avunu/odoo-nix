@@ -3,7 +3,7 @@ title: Dev shell options
 description: Every perSystem.odoo-nix option that configures the development shell, the production packages and the container image, with types and defaults.
 order: 1
 tags: [reference, options, devenv]
-updated: 2026-10-29
+updated: 2026-11-02
 ---
 
 All of these are under `perSystem.odoo-nix`. Secrets are declared at the top level instead: see [Secrets options](secrets-options.md). Options renamed or removed are listed in [Upgrading odoo-nix](../development/upgrading.md).
@@ -16,6 +16,10 @@ All of these are under `perSystem.odoo-nix`. Secrets are declared at the top lev
 | `name` | string | required | The project's identity, a slug: names its environments, packages and container image, seeds the port offset, and is devenv's own `name` by default. |
 | `workspaceRoot` | path | required | The project root, where `pyproject.toml`, `odoo.conf` and the layout directories live. Usually `./.`. |
 | `coreSource` | null or path | `null` | OCB from outside the workspace, typically a `flake = false` input, instead of the `odoo/` submodule. See [A repository of modules](../scaffolding/write-the-flake.md#a-repository-of-modules). |
+| `externalSources` | list of `{ name; src; exclude ? [ ]; }` | `[ ]` | Module repositories as flake inputs instead of submodules: addons roots after the ones on disk, linked by the shell as `<layout.externalDir>/<name>`. Their packaged modules are built as wheels, never editable. A module installable in two roots is an evaluation error; `exclude` drops modules from an entry. See [A repository of addons](../scaffolding/addons-repository.md). |
+| `addons.enable` | bool | `false` | Addons mode: the repository is a library of addons. The layout becomes `.odoo-nix/odoo`, `.odoo-nix/modules` and `.`, the uv project is generated into `addons.lockDir`, the install set is every installable addon at the root, and the submodule commands refuse. Needs `coreSource`. |
+| `addons.lockDir` | string | `"nix"` | Where addons mode's generated `pyproject.toml` and `uv.lock` live. |
+| `addons.runtimeDir` | string | `".odoo-nix"` | The gitignored directory addons mode links OCB and the external sources into. |
 | `odooSeries` | string | `"18.0"` | The Odoo series: the OCB and OCA branch and the catalog filter. It does not pick a nixpkgs package. |
 | `python` | package | the series' preset: `python311` for 18.0, `python312` for 19.0, `python314` for 20.0 | The interpreter. Match the series' `requires-python`. |
 | `nodejs` | package | the series' preset: `nodejs_22` for 18.0, `nodejs_24` for 19.0 and 20.0 | Node.js: for rtlcss, and for the addons' JavaScript builds and installs. |

@@ -85,8 +85,28 @@ def db_create(ctx, db_name, demo, lang):
 
 def _read_modules_file(path: Path) -> list[str]:
     if not path.is_file():
-        return []
+        return _local_addons()
     return [line.strip() for line in path.read_text().splitlines() if line.strip()]
+
+
+def _local_addons() -> list[str]:
+    """A repository of addons (addons mode) has no modules.txt: its install set
+    is every installable addon in the directory $ODOO_NIX_LOCAL_ADDONS names
+    (relative to the root), sorted. Empty outside addons mode."""
+    rel = os.environ.get("ODOO_NIX_LOCAL_ADDONS")
+    if not rel:
+        return []
+    import ast
+
+    found = []
+    for manifest in sorted((odooenv.repo_root() / rel).glob("*/__manifest__.py")):
+        try:
+            data = ast.literal_eval(manifest.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, ValueError):
+            continue
+        if isinstance(data, dict) and data.get("installable", True) is not False:
+            found.append(manifest.parent.name)
+    return found
 
 
 @db_group.command("provision")
@@ -104,7 +124,8 @@ def db_provision(ctx, db_name, modules_file, no_backup):
     """Create + install modules.txt (new database), or migrate it (existing).
 
     Idempotent: the first run creates the database and installs every module
-    listed in modules.txt; every run after that upgrades it instead of
+    listed in modules.txt (in a repository of addons with none: every
+    installable addon in it); every run after that upgrades it instead of
     reinstalling -- the same distinction `bench new-site`/`migrate` draw.
     """
     odoo_config = _load(ctx)

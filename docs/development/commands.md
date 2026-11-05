@@ -3,7 +3,7 @@ title: The odoo command
 description: The odoo command that the dev shell, services.odoo-nix and the container share, its database, module and project subcommands, and how everything else passes through to odoo-bin.
 order: 1
 tags: [cli, database, backup]
-updated: 2026-10-29
+updated: 2026-11-02
 ---
 
 The dev shell, `services.odoo-nix` and the container image share one `odoo` command. `db`, `module`, `project`, `shell` and `test` are odoo-nix's own subcommands. `ui` opens the dev shell's [menu](menu.md), and so does a bare `odoo` typed at a terminal there. Anything else, `server` (the default with no subcommand anywhere else), `scaffold`, `populate`, `cloc`, `deploy`, `neutralize` and the rest, passes straight through to the real `odoo-bin`, so nothing from Odoo is lost. A source tree without `odoo-bin`, as an Enterprise tree can be, runs Odoo the way `python -m odoo` does, with the same interpreter.
@@ -16,7 +16,7 @@ The dev shell, `services.odoo-nix` and the container image share one `odoo` comm
 | --- | --- |
 | `odoo db list` | List the databases, with version compatibility. |
 | `odoo db create <DB> [--demo] [--lang <LANG>]` | Create an empty database, with no modules installed. |
-| `odoo db provision [DB] [--modules-file <FILE>] [--no-backup]` | Create the database and install `base` and everything in `modules.txt`, or migrate it when it already has an Odoo schema. Idempotent. |
+| `odoo db provision [DB] [--modules-file <FILE>] [--no-backup]` | Create the database and install `base` and everything in `modules.txt` (in [addons mode](../scaffolding/addons-repository.md), with no `modules.txt`: every installable addon of the repository), or migrate it when it already has an Odoo schema. Idempotent. |
 | `odoo db upgrade <M[,M2]> [DB \| --all]` | Update the named modules (`-u`), with live progress and a per-module summary. |
 | `odoo db migrate [DB \| --all] [...]` | Update the modules whose code or version changed. Run it after pulling new code. See [Migrations](migrations.md). |
 | `odoo db duplicate <SRC> <DEST> [--neutralize]` | Copy a database, schema and filestore. |

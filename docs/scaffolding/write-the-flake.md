@@ -3,7 +3,7 @@ title: Write the flake by hand
 description: The shape of an odoo-nix project flake and its layout, the options you will change most often, and the variant for a repository of modules that takes OCB as a flake input.
 order: 3
 tags: [flake, flake-parts, configuration]
-updated: 2026-10-23
+updated: 2026-11-02
 ---
 
 ## The project layout
@@ -109,4 +109,6 @@ With `coreSource` set:
 - The Python environment builds the `odoo` wheel from the store path.
 - `addons_path`, in the dev `odoo.conf`, in `builtOdoo` and in the checks, carries the two core roots as absolute store paths, and `builtOdoo` links the tree instead of copying it.
 
-Bump OCB with `nix flake update ocb`; `odoo project update` only pulls git submodules. Consumers can mount a repository laid out this way straight from its default branch.
+Bump OCB with `nix flake update ocb`; `odoo project update` only pulls git submodules.
+
+This shape still takes the module repositories it depends on as submodules under `modules/`, and a `modules.txt`. [Addons mode](addons-repository.md) takes them as flake inputs too, generates the uv project into `nix/`, and installs every addon in the repository. Consumers can mount a repository laid out this way straight from its default branch.

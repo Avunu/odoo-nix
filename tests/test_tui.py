@@ -11,10 +11,12 @@ with the TUI's interpreter (lib.tui.command's passthru.python). The checks'
 
 import asyncio
 import json
+import os
 import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 if len(sys.argv) < 3:
@@ -164,6 +166,10 @@ class DispatchTest(unittest.TestCase):
         store = ["--only", "store"]
         self.assertEqual(tui_argv([], tty=True, menu=True), [])
         self.assertEqual(tui_argv(["module", "add"], tty=True, menu=True), store)
+        # A repository of addons (addons mode) has no store to add from.
+        with unittest.mock.patch.dict(os.environ, {"ODOO_NIX_LOCAL_ADDONS": "."}):
+            self.assertIsNone(tui_argv(["module", "add"], tty=True, menu=True))
+            self.assertEqual(tui_argv([], tty=True, menu=True), [])
         self.assertEqual(tui_argv(["module", "add-bundle"], tty=True, menu=True), store)
 
     def test_not_the_tuis(self):
