@@ -1,6 +1,6 @@
 ---
 title: Repository standards
-description: odoo-nix's standards tools, odoo-nix-tools: one table in your config file picks a profile, and `odoo-nix sync` writes and checks the lint, test, editor and CI files of a project or an addon repository.
+description: odoo-nix's standards tools (odoo-nix-tools). One table in your config file picks a profile, and `odoo-nix sync` writes and checks the lint, test, editor and CI files of a project or an addon repository.
 nav_title: Standards
 order: 7
 tags: [standards, odoo-nix-tools, profiles, sync]
