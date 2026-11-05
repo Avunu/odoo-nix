@@ -733,10 +733,13 @@ in
                 content is identical across machines and checkout locations.
 
                 VS Code's `Odoo.odoo` extension bundles its own copy of this
-                server and never reads this one -- see `vscodeSettings`,
-                which is all VS Code gets from this option (a
-                `Odoo.serverConfigPath` setting pointing at the generated
-                `odools.toml`, plus an extension recommendation). This
+                server and never reads this one. Its server finds the
+                generated `./odools.toml` by walking up from the workspace
+                folder, so all VS Code gets from this option is an extension
+                recommendation (see `vscodeSettings`). Never set
+                `Odoo.serverConfigPath` to a `''${workspaceFolder}` path: the
+                extension passes it to the server unexpanded, and the server
+                then loads no configuration and indexes nothing. This
                 option's binary is for every other editor's LSP client and
                 for `odoo_ls_server` from the CLI.
 
@@ -1518,30 +1521,26 @@ in
         # modules alike.
         pythonpathRoot = "$DEVENV_STATE/pythonpath";
 
+        # No `Odoo.serverConfigPath` here: the Odoo.odoo extension hands it to
+        # its bundled server unexpanded, so "${workspaceFolder}/odools.toml"
+        # names no file and the server indexes nothing. Left unset, the
+        # server finds ./odools.toml by walking up from the workspace folder.
         vscodeSettingsFile = pkgs.writeText "odoo-nix-vscode-settings.json" (
-          builtins.toJSON (
-            {
-              "python.defaultInterpreterPath" = "\${workspaceFolder}/.venv/bin/python";
-              "python.analysis.extraPaths" = [ ".devenv/state/pythonpath" ];
-              # The mirror re-exports ~2k module directories; keep the watcher
-              # and the search index off it (VS Code excludes neither by
-              # default, though Pylance already skips dot-directories).
-              "files.watcherExclude" = {
-                "**/.devenv/**" = true;
-                "**/.direnv/**" = true;
-              };
-              "search.exclude" = {
-                "**/.devenv/**" = true;
-                "**/.direnv/**" = true;
-              };
-            }
-            # VS Code's own Odoo.odoo extension bundles its own odoo_ls_server
-            # binary and never reads cfg.ide.languageServer.package -- this
-            # setting is the one thing it *does* pick up from this module.
-            // lib.optionalAttrs (cfg.ide.enable && cfg.ide.languageServer.enable) {
-              "Odoo.serverConfigPath" = "\${workspaceFolder}/odools.toml";
-            }
-          )
+          builtins.toJSON {
+            "python.defaultInterpreterPath" = "\${workspaceFolder}/.venv/bin/python";
+            "python.analysis.extraPaths" = [ ".devenv/state/pythonpath" ];
+            # The mirror re-exports ~2k module directories; keep the watcher
+            # and the search index off it (VS Code excludes neither by
+            # default, though Pylance already skips dot-directories).
+            "files.watcherExclude" = {
+              "**/.devenv/**" = true;
+              "**/.direnv/**" = true;
+            };
+            "search.exclude" = {
+              "**/.devenv/**" = true;
+              "**/.direnv/**" = true;
+            };
+          }
         );
 
         # Recommends the Odoo.odoo VS Code extension (the odoo-ls client) --
@@ -1624,10 +1623,17 @@ in
         # workspace root resolves relative paths against the workspace root
         # itself -- exactly like odoo.conf's relative addons_path, and safe
         # for both auto-discovery (walking up from a workspace folder) and
-        # an explicit --config-path/Odoo.serverConfigPath. The profile is
-        # always named "default": odoo-ls falls back to that name whenever a
-        # client never answers its Odoo-specific `workspace/configuration`
-        # request, which covers every non-VS-Code client.
+        # an explicit --config-path. The profile is always named "default":
+        # odoo-ls falls back to that name whenever a client never answers its
+        # Odoo-specific `workspace/configuration` request, which covers every
+        # non-VS-Code client.
+        #
+        # OCB and the external (OCA) trees sit inside the workspace folder,
+        # and odoo-ls publishes diagnostics for every file in it: without the
+        # filter, Problems fills with upstream findings nobody here can fix. A
+        # filter with only `paths` drops every diagnostic on those files.
+        # Servers before 1.5 do not expand `''${workspaceFolder}` in filters,
+        # so there the pattern matches nothing and changes nothing.
         odoolsTomlFile = pkgs.writeText "odoo-nix-odools.toml" ''
           [[config]]
           name = "default"
@@ -1635,6 +1641,12 @@ in
           python_path = "./.venv/bin/python3"
           addons_paths = [
           ${lib.concatMapStringsSep ",\n" (p: "  \"${p}\"") addons.addonsPathList}
+          ]
+
+          [[config.diagnostic_filters]]
+          paths = [
+            "''${workspaceFolder}/${cfg.layout.coreSrc}/**",
+            "''${workspaceFolder}/${cfg.layout.externalDir}/**",
           ]
         '';
 
