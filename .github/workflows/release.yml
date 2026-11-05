@@ -7,6 +7,14 @@ name: release
 #                   release-please-config.json). `fix:` is a patch, `feat:` a
 #                   minor; a major is only a `Release-As: <N>.0.0` footer
 #                   (pr-policy refuses `!` and BREAKING CHANGE).
+#   fixtures        the release PR moves odoo-nix-tools' version, which the dev lock
+#                   (py/odoo_nix_tools/uv.lock) records for its editable root, and a
+#                   major moves the standards fixtures' odoo-nix URL (flake.nix and
+#                   flake.lock's original) to release-<major>: this re-renders them,
+#                   and the fixture data the package ships, on the release PR's
+#                   branch, so every commit on main, the release's included, keeps
+#                   `uv lock --check`, gen_fixture_data.py --check and the fixtures'
+#                   syncs green (py/odoo_nix_tools/DESIGN.md §9 O9).
 #   dispatch-ci     a GITHUB_TOKEN push raises no event, so this dispatches
 #                   check.yml (`lint`, `flake`) and pr-policy.yml (`pr-policy`) on
 #                   the release pull request's branch, each only while its check
@@ -60,8 +68,92 @@ jobs:
           echo "::error::release-please failed. If the log says GitHub Actions is not permitted to create pull requests, allow it under Settings > Actions > General > Workflow permissions."
           exit 1
 
-  dispatch-ci:
+  fixtures:
     needs: release-please
+    if: needs.release-please.result == 'success'
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
+    timeout-minutes: 15
+    permissions:
+      contents: write # push the re-rendered fixtures to the release PR branch
+      pull-requests: read # the open release PR
+    steps:
+      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
+      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
+      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
+      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
+      - if: runner.environment != 'github-hosted'
+        name: Clear what an earlier job left in the runner's temp dir and workspace
+        working-directory: ${{ runner.temp }}
+        run: |
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
+          if [ -d "$GITHUB_WORKSPACE" ]; then
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
+          fi
+
+      - id: pr
+        name: Find the open release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          head=$(gh pr list -R "$REPO" --state open --json headRefName \
+            -q '[.[] | select(.headRefName | startswith("release-please--branches--main"))][0].headRefName // ""')
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+
+      - if: steps.pr.outputs.head != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.pr.outputs.head }}
+          persist-credentials: false
+
+      - if: steps.pr.outputs.head != '' && runner.environment == 'github-hosted'
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          determinate: false
+
+      # uv and Python from this flake's nixpkgs: the uv that wrote the lock.
+      - if: steps.pr.outputs.head != ''
+        name: Re-render the standards fixtures for the release PR's version
+        run: |
+          set -euo pipefail
+          major="$(cut -d. -f1 version.txt)"
+          for flake in tests/fixtures/standards-*/flake.nix; do
+            sed -E -i "s#github:Avunu/odoo-nix/release-[0-9]+#github:Avunu/odoo-nix/release-$major#" "$flake"
+          done
+          for lock in tests/fixtures/standards-*/flake.lock; do
+            jq --indent 2 --arg ref "release-$major" \
+              'if .nodes["odoo-nix"].original.ref? then .nodes["odoo-nix"].original.ref = $ref else . end' \
+              "$lock" > "$lock.new"
+            mv "$lock.new" "$lock"
+          done
+          nix shell --inputs-from . nixpkgs#uv nixpkgs#python3 -c bash -euo pipefail -c '
+            python3 py/odoo_nix_tools/scripts/gen_fixture_data.py
+            UV_PYTHON_DOWNLOADS=never uv lock --project py/odoo_nix_tools
+          '
+          git add -A
+          git diff --cached --stat
+
+      - if: steps.pr.outputs.head != ''
+        name: Commit and push to the release PR branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ steps.pr.outputs.head }}
+        run: |
+          set -euo pipefail
+          if git diff --cached --quiet; then
+            echo "the standards fixtures are already rendered for $(cat version.txt)"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "test: render the standards fixtures for v$(cat version.txt)"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:$HEAD_REF"
+
+  dispatch-ci:
+    # After fixtures, whose push (GITHUB_TOKEN) raises no event either: the dispatch then
+    # lands on the release PR's new head.
+    needs: [release-please, fixtures]
     if: always() && needs.release-please.result == 'success'
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     timeout-minutes: 10

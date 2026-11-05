@@ -1,0 +1,11 @@
+# Every `uses:` is hash-pinned with a version comment. Dependabot moves third-party pins;
+# `odoo-init --sync` moves {{ odoo_nix.owner }}/{{ odoo_nix.name }}'s.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin
+  # Every Dependabot entry waits at least dependabot.cooldown-days.
+  dependabot-cooldown:
+    config:
+      days: {{ cfg.dependabot["cooldown-days"] }}

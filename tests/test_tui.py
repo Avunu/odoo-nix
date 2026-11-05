@@ -148,6 +148,15 @@ class TuiTest(unittest.TestCase):
             self.assertIn(path, paths)
         shell = next(c for c in own.walk() if c.path == ("shell",))
         self.assertTrue(shell.interactive)
+        # `odoo test`'s form: MODULES optional (--all), the run's options.
+        test = next(c for c in own.walk() if c.path == ("test",))
+        self.assertFalse(test.raw)
+        params = {p.name: p for p in test.params}
+        for name in ("all_", "fresh_db", "keep_db", "rcfile", "log_path"):
+            self.assertEqual(params[name].kind, "option", name)
+        self.assertTrue(params["all_"].flag)
+        self.assertFalse(params["modules"].required)
+        self.assertFalse(params["database"].required)
         server = next(c for c in odoo_bin.walk() if c.path == ("server",))
         self.assertTrue(server.raw and server.interactive)
 

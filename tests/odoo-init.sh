@@ -6,12 +6,14 @@
 # install set handed to uv, its refusals and their exit codes, and what it
 # prints at the end.
 #
-#   bash tests/odoo-init.sh <odoo-init's script (lib/init.nix passthru.script)>
+#   bash tests/odoo-init.sh <odoo-init's script (lib/init.nix passthru.script)> \
+#     <tests/fixtures holding standards-project, standards-addons and standards-locks>
 #
 # Prompts (a terminal on stdin and stdout) are not reached here: every run has
 # stdin from /dev/null.
 set -euo pipefail
 script=$1
+fixtures=$2
 
 T=$PWD
 stubs=$T/stubs
@@ -110,7 +112,8 @@ init help --help
 expect_rc 0
 check "--help prints the usage" has '^Usage: odoo-init \[options\] \[target-dir\]' out
 check "--help names --bundles and --modules" eval 'has --bundles out && has --modules out'
-for flag in --version --init --migrate --force --dry-run '-y, --yes' --skip-lock --commit; do
+for flag in --version --init --migrate --addons --force --dry-run '-y, --yes' --skip-lock --commit \
+  --sync --check --standards --profile-path --offline --only --format --expect-rev; do
   check "--help names $flag" hasF "$flag" out
 done
 check "--help does not name the old --series" refute hasF --series out
@@ -485,6 +488,138 @@ check "repair with --modules: only the new repo is cloned" eval \
 check "repair with --modules: modules.txt gains it" eval \
   '[ "$(cat modules.txt)" = "$(printf "account_tax_balance\nnot_a_module\npartner_firstname")" ]'
 cd "$T"
+
+# ── addons mode (--addons) ───────────────────────────────────────────────────
+# A repository of addons at develop's shape: addon folders at the root, nothing else.
+addons_repo() {
+  mkdir -p fixture_a
+  echo '{"name": "A", "version": "18.0.1.0.0", "license": "LGPL-3"}' > fixture_a/__manifest__.py
+  printf '*.log\n' > .gitignore
+  git init -q .
+  printf 'out\nerr\n' >> .git/info/exclude
+  git add -A
+  git commit -q -m "our addons"
+}
+
+prep addons-dry-run
+addons_repo
+run --addons --dry-run
+expect_rc 0
+check "--addons --dry-run: the series, from the manifests" hasF '(detected from the addon manifests)' out
+check "--addons --dry-run: the files it would write" eval 'hasF flake.nix out && hasF nix/pyproject.toml out && hasF .odoo-series out'
+check "--addons --dry-run: nothing is changed" eval '[ -z "$(git status --porcelain)" ]'
+
+prep addons
+addons_repo
+run --addons --skip-lock
+expect_rc 0
+check "--addons: flake.nix in addons mode" has '^\s*addons\.enable = true;$' flake.nix
+check "--addons: flake.nix follows the release branch" has '^\s*odoo-nix\.url = "github:Avunu/odoo-nix/release-[0-9]+";$' flake.nix
+check "--addons: OCB on the series" hasF 'url = "github:OCA/OCB/18.0";' flake.nix
+check "--addons: named after the directory" has '^\s*name = "addons";$' flake.nix
+check "--addons: .odoo-series" eval '[ "$(cat .odoo-series)" = 18.0 ]'
+check "--addons: nix/pyproject.toml with both blocks" eval \
+  'hasF "# >>> odoo-nix: install set" nix/pyproject.toml && hasF "# >>> odoo-nix: module sources" nix/pyproject.toml'
+check "--addons: no placeholder is left" refute grep -rqE '@[A-Z_]+@' flake.nix nix/pyproject.toml
+check "--addons: .gitignore keeps its patterns" has '^\*\.log$' .gitignore
+check "--addons: .gitignore gains odoo-nix's" has '^/\.odoo-nix/$' .gitignore
+check "--addons: what it wrote is staged" eval \
+  '[ "$(git diff --cached --name-only | sort | tr "\n" " ")" = ".envrc .gitignore .odoo-series flake.nix nix/pyproject.toml " ]'
+check "--addons: --skip-lock locks nothing" hasF 'skipping the relock' out
+check "--addons: it says so" hasF "is in addons mode" out
+
+prep addons-foreign-flake
+addons_repo
+echo '{ outputs = _: { }; }' > flake.nix
+run --addons --skip-lock
+expect_rc 4
+check "--addons: a flake.nix that is not odoo-nix's" hasF "flake.nix is not odoo-nix's" err
+run --addons --skip-lock --force
+expect_rc 0
+check "--addons --force keeps flake.nix" eval '[ "$(cat flake.nix)" = "{ outputs = _: { }; }" ]'
+check "--addons --force writes odoo-nix's beside it" has '^\s*addons\.enable = true;$' flake.nix.odoo-nix
+
+prep addons-project
+addons_repo
+echo '{ outputs = { odoo-nix, ... }: odoo-nix.lib.mkFlake { } { }; }' > flake.nix
+run --addons --skip-lock
+expect_rc 6
+check "--addons in an odoo-nix project is refused" hasF 'is an odoo-nix project, not a repository of addons' err
+
+# ── the standards (odoo-nix sync) ────────────────────────────────────────────
+# A fixture lock pins a fake odoo-nix rev: no skew row can match it (DESIGN.md §7.1).
+export ODOO_NIX_ALLOW_SKEW=1
+
+init sync-and-check --sync --check
+expect_rc 1
+check "--sync with --check is a usage error" hasF '--sync and --check cannot be combined' err
+
+prep standards-not-opted-in
+git init -q .
+run --check
+expect_rc 2
+check "--check where nothing opted in: the core's exit 2 and hint" hasF 'has not opted in' err
+
+# The project fixture, opted in under recommended, with that profile's locks.
+standards_project() {
+  cp -r "$fixtures/standards-project/." .
+  cp -r "$fixtures/standards-locks/standards-project/recommended/." .
+  chmod -R u+w .
+  git init -q .
+  printf 'out\nerr\n' >> .git/info/exclude
+  git add -A
+  git commit -q -m fixture
+}
+
+prep standards-sync
+standards_project
+run --sync --offline
+expect_rc 0
+check "--sync --offline writes the managed files" test -f .pre-commit-config.yaml
+check "--sync stages what it wrote" eval 'git diff --cached --name-only | grep -qx .pre-commit-config.yaml'
+git commit -q -m synced
+run --check
+expect_rc 0
+check "--check after --sync is clean" eval '[ ! -s err ] || ! grep -q drift err'
+echo "# hand edit" >> .editorconfig
+run --check --format json
+expect_rc 1
+check "--check --format json reports the drift" hasF '.editorconfig' out
+run --sync --offline --only .editorconfig
+expect_rc 0
+check "--only rewrites the file named" refute hasF '# hand edit' .editorconfig
+
+prep standards-opt-in
+standards_project
+python3 - <<'PY'
+from pathlib import Path
+p = Path("pyproject.toml")
+text = p.read_text()
+p.write_text(text[: text.index("\n[tool.odoo-nix]")] + "\n")
+PY
+git commit -qam "not opted in"
+run --standards minimal --offline --dry-run
+expect_rc 0
+check "--standards --dry-run writes nothing" eval '[ -z "$(git status --porcelain -- pyproject.toml)" ]'
+run --standards minimal --offline
+expect_rc 0
+check "--standards creates the table" has '^\[tool\.odoo-nix\]$' pyproject.toml
+check "--standards names the profile" has '^profile = "minimal"$' pyproject.toml
+
+# --addons --standards: the scaffold first, then the sync in the same run (§5.5).
+prep addons-standards
+addons_repo
+run --addons --skip-lock --offline --standards recommended
+check "--addons --standards: the scaffold ran first" eval 'test -f flake.nix && test -f nix/pyproject.toml && test -f .odoo-series'
+check "--addons --standards: the scaffold is staged for the sync" eval 'git ls-files --error-unmatch flake.nix nix/pyproject.toml >/dev/null'
+# An addon repository keeps [tool.odoo-nix] in nix/pyproject.toml (core CR1,
+# DESIGN.md §2.3): the sync creates the table there.
+expect_rc 0
+check "--addons --standards: the table is in nix/pyproject.toml" has '^\[tool\.odoo-nix\]$' nix/pyproject.toml
+check "--addons --standards: the table names the profile" has '^profile = "recommended"$' nix/pyproject.toml
+check "--addons --standards: the sync wrote the managed files" test -f .pre-commit-config.yaml
+check "--addons --standards: no root pyproject.toml is created" test ! -e pyproject.toml
+unset ODOO_NIX_ALLOW_SKEW
 
 check "no staging directory is left behind" eval '[ -z "$(ls -A "$T/tmp")" ]'
 

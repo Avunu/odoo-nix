@@ -1,0 +1,36 @@
+{% import "github/workflows/_uses.j2" as w with context %}
+# The quality gates (odoo-nix docs: standards/ci.md): one caller job per gate, each named
+# `ci`, so the checks read `ci / lint` and `ci / test`. odoo-nix's reusable workflows move
+# only with the locked odoo-nix (`odoo-init --sync`).
+name: ci
+on:
+  push:
+    branches: [{{ branches.integration | json_string }}]
+  pull_request:
+{% if cfg.ci.schedules.get("ci") %}
+  schedule:
+    - cron: {{ cfg.ci.schedules.ci | json_string }}
+{% endif %}
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: {% raw %}ci-${{ github.event.pull_request.number || github.ref }}{% endraw %}
+
+  cancel-in-progress: {% raw %}${{ github.event_name == 'pull_request' }}{% endraw %}
+
+jobs:
+{% for gate in gates if gate != "pr-policy" %}
+  {{ gate }}:
+    name: ci
+    permissions:
+      contents: read
+    uses: {{ w.uses("odoo-" ~ gate ~ ".yml") }}
+    with:
+      integration-branch: {{ branches.integration | json_string }}
+      runs-on: {{ cfg.ci["runs-on"] | yaml_json }}
+{% if gate == "test" %}
+      test-timeout-minutes: {{ cfg.ci["test-timeout-minutes"] }}
+{{ w.app_with() }}{% endif %}
+{% if gate == "test" %}
+{{ w.app_secrets() }}{% endif %}
+{% endfor %}

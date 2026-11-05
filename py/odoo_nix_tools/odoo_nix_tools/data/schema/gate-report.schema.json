@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Avunu/odoo-nix/py/odoo_nix_tools/gate-report.schema.json",
+  "title": "odoo-nix gate report",
+  "description": "What `odoo-nix gate lint|test` writes to --report (default .odoo-nix/gate/<gate>.json): every step, run or skipped, in order (DESIGN.md §6.1).",
+  "type": "object",
+  "required": ["schema", "gate", "status", "exit", "odoo_nix", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": 1 },
+    "gate": { "enum": ["lint", "test"] },
+    "status": {
+      "description": "passed: every step passed or was skipped; failed: a step failed (exit 1); invalid: the configuration (exit 2); error: the environment (exit 3).",
+      "enum": ["passed", "failed", "invalid", "error"]
+    },
+    "exit": { "enum": [0, 1, 2, 3] },
+    "odoo_nix": {
+      "type": "object",
+      "required": ["version"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "type": "string" },
+        "expect_rev": { "type": "string" }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "modules", "status", "reason", "seconds"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "modules": {
+            "description": "Any of these modules on runs the step; [] for a step every checkout runs.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "status": { "enum": ["passed", "failed", "skipped"] },
+          "reason": { "type": "string" },
+          "seconds": { "type": "number", "minimum": 0 },
+          "command": {
+            "description": "The command lines the step ran, in order.",
+            "type": "array",
+            "items": { "type": "array", "items": { "type": "string" } }
+          },
+          "exit": {
+            "description": "The exit code that failed the step (2 and 3 make the gate's).",
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "web-theme-carbon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "description": "Build-time codegen for the web_theme_carbon Odoo module. Not needed at runtime: Odoo serves the committed output in static/.",
+  "devDependencies": {
+    "@carbon/layout": "11.58.0",
+    "@carbon/motion": "11.51.0",
+    "@carbon/styles": "1.114.0",
+    "@carbon/themes": "11.80.0",
+    "@ibm/plex-mono": "^2.5.0",
+    "@ibm/plex-sans": "^1.1.0",
+    "sass": "1.104.0"
+  },
+  "scripts": {
+    "codegen": "node tools/gen-carbon-tokens.mjs && node tools/gen-fonts.mjs",
+    "check": "node tools/gen-carbon-tokens.mjs --check && node tools/gen-fonts.mjs --check && node tools/audit.mjs --strict",
+    "audit": "node tools/audit.mjs",
+    "build": "npm run codegen && node tools/audit.mjs"
+  }
+}

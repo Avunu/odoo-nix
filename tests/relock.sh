@@ -72,7 +72,8 @@ check "the lock is rewritten" hasF 'locked' uv.lock
 check "odoo/ is made, a link to OCB, as shell entry would" eval '[ "$(readlink odoo)" = "$ocb" ]'
 check "it says it is done" hasF '✅ Re-locked' "$T/out"
 
-# From elsewhere: the project root is $REPO_ROOT, else the working directory.
+# From elsewhere: the project root is $REPO_ROOT when the working directory is
+# in it, else the working directory.
 mkdir -p custom/sub
 cd custom/sub
 run
@@ -83,6 +84,15 @@ REPO_ROOT=$T/shop run
 expect_rc 0
 check "\$REPO_ROOT is the root" hasF 'build-deps update pyproject.toml uv.lock' "$CALLS"
 cd "$T/shop"
+
+# Another project's $REPO_ROOT, which a terminal carries from that project's
+# dev shell: not an ancestor of the working directory, so not the root.
+mkdir -p "$T/other"
+touch "$T/other/pyproject.toml"
+REPO_ROOT=$T/other run
+expect_rc 0
+check "another project's \$REPO_ROOT is not the root" hasF 'build-deps update pyproject.toml uv.lock' "$CALLS"
+check "...and that project is untouched" eval '[ "$(ls -A "$T/other")" = pyproject.toml ]'
 
 UV_FAIL=1 run
 expect_rc 3

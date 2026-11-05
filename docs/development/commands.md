@@ -50,7 +50,10 @@ After any of them, run `direnv reload` so Nix derives `addons_path` again and re
 | `odoo project backup [--format zip\|dump] [--path <DIR>] [--keep-days <N>]` | Back up every database matching `dbfilter`. With `--path`, each one goes into its own `<DIR>/<DB>/`. |
 | `odoo project restore [--restore <DB> <PATH> …] [...]` | Restore several database and file pairs in one batch, or, with no `--restore`, the project database (`dbName`) from the remote store. |
 | `odoo shell [DB]` | Odoo's Python REPL, without workers or HTTP, so it runs next to a live server. |
-| `odoo test <M[,M2]> [DB]` | Run modules' tests. It refuses to run when browser tours would be skipped, because Odoo reports a skipped tour like a pass: it needs the `websocket-client` package and a headless browser (`testBrowser`). `ODOO_NIX_TEST_ALLOW_SKIP=1` runs anyway. |
+| `odoo test <M[,M2]> [DB]` | Run modules' tests: update them (`-u`) on `DB`, the configured database by default, and exit with Odoo's exit code. It refuses to run when browser tours would be skipped, because Odoo reports a skipped tour like a pass: it needs the `websocket-client` package and a headless browser (`testBrowser`). `ODOO_NIX_TEST_ALLOW_SKIP=1` runs anyway. |
+| `odoo test --all [DB]` | The same for every installable addon of the repository (`custom/`, or the addons directory in addons mode), except the ones `[[tool.odoo-nix.untested]]` lists in `pyproject.toml` (`nix/pyproject.toml` in addons mode). |
+| `odoo test … --fresh-db [--keep-db]` | Install the addons (`-i`, with demo data) into a new database, `odoo_nix_test_<pid>`, and drop it afterwards unless `--keep-db`. |
+| `odoo test … --coverage <RCFILE> [--log <PATH>]` | Measure the run with coverage.py and that rcfile, such as `tools/pyproject.toml`. The data goes to `$COVERAGE_FILE` (a relative path is taken from the repository root), by default `.odoo-nix/coverage/.coverage` plus a suffix per process; a former run's data there is deleted first. `--log` also writes Odoo's output to a file, for `checklog-odoo`. |
 
 ## Progress
 

@@ -1,0 +1,62 @@
+{
+  "nodes": {
+    "oca-queue": {
+      "locked": {
+        "type": "github",
+        "owner": "oca",
+        "repo": "queue",
+        "rev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "narHash": "sha256-x"
+      },
+      "original": {
+        "type": "github",
+        "owner": "oca",
+        "repo": "queue",
+        "ref": "18.0"
+      }
+    },
+    "ocb": {
+      "locked": {
+        "type": "github",
+        "owner": "oca",
+        "repo": "ocb",
+        "rev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "narHash": "sha256-x"
+      },
+      "original": {
+        "type": "github",
+        "owner": "oca",
+        "repo": "ocb",
+        "ref": "18.0"
+      }
+    },
+    "odoo-nix": {
+      "locked": {
+        "type": "github",
+        "owner": "avunu",
+        "repo": "odoo-nix",
+        "rev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "narHash": "sha256-x"
+      },
+      "original": {
+        "type": "github",
+        "owner": "avunu",
+        "repo": "odoo-nix",
+        "ref": "release-2"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": [
+          "odoo-nix",
+          "nixpkgs"
+        ],
+        "oca-queue": "oca-queue",
+        "ocb": "ocb",
+        "odoo-nix": "odoo-nix"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

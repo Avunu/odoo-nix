@@ -1,0 +1,6 @@
+# OCA's ruff settings for Odoo {{ series }} with python-lint's parameters
+# ([tool.odoo-nix.python-lint] extra-select, ignore, per-file-ignores, extend-exclude).
+{{ gen.ruff_toml() }}
+# A local region after [lint.mccabe] opens with a table header of its own.
+# odoo-nix:local-begin ruff
+# odoo-nix:local-end ruff

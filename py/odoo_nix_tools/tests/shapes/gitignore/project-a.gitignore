@@ -1,0 +1,16 @@
+# odoo-nix project
+
+# Store symlinks recreated on shell entry. No trailing slash: git records a
+# symlink as a file, so a "dir/" pattern would not match them.
+/odoo.conf
+/odools.toml
+/.venv
+
+/.devenv/
+/.direnv/
+/.odoo-nix-backup/
+__pycache__/
+*.pyc
+.ruff_cache
+odoo.log
+docs/.obsidian

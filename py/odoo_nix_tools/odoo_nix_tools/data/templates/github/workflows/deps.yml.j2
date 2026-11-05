@@ -1,0 +1,48 @@
+{% import "github/workflows/_uses.j2" as w with context %}
+{% set d = cfg.dependabot %}
+{% set policy = d["auto-merge-policy"] if d["auto-merge"] else "decision-table" %}
+{% set update = cfg.ci["project-update"] if shape == "project" else "" %}
+# Dependency pull requests (odoo-nix docs: standards/ci.md):
+{% if shape == "addons" %}
+# a Dependabot flake bump is relocked (`nix run .#relock`), then merged or left by the
+# decision table.
+{% else %}
+# Dependabot's are merged or left by the decision table; `odoo project update` moves the
+# submodules to their branches' tips in a pull request of its own.
+{% endif %}
+name: deps
+on:
+  pull_request:
+{% if d["update-branches"] %}
+  # Bring the bot pull requests that are behind up to date.
+  push:
+    branches: [{{ branches.integration | json_string }}]
+{% endif %}
+{% if update %}
+  schedule:
+    # odoo project update: each submodule to its branch's tip, then the relock.
+    - cron: {{ update | json_string }}
+{% endif %}
+  workflow_dispatch:
+permissions: {}
+jobs:
+  deps:
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+      checks: read
+    uses: {{ w.uses("odoo-deps.yml") }}
+    with:
+      shape: {{ shape }}
+      integration-branch: {{ branches.integration | json_string }}
+      runs-on: {{ cfg.ci["runs-on"] | yaml_json }}
+      auto-merge: {{ "true" if d["auto-merge"] else "false" }}
+{% if policy != "decision-table" %}
+      auto-merge-policy: {{ policy }}
+{% endif %}
+{% if d["update-branches"] %}
+      update-branches: true
+{% endif %}
+      merge-method: {{ cfg["repo-policy"]["merge-methods"][0] }}
+{{ w.app_with() }}{{ w.app_secrets() -}}

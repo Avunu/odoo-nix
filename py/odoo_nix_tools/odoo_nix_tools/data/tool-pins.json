@@ -1,0 +1,10 @@
+{
+  "$comment": "odoo-nix's own tool pins: the tools OCA's template installs without a pin (manifestoo, checklog-odoo, manifestoo-core) and the ones odoo-nix adds (prek, coverage). series.effective fills every null-version tool of data/series/<series>.json from here (deviation odoo-nix-pins). A specifier, as written into tools/pyproject.toml.",
+  "tools": {
+    "prek": "==0.5.7",
+    "coverage": "==7.16.2",
+    "checklog-odoo": "==1.0",
+    "manifestoo": "==1.2",
+    "manifestoo-core": ">=1.16.1"
+  }
+}

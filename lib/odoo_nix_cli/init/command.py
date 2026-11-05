@@ -8,14 +8,19 @@ is not odoo-nix's; 5 the Odoo series (missing, unknown, undetectable or without
 a preset); 6 the directory is not the shape the mode needs, or the
 confirmation was declined; 7 custom/ or modules/ with no module and no OCB,
 so nothing to migrate; 8 a tree inside another git repository. A failing step
-(git, odoo-nix-sources) exits with its own status. odoo-nix has no --sync or
---check, so frappe-nix's 3 is not used.
+(git, odoo-nix-sources) exits with its own status.
+
+A standards run (--sync, --check, --standards, --profile-path) is odoo-nix-tools'
+``odoo-nix sync`` (py/odoo_nix_tools/DESIGN.md §5.5) and exits with the shared
+table's codes: 0 clean, 1 drift, 2 configuration, 3 environment. With --addons or
+--migrate the scaffold runs to completion first, its own codes on failure.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 from odoo_nix_cli.init import ui
 from odoo_nix_cli.init.args import USAGE, UsageError, parse_args
@@ -86,6 +91,21 @@ def dispatch(st: Run) -> None:
 
     a = st.args
 
+    if a.addons:
+        from odoo_nix_cli.init.addons import cmd_addons
+
+        target = a.target or "."
+        try:
+            Path(target).mkdir(parents=True, exist_ok=True)
+            os.chdir(target)
+        except OSError as e:
+            ui.die(f"cannot enter {target}: {e.strerror}")
+        st.mode = "addons"
+        st.target = "."
+        st.cd = "" if a.target in ("", ".") else a.target
+        cmd_addons(st)
+        return
+
     # No target: the current directory when it is an Odoo tree or an odoo-nix
     # project, or when --migrate forces it (decide_mode then says what is
     # wrong with it); otherwise a new project, which asks where.
@@ -120,6 +140,23 @@ def dispatch(st: Run) -> None:
         cmd_migrate(st)
 
 
+def standards(st: Run) -> int:
+    """A standards run: the scaffold first when --addons or --migrate asks for one,
+    then ``odoo-nix sync`` in the checkout, in this process."""
+    a = st.args
+    if a.addons or a.mode == "migrate":
+        dispatch(st)
+    elif a.target:
+        try:
+            os.chdir(a.target)
+        except OSError as e:
+            ui.die(f"cannot enter {a.target}: {e.strerror}")
+    from odoo_nix_tools.cli import main as standards_main
+
+    sys.stdout.flush()
+    return standards_main(a.sync_argv())
+
+
 def main(argv: list[str] | None = None) -> int:
     for var in GIT_ENV:
         os.environ.pop(var, None)
@@ -140,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
             raise ui.Die(str(e)) from None
         os.environ.pop("ODOO_NIX_INIT_CONFIG", None)
         st = Run(args=args, config=config, presets=presets, version=args.version)
+        if args.standards_mode:
+            return standards(st)
         dispatch(st)
     except ui.Die as e:
         ui.error_line(str(e))

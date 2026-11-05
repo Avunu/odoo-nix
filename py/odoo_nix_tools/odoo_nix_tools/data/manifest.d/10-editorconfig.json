@@ -1,0 +1,14 @@
+{
+  "$comment": "editorconfig (DESIGN.md §3.1): OCA's .editorconfig for the series, plus 2-space Nix and shell.",
+  "entries": [
+    {
+      "path": ".editorconfig",
+      "template": "editorconfig.j2",
+      "strategy": "whole",
+      "module": "editorconfig",
+      "header": "ini",
+      "local_regions": ["editorconfig"],
+      "overridable": true
+    }
+  ]
+}

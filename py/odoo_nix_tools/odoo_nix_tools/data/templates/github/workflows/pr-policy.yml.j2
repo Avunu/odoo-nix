@@ -1,0 +1,26 @@
+{% import "github/workflows/_uses.j2" as w with context %}
+# `ci / pr-policy` (odoo-nix docs: standards/ci.md): the pull request's base, title and
+# commits. Its own file, so a retitle reruns only this check; on a push to the integration
+# branch the reusable workflow skips it (green), as the release's bump commit needs.
+name: pr-policy
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [{{ branches.integration | json_string }}]
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: {% raw %}pr-policy-${{ github.event.pull_request.number || github.ref }}{% endraw %}
+
+  cancel-in-progress: true
+jobs:
+  pr-policy:
+    name: ci
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: {{ w.uses("odoo-pr-policy.yml") }}
+    with:
+      integration-branch: {{ branches.integration | json_string }}
+      runs-on: {{ cfg.ci["runs-on"] | yaml_json }}

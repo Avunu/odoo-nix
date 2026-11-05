@@ -3,7 +3,7 @@ title: Repository layout
 description: Where things live in the odoo-nix repository, the flake checks and what CI runs, how the pinned test fixtures, odoo-ls lock and OCA catalog are refreshed, and how these pages are checked.
 order: 5
 tags: [contributing, layout, checks, ci]
-updated: 2026-10-29
+updated: 2026-11-04
 ---
 
 ## Layout
@@ -48,7 +48,6 @@ lib/
   shell-tools.nix            # odoo-nix-sources, -bootstrap, -db-nocow, -banner
   bootstrap.sh               # odoo-nix-bootstrap
   bootstrap-lock.nix         # the odoo-nix a project's flake.lock pins, read without evaluating it
-  pr_policy.py               # the pr-policy check
 data/
   oca-modules.json           # the vendored OCA catalog
   oca-bundles.json           # the hand-maintained bundles
@@ -89,7 +88,9 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | `db-nocow` | The btrfs NOCOW handling (Linux). |
 | `secrets-*`, `restore-*`, `settings-*`, `rename-*`, `identity-*`, `ports-*`, `mailpit-*`, `watch-*`, `ci-mode`, `tree`, `python-default-*`, `container-name*` | The flake-parts module's options, evaluated. |
 | `service-*`, `nginx`, `service-<18\|19\|20>` | `services.odoo-nix`, evaluated, and in NixOS VMs (KVM) with a stub and with the real Odoo: migrations on deploy, rollback leaving Odoo down, nginx, X-Sendfile, the journal, hardening. |
-| `nix-lint`, `shared-config`, `pr-policy`, `workflows` | `nixfmt-rs`, statix and deadnix; the shared editor and lint configuration; the pull-request policy; actionlint and zizmor. |
+| `nix-lint`, `shared-config`, `workflows` | `nixfmt-rs`, statix and deadnix; the shared editor and lint configuration; actionlint and zizmor, over `.github` and over the standards fixtures' synced callers, checked against the reusable `odoo-*.yml` workflows. |
+| `standards-unit`, `standards-version`, `standards-conformance`, `standards-core-pins`, `bump-base` | odoo-nix-tools' suites on python3 and python311; one version in `version.txt`, its `pyproject.toml` and `__version__`; the package against standards-core's contract; the three pins of python-devops-nix (`flake.lock`, the `standards-core` URL, `.github/**`) naming one commit; `nix run .#bump-base`'s rewrite of those pins, offline, with a made-up commit. |
+| `standards-fixtures-{project,addons}`, `standards-prek-{project,addons}`, `standards-prettier-stable`, `standards-shell-eval-*`, `templates-nix-lint` | The standards fixtures synced offline under every profile; their managed files under their own locked hooks and prettier; the standards' dev-shell additions, opted in and not; odoo-init's flake templates under the Nix linters. |
 | `ci-pins`, `dependabot`, `check-names`, `env-vars`, `command-flags`, `option-paths`, `config-blocks` | python-devops-nix's conformance checks (its `lib.checks.conventions`, docs/conventions.md, Tests): pinned actions, the Dependabot shape, check names, `ODOO_NIX_*` variables, the shared flags of `odoo db restore` and `odoo-init`, the options the conventions name and the `settings` blocks. The last two read the modules' options, on Linux. |
 
 Everything that runs Odoo or a VM is Linux-only. `nix develop` gives a shell for working on odoo-nix itself, with `uv`, `nixfmt-rs` and `odoo-nix-relock-fixtures`; `nix fmt` formats the Nix files.
@@ -100,7 +101,7 @@ The fixtures are the smallest project-shaped workspace: a hand-written `pyprojec
 
 ## What CI runs
 
-The `check` workflow runs two jobs on every pull request and every push to `main`. `lint` runs every hook in `.pre-commit-config.yaml` over the whole tree with [prek](https://prek.j178.dev), with no Nix involved: the same command a developer's commit runs, so a hook that would rewrite a file fails the job. `flake` runs `nix flake check -L` and builds the scaffolder (`nix build .#default`). When a job fails, `report` comments every job's result on the pull request, with each failed check and the end of its build log, and edits that comment once the checks pass. `autofix` runs `nix fmt` and the hooks over a pull request's branch and pushes what they rewrite as a `style:` commit, then dispatches `check` and `pr-policy` on it, because a push made with the workflow's token starts no workflow: pull before you push again. A fork's branch is not the workflow's to push to, so there the `lint` log has the diff. `pr-policy` checks that the title and every commit are [conventional commits](https://www.conventionalcommits.org/) under `committed.toml`'s types and scopes, and refuses `!` and `BREAKING CHANGE`: a major release is a deliberate `Release-As: <N>.0.0` footer. Dependabot's pull requests skip only the 100-character subject limit. `release` runs release-please and moves the `release-N` branch. Dependabot's pull requests merge automatically once the required checks pass, except action updates and the OCB pins, which a person reviews.
+The `check` workflow runs three jobs on every pull request and every push to `main`. `lint` runs every hook in `.pre-commit-config.yaml` over the whole tree with [prek](https://prek.j178.dev), with no Nix involved: the same command a developer's commit runs, so a hook that would rewrite a file fails the job. `flake` runs `nix flake check -L` and builds the scaffolder (`nix build .#default`). `standards-core-pins` checks that the python-devops-nix commit odoo-nix pins is on its `main` or a `v*` tag (the network half of the flake check of that name); it stays red until the pinned core commit is there. When any of the three fails, `report` comments every job's result on the pull request, with each failed check and the end of its build log, and edits that comment once the checks pass. `autofix` runs `nix fmt` and the hooks over a pull request's branch and pushes what they rewrite as a `style:` commit, then dispatches `check` and `pr-policy` on it, because a push made with the workflow's token starts no workflow: pull before you push again. A fork's branch is not the workflow's to push to, so there the `lint` log has the diff. `pr-policy` (`odoo-nix policy --pr --major-free`) checks that the title and every commit are [conventional commits](https://www.conventionalcommits.org/) under `committed.toml`'s types and scopes, and refuses `!` and `BREAKING CHANGE`: a major release is a deliberate `Release-As: <N>.0.0` footer. Dependabot's pull requests skip only the 100-character subject limit. `release` runs release-please, re-renders the standards fixtures on the release pull request, and moves the `release-N` branch. Dependabot's pull requests merge automatically once the required checks pass, except action updates and the OCB pins, which a person reviews.
 
 ## Re-locking
 
@@ -118,6 +119,13 @@ odoo-ls does not commit a `Cargo.lock` upstream, so odoo-nix vendors one at `lib
 ```bash
 nix run .#relock-odoo-ls
 git add lib/odoo-ls-Cargo.lock
+```
+
+The standards fixtures' tool locks (`tests/fixtures/standards-locks/`) and the fixture data odoo-nix-tools ships are refreshed together, and every python-devops-nix pin moves at once:
+
+```bash
+nix run .#relock-standards-fixtures
+nix run .#bump-base -- v1.3.0      # a tag, a branch or a commit of Avunu/python-devops-nix
 ```
 
 ## The OCA catalog

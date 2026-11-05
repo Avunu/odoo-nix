@@ -1,0 +1,87 @@
+{
+  "$comment": "The GitHub files (DESIGN.md §3.1 dependabot, workflow-lint, ci, releases; §6.4 the callers): Dependabot, zizmor, and one caller workflow per gate file. The callers name the locked odoo-nix's reusable workflows.",
+  "entries": [
+    {
+      "path": ".github/dependabot.yml",
+      "template": "github/dependabot.yml.j2",
+      "strategy": "whole",
+      "module": "dependabot",
+      "header": "yaml",
+      "local_regions": ["updates"],
+      "uses": [
+        "dependabot.schedule",
+        "dependabot.cooldown-days",
+        "dependabot.target-branches"
+      ]
+    },
+    {
+      "path": ".github/zizmor.yml",
+      "template": "github/zizmor.yml.j2",
+      "strategy": "whole",
+      "module": "workflow-lint",
+      "header": "yaml",
+      "overridable": true
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "template": "github/workflows/ci.yml.j2",
+      "strategy": "whole",
+      "module": "ci",
+      "when": "'lint' in gates or 'test' in gates",
+      "header": "yaml",
+      "uses": [
+        "ci.runs-on",
+        "ci.test-timeout-minutes",
+        "ci.github-app",
+        "ci.schedules"
+      ]
+    },
+    {
+      "path": ".github/workflows/pr-policy.yml",
+      "template": "github/workflows/pr-policy.yml.j2",
+      "strategy": "whole",
+      "module": "ci",
+      "when": "'pr-policy' in gates",
+      "header": "yaml",
+      "uses": ["ci.runs-on"]
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "template": "github/workflows/release.yml.j2",
+      "strategy": "whole",
+      "module": "releases",
+      "when": "branches.release",
+      "header": "yaml",
+      "uses": ["ci.runs-on", "ci.github-app"]
+    },
+    {
+      "path": ".github/workflows/deps.yml",
+      "template": "github/workflows/deps.yml.j2",
+      "strategy": "whole",
+      "module": "ci",
+      "header": "yaml",
+      "uses": [
+        "ci.runs-on",
+        "ci.github-app",
+        "ci.project-update",
+        "dependabot.auto-merge",
+        "dependabot.auto-merge-policy",
+        "dependabot.update-branches"
+      ]
+    }
+  ],
+  "retire": [
+    {
+      "paths": [".travis.yml", ".t2d.yml"],
+      "rule": "OCA's former CI: the ci module's workflows run the gates",
+      "module": "ci"
+    },
+    {
+      "paths": [".github/workflows/*.yml", ".github/workflows/*.yaml"],
+      "rule": "a workflow that runs OCA's checks, which the ci module's gates replace",
+      "module": "ci",
+      "contains": ["oca_run_tests", "ghcr\\.io/oca/oca-ci", "pre-commit/action"],
+      "unmanaged": true
+    }
+  ]
+}

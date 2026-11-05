@@ -1,0 +1,9 @@
+[submodule "odoo"]
+	path = odoo
+	url = https://github.com/OCA/OCB.git
+	branch = 18.0
+	shallow = true
+[submodule "modules/server-tools"]
+	path = modules/server-tools
+	url = https://github.com/OCA/server-tools.git
+	branch = 18.0

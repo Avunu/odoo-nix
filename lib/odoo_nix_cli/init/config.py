@@ -25,6 +25,11 @@ class InitConfig:
     presets: str
     # templates/project: the files a project is given.
     template: str
+    # templates/addons: the files a repository of addons is given (--addons).
+    addons_template: str
+    # odoo-nix's major version: the templates' flake follows its release branch,
+    # github:Avunu/odoo-nix/release-<major> (@MAJOR@).
+    odoo_nix_major: str
     # data/oca-modules.json and data/oca-bundles.json.
     oca_dataset: str
     oca_bundles: str

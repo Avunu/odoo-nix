@@ -3,7 +3,7 @@ title: A repository of addons
 description: Develop a repository of Odoo addons on its own, OCA style, with OCB and every repository it depends on as flake inputs, a generated uv lock and a dev shell that installs all of its addons.
 order: 4
 tags: [flake, addons, oca, externalSources]
-updated: 2026-11-02
+updated: 2026-11-03
 ---
 
 A repository of addons is what OCA publishes: a flat set of addon folders at the root, one branch per Odoo series, mounted by the projects that deploy them. Addons mode gives such a repository a development shell of its own. OCB and the repositories its addons depend on are flake inputs, the uv project is generated into `nix/`, and `odoo db provision` installs every addon in the repository.
@@ -24,7 +24,7 @@ A repository of addons is what OCA publishes: a flat set of addon folders at the
     └── modules/<name> -> /nix/store/…-source
 ```
 
-The shell also links `odoo.conf`, `odools.toml` and `.venv` at the root, as in a project. `templates/addons/` in odoo-nix has the `flake.nix`, `.envrc` and `.gitignore` to start from.
+The shell also links `odoo.conf`, `odools.toml` and `.venv` at the root, as in a project. `templates/addons/` in odoo-nix has the `flake.nix`, `.envrc`, `.gitignore` and `nix/pyproject.toml` to start from, and `nix run github:Avunu/odoo-nix -- --addons` writes them into the repository (where they are missing), with `.odoo-series`, then runs the first relock. List the repositories the addons depend on in the flake before that relock, or run it again after (`nix run .#relock`). See [Scaffolder](../reference/scaffolder.md).
 
 ## The flake
 

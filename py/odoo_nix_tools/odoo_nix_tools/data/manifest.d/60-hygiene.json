@@ -1,0 +1,37 @@
+{
+  "$comment": "hygiene (DESIGN.md §3.1) and the locked-tools .pre-commit-config.yaml (DESIGN.md §3.3), live while any module with a hook is on.",
+  "entries": [
+    {
+      "path": ".pre-commit-config.yaml",
+      "template": "pre-commit-config.yaml.j2",
+      "strategy": "whole",
+      "module": [
+        "python-lint",
+        "pylint-odoo",
+        "addon-manifest",
+        "js-xml",
+        "workflow-lint",
+        "shell-lint",
+        "nix-lint",
+        "hygiene",
+        "commits",
+        "packaging"
+      ],
+      "header": "yaml",
+      "local_regions": ["exclude", "hooks"],
+      "uses": [
+        "addon-manifest.website",
+        "pylint-odoo.optional-run",
+        "hygiene.forbid-contributing",
+        "js-xml.exclude"
+      ]
+    },
+    {
+      "path": ".git-blame-ignore-revs",
+      "template": "git-blame-ignore-revs.j2",
+      "strategy": "seed",
+      "handler": "blame-ignore-revs",
+      "module": "hygiene"
+    }
+  ]
+}
