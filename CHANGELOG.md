@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.3.0](https://github.com/Avunu/odoo-nix/compare/v2.2.0...v2.3.0) (2026-11-05)
+
+
+### Features
+
+* **addons:** externalSources and addons mode for a repository of addons ([#141](https://github.com/Avunu/odoo-nix/issues/141)) ([029ea84](https://github.com/Avunu/odoo-nix/commit/029ea8429709943448eb2f1e22c2e1bb41aba62d))
+* **app-standards:** odoo-nix-tools, the Odoo standards plugin on standards-core ([#135](https://github.com/Avunu/odoo-nix/issues/135)) ([5fb8154](https://github.com/Avunu/odoo-nix/commit/5fb8154d3e6616694cc48098100996e1f26370fd))
+
+
+### Bug Fixes
+
+* **deps:** bump astral-sh/setup-uv ([#136](https://github.com/Avunu/odoo-nix/issues/136)) ([1642e4b](https://github.com/Avunu/odoo-nix/commit/1642e4b8530cc9b852f6091b936a5f94a9326f5f))
+* **deps:** bump https://github.com/astral-sh/ruff-pre-commit ([#138](https://github.com/Avunu/odoo-nix/issues/138)) ([49a5e18](https://github.com/Avunu/odoo-nix/commit/49a5e185507343cacea692a45e7a72d8643cca01))
+* **deps:** bump the nix group with 4 updates ([#139](https://github.com/Avunu/odoo-nix/issues/139)) ([e3f930e](https://github.com/Avunu/odoo-nix/commit/e3f930e5cfb19a0a75b4b3af7395fcaf6bb66bc5))
+* **devenv:** stop seeding Odoo.serverConfigPath, and filter OCB and OCA diagnostics in odools.toml ([#134](https://github.com/Avunu/odoo-nix/issues/134)) ([3a4ff55](https://github.com/Avunu/odoo-nix/commit/3a4ff55776eed6db445884c8749d24ffe5a5e919))
+
 ## [2.2.0](https://github.com/Avunu/odoo-nix/compare/v2.1.0...v2.2.0) (2026-10-31)
 
 
