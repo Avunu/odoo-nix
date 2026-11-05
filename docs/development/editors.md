@@ -49,8 +49,12 @@ For another editor, point its language server at the same two paths, for instanc
 
 `ide.languageServer.enable` (the default; it needs `ide.enable`) adds [odoo-ls](https://github.com/odoo/odoo-ls), a language server that understands `__manifest__.py`, ORM field types and XML view and QWeb references. It puts `odoo_ls_server` on the shell's `PATH` and symlinks a Nix-synthesized `./odools.toml` into place, like `odoo.conf` and `.venv`: gitignored and not edited by hand. It points odoo-ls at the OCB checkout, `addons_path` and the `.venv` interpreter, under one profile named `default`. Every path in it is relative to the file, so its content is the same on every machine.
 
+The file also carries a diagnostic filter for the OCB checkout and the external (OCA) directory. Both sit inside the workspace, and odoo-ls reports problems for every file in it, so without the filter the Problems panel fills with upstream findings nobody in the project can fix. The filter needs odoo-ls 1.5 or later, which expands `${workspaceFolder}` in its paths; an older server ignores it.
+
 Any editor's LSP client can run `odoo_ls_server` directly, over stdio, with no initialization options.
 
-VS Code is the exception. The official [`Odoo.odoo`](https://marketplace.visualstudio.com/items?itemName=Odoo.odoo) extension bundles its own `odoo_ls_server` and has no setting to use another, so the Nix-built one never runs inside VS Code. With `ide.vscodeSettings`, two things are seeded once to help it anyway: `.vscode/extensions.json` recommends `Odoo.odoo`, and `.vscode/settings.json` gets `"Odoo.serverConfigPath": "${workspaceFolder}/odools.toml"`, so its bundled server reads the same configuration.
+VS Code is the exception. The official [`Odoo.odoo`](https://marketplace.visualstudio.com/items?itemName=Odoo.odoo) extension bundles its own `odoo_ls_server` and has no setting to use another, so the Nix-built one never runs inside VS Code. Its server still reads the generated `./odools.toml`: it finds the file by walking up from the workspace folder. With `ide.vscodeSettings`, `.vscode/extensions.json` is seeded once to recommend `Odoo.odoo`.
+
+Leave `Odoo.serverConfigPath` unset. The extension passes its value to the server without expanding variables, so `"${workspaceFolder}/odools.toml"` names a file that does not exist, and the server loads no configuration and indexes nothing. Its log then shows `Config file not found: ${workspaceFolder}/odools.toml`. Remove the setting from a `.vscode/settings.json` seeded by an earlier odoo-nix.
 
 `ide.languageServer.package` defaults to odoo-ls built from odoo-nix's pinned `odoo-ls-src` and `odoo-ls-typeshed` inputs.
