@@ -44,6 +44,44 @@ let
     workspaceRoot = bare;
   };
 
+  # externalSources: a repository from outside the workspace, with the
+  # module custom/ also has filtered out (what `exclude` does), as an
+  # absolute root after the on-disk repositories. Its mod_a is not
+  # installable, so it is no second copy of alpha-repo's.
+  gamma = ./fixtures/external-gamma;
+  gammaWithoutMyMod = builtins.path {
+    path = gamma;
+    name = "gamma-source";
+    filter = path: _type: !(dirOf path == toString gamma && baseNameOf path == "my_mod");
+  };
+  external =
+    sources:
+    addons {
+      inherit lib layout;
+      workspaceRoot = tree;
+      coreSource = fakeCore;
+      externalSources = sources;
+    };
+  withGamma = external [
+    {
+      name = "gamma";
+      src = gammaWithoutMyMod;
+    }
+  ];
+  fails = v: !(builtins.tryEval (builtins.deepSeq v v)).success;
+
+  # my_mod both in a submodule and in custom/ (a project's own business,
+  # left as it always was), and custom/mod_a, which gamma's unported mod_a
+  # would shadow from before it on addons_path.
+  shadowTree = ./fixtures/addons-tree-shadow;
+  onShadowTree =
+    sources:
+    addons {
+      inherit lib layout;
+      workspaceRoot = shadowTree;
+      externalSources = sources;
+    };
+
   # odoo.conf's INI dialect, shared by the dev shell and the NixOS module.
   odooIni = import ../lib/odoo-ini.nix { inherit pkgs lib; };
   full = {
@@ -135,6 +173,84 @@ in
     addons-core-source-for = {
       expected = "${fakeCore}/odoo/addons,${fakeCore}/addons,/x/modules/alpha-repo,/x/modules/beta-repo,/x/custom,${fakeExtra}";
       actual = core.addonsPathFor "/x";
+    };
+    addons-external-sources-list = {
+      expected = [
+        "${fakeCore}/odoo/addons"
+        "${fakeCore}/addons"
+        "./modules/alpha-repo"
+        "./modules/beta-repo"
+        (toString gammaWithoutMyMod)
+        "./custom"
+      ];
+      actual = withGamma.addonsPathList;
+    };
+    addons-external-sources-for = {
+      expected = "${fakeCore}/odoo/addons,${fakeCore}/addons,/x/modules/alpha-repo,/x/modules/beta-repo,${gammaWithoutMyMod},/x/custom";
+      actual = withGamma.addonsPathFor "/x";
+    };
+    # my_mod is installable in custom/ and in gamma: Odoo would load the first.
+    addons-external-sources-duplicate = {
+      expected = true;
+      actual =
+        fails
+          (external [
+            {
+              name = "gamma";
+              src = gamma;
+            }
+          ]).addonsPathList;
+    };
+    # A name already on disk under modules/, or given twice.
+    addons-external-sources-clash = {
+      expected = [
+        true
+        true
+      ];
+      actual = [
+        (fails
+          (external [
+            {
+              name = "alpha-repo";
+              src = gammaWithoutMyMod;
+            }
+          ]).addonsPathList
+        )
+        (fails
+          (external [
+            {
+              name = "g";
+              src = gammaWithoutMyMod;
+            }
+            {
+              name = "g";
+              src = gammaWithoutMyMod;
+            }
+          ]).addonsPathList
+        )
+      ];
+    };
+    addons-submodule-duplicate-unchanged = {
+      expected = [
+        "./odoo/odoo/addons"
+        "./odoo/addons"
+        "./modules/r"
+        "./custom"
+      ];
+      actual = (onShadowTree [ ]).addonsPathList;
+    };
+    # gamma's mod_a is not installable, but it comes first: Odoo would take
+    # it and never see custom/mod_a.
+    addons-external-sources-shadow = {
+      expected = true;
+      actual =
+        fails
+          (onShadowTree [
+            {
+              name = "gamma";
+              src = gammaWithoutMyMod;
+            }
+          ]).addonsPathList;
     };
     addons-bare-workspace = {
       expected = [

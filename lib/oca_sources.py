@@ -25,8 +25,14 @@ set — their `external_dependencies.python` become direct requirements and thei
 `depends` are followed (packaged ones become `odoo-addon-<dep>` roots, unpackaged
 ones are walked in turn, anything not on disk is assumed to be core).
 
+A repository of addons (odoo-nix's addons mode) has no modules.txt: with
+`--roots=local` every installable module of the custom directory is a root
+instead. A module whose directory resolves into the Nix store (a flake input
+the dev shell links in, `externalSources`) is a plain path source, built once
+as a wheel; one in the working tree is editable, so edits are live.
+
 Usage:
-    oca_sources.py update <pyproject.toml> <modules.txt> <modules-dir> <custom-dir> <core-src>
+    oca_sources.py update [--roots=local] <pyproject.toml> <modules.txt> <modules-dir> <custom-dir> <core-src>
 """
 
 import ast
@@ -59,9 +65,15 @@ def _local_modules(modules_dir, custom_dir):
     if custom_dir:
         patterns += [os.path.join(custom_dir, "*", "__manifest__.py")]
     for pat in patterns:
-        for mani in glob.glob(pat):
+        for mani in sorted(glob.glob(pat)):
             d = os.path.dirname(mani)
-            found[os.path.basename(d)] = d  # last wins; module names are unique
+            name = os.path.basename(d)
+            # Last wins (custom/ over modules/), but never a copy Odoo would
+            # not install over one it would: an external source may ship an
+            # unported copy of a module (installable: False).
+            if name in found and _installable(found[name]) and not _installable(d):
+                continue
+            found[name] = d
     return found
 
 
@@ -71,6 +83,16 @@ def _is_packaged(module_dir):
         os.path.isfile(os.path.join(module_dir, f))
         for f in ("pyproject.toml", "setup.py")
     )
+
+
+def _in_store(module_dir):
+    """True when the module's directory is a store path (an externalSources
+    input, linked in): read-only and immutable, so never an editable source."""
+    return os.path.realpath(module_dir).startswith("/nix/store/")
+
+
+def _installable(module_dir):
+    return _read_manifest(module_dir).get("installable", True) is not False
 
 
 def _read_manifest(module_dir):
@@ -126,14 +148,30 @@ def _replace_block(text, begin, end, body, *, label):
     )
 
 
-def update(pyproject, modules_txt, modules_dir, custom_dir, core_src):
+def _custom_roots(custom_dir, local):
+    """Every installable module of CUSTOM_DIR, sorted: an addons repository's
+    install set."""
+    roots = []
+    for mani in glob.glob(os.path.join(custom_dir, "*", "__manifest__.py")):
+        d = os.path.dirname(mani)
+        name = os.path.basename(d)
+        if local.get(name) == d and _installable(d):
+            roots.append(name)
+    return sorted(roots)
+
+
+def update(
+    pyproject, modules_txt, modules_dir, custom_dir, core_src, roots_local=False
+):
     local = _local_modules(modules_dir, custom_dir)
     # Only packaged modules can be uv path sources; unpackaged ones are folded
     # into the install set by _expand_roots.
     sources = {m: d for m, d in local.items() if _is_packaged(d)}
 
     roots = []
-    if modules_txt and os.path.isfile(modules_txt):
+    if roots_local:
+        roots = _custom_roots(custom_dir, local)
+    elif modules_txt and os.path.isfile(modules_txt):
         with open(modules_txt, encoding="utf-8") as f:
             roots = [ln.strip() for ln in f if ln.strip()]
     # Only emit roots that exist locally; a root whose repo isn't cloned would
@@ -154,7 +192,10 @@ def update(pyproject, modules_txt, modules_dir, custom_dir, core_src):
     indent = re.search(r"^([ \t]*)" + re.escape(DEP_BEGIN), text, re.MULTILINE)
     pad = indent.group(1) if indent else "    "
 
-    dep_body = pad + '"odoo",\n'
+    # `packaging`: Odoo parses a versioned external_dependencies entry
+    # (`paramiko<4`) with it and refuses the module without it, yet OCB does
+    # not declare it, so a lock only had it when something else pulled it in.
+    dep_body = pad + '"odoo",\n' + pad + '"packaging",\n'
     for m in local_roots:
         dep_body += f'{pad}"{_dist(m)}",\n'
     for req in extra_reqs:
@@ -168,7 +209,8 @@ def update(pyproject, modules_txt, modules_dir, custom_dir, core_src):
     src_body = pad + f'odoo = {{ path = "{core_src}" }}\n'
     for module in sorted(sources):
         rel = sources[module]
-        src_body += f'{pad}"{_dist(module)}" = {{ path = "{rel}", editable = true }}\n'
+        editable = "" if _in_store(rel) else ", editable = true"
+        src_body += f'{pad}"{_dist(module)}" = {{ path = "{rel}"{editable} }}\n'
 
     text, ok1 = _replace_block(text, DEP_BEGIN, DEP_END, dep_body, label="dependencies")
     text, ok2 = _replace_block(text, SRC_BEGIN, SRC_END, src_body, label="sources")
@@ -187,10 +229,13 @@ def update(pyproject, modules_txt, modules_dir, custom_dir, core_src):
 
 
 def main(argv):
-    if len(argv) >= 7 and argv[1] == "update":
-        return update(argv[2], argv[3], argv[4], argv[5], argv[6])
+    args = list(argv[1:])
+    roots_local = "--roots=local" in args
+    args = [a for a in args if a != "--roots=local"]
+    if len(args) >= 6 and args[0] == "update":
+        return update(*args[1:6], roots_local=roots_local)
     sys.stderr.write(
-        "usage: oca_sources.py update <pyproject.toml> <modules.txt> "
+        "usage: oca_sources.py update [--roots=local] <pyproject.toml> <modules.txt> "
         "<modules-dir> <custom-dir> <core-src>\n"
     )
     return 2

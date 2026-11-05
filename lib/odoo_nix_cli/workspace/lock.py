@@ -69,6 +69,8 @@ def core_shadow(link: str, store: str | None) -> Iterator[str | None]:
     if not store or (os.path.lexists(link) and not os.path.islink(link)):
         yield None
         return
+    # Addons mode keeps the link under .odoo-nix/, which a fresh clone lacks.
+    os.makedirs(os.path.dirname(link) or ".", exist_ok=True)
     shadow = tempfile.mkdtemp(prefix="odoo-nix-core-shadow.")
     try:
         for name in sorted(os.listdir(store)):

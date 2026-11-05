@@ -29,6 +29,9 @@
   odooPythonEnv,
   # OCB from outside the workspace (see modules/devenv.nix `coreSource`).
   coreSource ? null,
+  # Module repositories from flake inputs (modules/devenv.nix
+  # `externalSources`): on addons_path where they are, never copied.
+  externalSources ? [ ],
   # { <key> = built tree; }: lib/node.nix's builds, keys relative to the
   # workspace (`custom/acme_ui`, or a repository root for a workspace).
   nodeBuilds ? { },
@@ -41,6 +44,7 @@ let
       workspaceRoot
       layout
       coreSource
+      externalSources
       ;
   };
 
@@ -82,7 +86,10 @@ let
         ${
           if coreSource != null then
             # Already in the store: link rather than duplicate a 2 GB tree.
-            ''ln -s "${coreRoot}" "$out/${layout.coreSrc}"''
+            ''
+              mkdir -p "$(dirname "$out/${layout.coreSrc}")"
+              ln -s "${coreRoot}" "$out/${layout.coreSrc}"
+            ''
           else
             copyDir coreRoot "$out/${layout.coreSrc}"
         }

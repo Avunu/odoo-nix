@@ -38,6 +38,18 @@
   # `odoo` wheel is built from this tree instead of the workspace's `odoo/`
   # path source, which then need not exist in the flake's copy of the repo.
   coreSource ? null,
+  # Where pyproject.toml and uv.lock are: the workspace root, or the lock
+  # directory of a repository of addons (modules/devenv.nix `addons.lockDir`).
+  lockRoot ? workspaceRoot,
+  # { "<path as uv.lock records it>" = store path; }: the module repositories
+  # from flake inputs (modules/devenv.nix `externalSources`), which the lock
+  # reaches through the dev shell's gitignored links. A local package under
+  # one of these paths is loaded from the store path instead, built as a
+  # wheel, and never made editable.
+  storeRoots ? { },
+  # The editable root, as a runtime string: where the lock's relative paths
+  # start ($REPO_ROOT, or $REPO_ROOT/<lockDir>).
+  editableRoot ? "$REPO_ROOT",
   # lib/devguard.nix: the dev-environment guard rails, grafted into the DEV and
   # TEST virtualenvs only -- never odooPythonEnv, which is what builtOdoo,
   # services.odoo-nix and the container image run. null = none.
@@ -55,9 +67,9 @@
 }:
 
 let
-  workspace = uv2nix.lib.workspace.loadWorkspace { inherit workspaceRoot; };
+  workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = lockRoot; };
 
-  rootPyproject = builtins.fromTOML (builtins.readFile (workspaceRoot + "/pyproject.toml"));
+  rootPyproject = builtins.fromTOML (builtins.readFile (lockRoot + "/pyproject.toml"));
   rootPkgName = rootPyproject.project.name;
 
   sourcePreference = "wheel";
@@ -71,31 +83,57 @@ let
   # `odoo` project is loaded from the store path. Everything downstream — the
   # wheel build, the editable dev install (which resolves `<coreSrc>/` under
   # $REPO_ROOT at runtime, i.e. the symlink) — then just works.
+  #
+  # `storeRoots` is the same for the module repositories that are flake
+  # inputs: each package under one of those paths is loaded from the store.
+  inherit (uv2nix.lib) lock1;
+  lock = lock1.parseLock (lib.importTOML (lockRoot + "/uv.lock"));
+  localPackages = lib.filter lock1.isLocalPackage lock.package;
+  # The store path a local package is built from, or null.
+  storeRootOf =
+    package:
+    let
+      path = lock1.getLocalPath package;
+      prefix = lib.findFirst (pre: path == pre || lib.hasPrefix "${pre}/" path) null (
+        lib.attrNames storeRoots
+      );
+    in
+    if prefix == null then null else "${storeRoots.${prefix}}${lib.removePrefix prefix path}";
+  storeBacked = lib.filter (p: storeRootOf p != null) localPackages;
   overlay =
-    if coreSource == null then
+    if coreSource == null && storeBacked == [ ] then
       workspace.mkPyprojectOverlay { inherit sourcePreference; }
     else
       let
-        inherit (uv2nix.lib) lock1;
-        lock = lock1.parseLock (lib.importTOML (workspaceRoot + "/uv.lock"));
-        localPackages = lib.filter lock1.isLocalPackage lock.package;
-        coreProjects = {
+        coreProjects = lib.optionalAttrs (coreSource != null) {
           odoo = pyproject-nix.lib.project.loadUVPyproject { projectRoot = coreSource; };
         };
+        # As uv2nix's getLocalProjects loads them (a pyproject.toml, or a
+        # legacy project without one), rooted at the store path.
+        storeProjects = lib.concatMapAttrs (
+          _: p:
+          lock1.getLocalProjects {
+            inherit lock;
+            workspaceRoot = storeRootOf p;
+            localPackages = [ (p // { source.directory = "."; }) ];
+          }
+        ) (lib.listToAttrs (map (p: lib.nameValuePair p.name p) storeBacked));
+        fromStore = coreProjects // storeProjects;
         localProjects =
           lock1.getLocalProjects {
-            inherit lock workspaceRoot;
-            localPackages = lib.filter (p: !(coreProjects ? ${p.name})) localPackages;
+            inherit lock;
+            workspaceRoot = lockRoot;
+            localPackages = lib.filter (p: !(fromStore ? ${p.name})) localPackages;
           }
-          // coreProjects;
+          // fromStore;
       in
       uv2nix.lib.overlays.mkOverlay {
         inherit
           sourcePreference
           localProjects
-          workspaceRoot
           lock
           ;
+        workspaceRoot = lockRoot;
         environ = { };
         spec = workspace.deps.all;
         inherit (workspace) config;
@@ -274,7 +312,8 @@ let
   # requirements are whool's, computed at build time, so they reach uv only
   # through `uv lock` and are not something the audit can see.)
   lockAudit = pythonLib.lockAudit {
-    inherit workspaceRoot rootPyproject;
+    inherit rootPyproject;
+    workspaceRoot = lockRoot;
     label = "odoo-nix";
     hasPackage = name: pythonSet ? ${name};
     relock = ''
@@ -290,8 +329,14 @@ let
 
   # Editable overlay (DEV): local path-source packages (every OCA module) install
   # editable, resolving against $REPO_ROOT at runtime so source edits are live.
+  # The store-backed ones (storeRoots) are left as the wheels they are.
   editableSet = pythonSetBase.overrideScope (
-    workspace.mkEditablePyprojectOverlay { root = "$REPO_ROOT"; }
+    workspace.mkEditablePyprojectOverlay {
+      root = editableRoot;
+      members = map (p: p.name) (
+        lib.filter (p: !(p.source ? virtual) && storeRootOf p == null) localPackages
+      );
+    }
   );
 
   # For the virtual single-root project, `workspace.deps.default` is the root

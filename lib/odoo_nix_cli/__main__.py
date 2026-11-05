@@ -132,6 +132,10 @@ def tui_argv(argv: list[str], *, tty: bool, menu: bool) -> list[str] | None:
     if argv[:1] == ["ui"]:
         return argv[1:]
     if tty and menu:
+        # A repository of addons has no store to add from: `odoo module
+        # add` there goes on to its refusal (addons mode).
+        if os.environ.get("ODOO_NIX_LOCAL_ADDONS") and argv[:1] == ["module"]:
+            return None
         return _TUI_BARE.get(tuple(argv))
     return None
 
