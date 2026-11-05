@@ -624,6 +624,7 @@ class OcaSourcesTest(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         self.assertEqual(out.returncode, 0, out.stderr)
         text = Path("pyproject.toml").read_text()
