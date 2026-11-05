@@ -1,8 +1,8 @@
-"""The ``flake.nix`` inputs block (DESIGN.md §3.1 dev-shell, core §5.6.4) on the target
-repositories' own flakes (``tests/shapes/flakes``, copied byte for byte): odoo-ruckus
-(``self.submodules`` and the ``''${ODOO_NIX_HTTP_PORT:-8069}`` indented string), millrun,
-edi-addons (``ocb`` and ``oca-*`` inputs, unclaimed) and vertical-auto-repair-addons (25
-inputs).
+"""The ``flake.nix`` inputs block (DESIGN.md §3.1 dev-shell, core §5.6.4) on
+representative flakes (``tests/shapes/flakes``): two project-shape checkouts, project-b
+(``self.submodules`` and the ``''${ODOO_NIX_HTTP_PORT:-8069}`` indented string) and
+project-a, and two addon repositories' own: edi-addons (``ocb`` and ``oca-*`` inputs,
+unclaimed) and vertical-auto-repair-addons (25 inputs).
 
 Each hand-writes ``odoo-nix.url`` with another URL than the block renders, so the first
 sync is exit 2 with the replacement's diff; ``--force`` moves the input into the block and
@@ -27,8 +27,8 @@ BEGIN = "# >>> odoo-nix: inputs (managed) >>>"
 END = "# <<< odoo-nix: inputs (managed) <<<"
 # shape → (fixture it goes into, the odoo-nix URL it writes by hand)
 CASES = {
-    "ruckus": (PROJECT, "github:Avunu/odoo-nix"),
-    "millrun": (PROJECT, "github:Avunu/odoo-nix"),
+    "project-b": (PROJECT, "github:Avunu/odoo-nix"),
+    "project-a": (PROJECT, "github:Avunu/odoo-nix"),
     "edi-addons": (ADDONS, "github:Avunu/odoo-nix/feat/addons-mode"),
     "vertical-auto-repair-addons": (ADDONS, "github:Avunu/odoo-nix/feat/addons-mode"),
 }
@@ -142,12 +142,12 @@ class FlakeShapes(SyncCase):
         self.assertEqual(len(specs["vertical-auto-repair-addons"]) - 1, 25)
         self.assertIn("ocb", specs["edi-addons"])
         self.assertTrue(any(k.startswith("oca-") for k in specs["edi-addons"]))
-        ruckus = (SHAPES / "flakes" / "ruckus.nix").read_text()
-        self.assertIn("self.submodules = true;", ruckus)
-        self.assertIn("''${ODOO_NIX_HTTP_PORT:-8069}", ruckus)
+        project = (SHAPES / "flakes" / "project-b.nix").read_text()
+        self.assertIn("self.submodules = true;", project)
+        self.assertIn("''${ODOO_NIX_HTTP_PORT:-8069}", project)
 
     def test_indented_string_survives(self) -> None:
-        root, before = self.adopt("ruckus")
+        root, before = self.adopt("project-b")
         self.sync(root, "--write", "--offline", "--force")
         after = (root / "flake.nix").read_text()
         port = next(
@@ -172,7 +172,7 @@ class FlakeShapes(SyncCase):
                     self.assertNotIn(line + "\n", "".join(block_lines(after)))
 
     def test_hand_definition_after_opt_in(self) -> None:
-        root, _ = self.adopt("millrun")
+        root, _ = self.adopt("project-a")
         self.sync(root, "--write", "--offline", "--force")
         flake = root / "flake.nix"
         (root / "flake.lock").write_text(
@@ -192,7 +192,7 @@ class FlakeShapes(SyncCase):
 
     def test_equal_definition_moves_silently(self) -> None:
         """A flake odoo-init scaffolds with the release URL opts in without --force."""
-        root, before = self.adopt("millrun")
+        root, before = self.adopt("project-a")
         flake = root / "flake.nix"
         flake.write_text(before.replace('"github:Avunu/odoo-nix"', f'"{RENDERED}"'))
         self.commit(root)

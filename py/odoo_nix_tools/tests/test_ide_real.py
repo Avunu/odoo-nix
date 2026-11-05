@@ -1,9 +1,9 @@
-"""The ``ide`` module's jsonc-merge (DESIGN.md §3.1 ide, core §5.5) on the target
-repositories' own editor files (``tests/shapes/vscode``, copied byte for byte):
-odoo-ruckus's 4-space ``settings.json`` (``git.detectSubmodules``,
-``python-envs.defaultEnvManager``, ``Odoo.selectedProfile``), millrun's 2-space one (an
-inline ``python.analysis.extraPaths``, ``git.ignoreLimitWarning``), and both one-line
-``extensions.json`` (millrun's keeps ``bierner.lit-html``).
+"""The ``ide`` module's jsonc-merge (DESIGN.md §3.1 ide, core §5.5) on editor files
+representative of project-shape checkouts (``tests/shapes/vscode``): project-b's 4-space
+``settings.json`` (``git.detectSubmodules``, ``python-envs.defaultEnvManager``,
+``Odoo.selectedProfile``), project-a's 2-space one (an inline
+``python.analysis.extraPaths``, ``git.ignoreLimitWarning``), and both one-line
+``extensions.json`` (project-a's keeps ``bierner.lit-html``).
 
 Sync sets the managed leaves and nothing else: ``Odoo.serverConfigPath`` goes, the
 ``python-envs.*`` keys and ``Odoo.selectedProfile`` stay (a notice names the first), the
@@ -28,7 +28,7 @@ from support import SHAPES, SyncCase, need_root
 PROJECT = "standards-project"
 SETTINGS = ".vscode/settings.json"
 EXTENSIONS = ".vscode/extensions.json"
-TARGETS = ("ruckus", "millrun")
+TARGETS = ("project-b", "project-a")
 
 
 def leaves(doc: Mapping[str, Any], path: tuple[str, ...] = ()) -> Iterator[tuple]:
@@ -149,8 +149,8 @@ class RealShapes(SyncCase):
                 self.assertEqual((root / SETTINGS).read_text(), text)
                 self.check(root)
 
-    def test_ruckus_four_spaces_and_untouched_keys(self) -> None:
-        root, notices = self.synced("ruckus")
+    def test_four_spaces_and_untouched_keys(self) -> None:
+        root, notices = self.synced("project-b")
         text = (root / SETTINGS).read_text()
         self.assertIn('\n    "python.languageServer": "None",', text)
         self.assertIn('\n    "[python]": {\n        "editor.defaultFormatter"', text)
@@ -162,8 +162,8 @@ class RealShapes(SyncCase):
         self.assertIn('    "git.detectSubmodules": false,\n', text)
         self.assertIn(".vscode/settings.json sets python-envs.*", notices)
 
-    def test_millrun_inline_array_stays_inline(self) -> None:
-        root, _ = self.synced("millrun")
+    def test_inline_array_stays_inline(self) -> None:
+        root, _ = self.synced("project-a")
         text = (root / SETTINGS).read_text()
         self.assertIn(
             '\n  "python.analysis.extraPaths": [".devenv/state/pythonpath"],\n', text
@@ -172,13 +172,13 @@ class RealShapes(SyncCase):
         self.assertIn('\n  "python.languageServer": "None",', text)
 
     def test_server_config_path_is_deleted(self) -> None:
-        planted = shape("millrun-settings.json").replace(
+        planted = shape("project-a-settings.json").replace(
             '  "git.ignoreLimitWarning": true\n',
             '  "Odoo.serverConfigPath": "${workspaceFolder}/odoo.conf",\n'
             '  "git.ignoreLimitWarning": true\n',
         )
         self.assertIn("Odoo.serverConfigPath", planted)
-        root, _ = self.synced("millrun", planted)
+        root, _ = self.synced("project-a", planted)
         self.assertNotIn("Odoo.serverConfigPath", (root / SETTINGS).read_text())
 
     def test_extensions_stay_one_line(self) -> None:
@@ -198,8 +198,8 @@ class RealShapes(SyncCase):
                     "ensure"
                 ]:
                     self.assertIn(ext, have)
-        # ruckus's file has no final newline, and keeps it that way.
-        self.assertFalse(shape("ruckus-extensions.json").endswith("\n"))
+        # project-b's file has no final newline, and keeps it that way.
+        self.assertFalse(shape("project-b-extensions.json").endswith("\n"))
 
     def test_turning_ide_off_takes_back_what_it_added(self) -> None:
         for name in TARGETS:

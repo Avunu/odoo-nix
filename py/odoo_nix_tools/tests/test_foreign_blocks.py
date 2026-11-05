@@ -1,5 +1,5 @@
-"""odoo-nix's own generated blocks in the config files (``tests/shapes/pyproject``, copied
-byte for byte from odoo-ruckus's ``pyproject.toml`` and edi-addons' ``nix/pyproject.toml``)
+"""odoo-nix's own generated blocks in the config files (``tests/shapes/pyproject``: a
+project checkout's ``pyproject.toml`` and edi-addons' ``nix/pyproject.toml``)
 are foreign to the standards (DESIGN.md §2.1 Markers, core §5.6.1): their names have
 spaces (``install set (managed from modules.txt)``, ``module sources (managed)``, ``sdist
 build deps (managed)``), so no owned marker matches them, and sync keeps all three byte for
@@ -17,7 +17,7 @@ from support import SHAPES, SyncCase, git, need_root
 
 # shape → (fixture, config file)
 CASES = {
-    "ruckus.toml": ("standards-project", "pyproject.toml"),
+    "project-b.toml": ("standards-project", "pyproject.toml"),
     "edi-addons-nix.toml": ("standards-addons", "nix/pyproject.toml"),
 }
 NAMES = ("install set", "module sources", "sdist build deps")

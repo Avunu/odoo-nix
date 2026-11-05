@@ -13,5 +13,5 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Client research docs and meeting recordings: local only, never pushed
-/Ruckus/
+# Local research notes: never pushed
+/notes/

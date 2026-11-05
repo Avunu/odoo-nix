@@ -493,9 +493,9 @@ LEGACY_ENVRC = (
         "fi\n"
         "use flake . --no-pure-eval\n"
     ),
-    # templates/addons/.envrc, millrun and the addon repositories
+    # templates/addons/.envrc, a project checkout and the addon repositories
     "use flake . --no-pure-eval\n",
-    # odoo-ruckus
+    # another project checkout
     (
         "# The Python env is built from these, so rebuild the shell when they change.\n"
         "watch_file pyproject.toml uv.lock modules.txt\n"

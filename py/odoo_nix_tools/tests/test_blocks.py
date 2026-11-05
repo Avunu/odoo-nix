@@ -1,7 +1,7 @@
 """The other two sentinel blocks (DESIGN.md §3.1): ``.gitignore``'s ``dev-shell`` block,
-which absorbs the same lines written by hand, on the targets' own files
-(``tests/shapes/gitignore``, copied byte for byte), and the root ``README.md``'s optional
-``addons-table`` block.
+which absorbs the same lines written by hand, on representative files
+(``tests/shapes/gitignore``: two project checkouts' and edi-addons'), and the root
+``README.md``'s optional ``addons-table`` block.
 
 ``absorb`` takes the hand-written lines the block holds and, with core CR4, a comment
 paragraph left with nothing under it; every other line stays where it is.
@@ -37,12 +37,12 @@ GITIGNORE = {
         PRODUCT,
         ["*.egg-info/", "node_modules/", ".ruff_cache/"],
     ),
-    "millrun": (
+    "project-a": (
         "standards-project",
         PRODUCT,
         ["odoo.log", "docs/.obsidian", "/.odoo-nix-backup/"],
     ),
-    "ruckus": ("standards-project", PRODUCT, ["/Ruckus/"]),
+    "project-b": ("standards-project", PRODUCT, ["/notes/"]),
 }
 
 

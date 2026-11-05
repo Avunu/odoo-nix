@@ -315,20 +315,18 @@ class AddonFacts(Discovery):
         self.assertFalse(facts["root_package_json"])
         self.assertTrue(facts["has_js"])
 
-    def test_ruckus_manifest_without_website(self) -> None:
+    def test_project_manifest_without_website(self) -> None:
         facts = self.facts(
             {
                 "modules.txt": "",
                 "flake.nix": PROJECT_FLAKE,
-                "custom/sale_component_check/__manifest__.py": shape_text(
-                    "sale_component_check"
-                ),
+                "custom/example_addon/__manifest__.py": shape_text("example_addon"),
             }
         )
         (addon,) = facts["addons"]
-        self.assertEqual(addon["path"], "custom/sale_component_check")
+        self.assertEqual(addon["path"], "custom/example_addon")
         self.assertIsNone(addon["website"])
-        self.assertEqual(addon["author"], "Walnook LLC")
+        self.assertEqual(addon["author"], "Example Author")
         self.assertEqual(addon["version"], "18.0.1.0.0")
 
     def test_an_unreadable_manifest_is_exit_2(self) -> None:
@@ -454,10 +452,16 @@ class NewTargetTable(TempRepos):
 
     def test_upstream_only(self) -> None:
         root = self.make_tree({"modules.txt": ""})
-        git(root, "remote", "add", "upstream", "git@github.com:Avunu/millrun.git")
+        git(
+            root,
+            "remote",
+            "add",
+            "upstream",
+            "git@github.com:example-org/project-a.git",
+        )
         self.assertEqual(
             self.target_table(root, "recommended"),
-            {"repo": "Avunu/millrun"},
+            {"repo": "example-org/project-a"},
         )
 
     def test_origin_or_several(self) -> None:
@@ -468,7 +472,7 @@ class NewTargetTable(TempRepos):
             "remote",
             "add",
             "origin",
-            "https://github.com/Walnook-LLC/odoo-ruckus.git",
+            "https://github.com/example-org/project-b.git",
         )
         self.assertEqual(self.target_table(root, "x"), {})
         git(root, "remote", "remove", "origin")

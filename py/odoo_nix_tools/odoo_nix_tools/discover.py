@@ -567,7 +567,7 @@ def new_target_table(
     root: Path, checkout: Checkout, args: argparse.Namespace, profile: str
 ) -> dict[str, Any]:
     """``{"repo": "<owner>/<name>"}`` when the clone has no ``origin`` and exactly one
-    other remote (millrun's ``upstream``), so the URL placeholders have a repository;
+    other remote (a client project's ``upstream``), so the URL placeholders have a repository;
     else ``{}``."""
     try:
         remotes = [r for r in repo.git(root, "remote").split() if r]

@@ -73,7 +73,7 @@ jobs:
         run: echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
 
       # The token reads this repository and the owner's repositories its submodules name
-      # (a private one: odoo-studio for millrun), no other.
+      # (a private one: odoo-studio for a client project), no other.
       - if: steps.app.outputs.enabled == 'true'
         id: repos
         name: The owner's repositories the submodules name

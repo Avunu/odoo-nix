@@ -16,7 +16,7 @@ An organisation keeps the list of its repositories in its profile repository, as
   "profile": "github:Avunu/odoo-standards-profile",
   "repos": [
     { "repo": "Avunu/edi-addons", "shape": "addons", "branches": ["develop", "18.0"], "private": false },
-    { "repo": "Avunu/millrun", "shape": "project", "branches": ["main"], "private": true }
+    { "repo": "example-org/odoo-project", "shape": "project", "branches": ["main"], "private": true }
   ]
 }
 ```

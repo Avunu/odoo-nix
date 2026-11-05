@@ -93,7 +93,7 @@ class Builtins(unittest.TestCase):
                     "private": False,
                 },
                 {
-                    "repo": "Walnook-LLC/odoo-ruckus",
+                    "repo": "example-org/project-b",
                     "shape": "project",
                     "branches": ["master"],
                     "integration_branch": "master",

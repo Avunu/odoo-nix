@@ -117,7 +117,7 @@ def demo_args(major: int) -> list[str]:
     """Demo data in the test database. 19.0 loads none unless asked
     (`--with-demo`); through 18.0 it loads unless `without_demo` says
     otherwise, and an empty `--without-demo=` overrides a project's
-    `without_demo = True` (millrun's settings) for this run."""
+    `without_demo = True` (a client project's settings) for this run."""
     return ["--with-demo"] if major >= 19 else ["--without-demo="]
 
 

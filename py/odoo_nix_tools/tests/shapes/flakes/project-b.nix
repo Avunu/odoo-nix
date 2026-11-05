@@ -1,5 +1,5 @@
 {
-  description = "odoo-ruckus — Odoo (OCB) + OCA project (odoo-nix)";
+  description = "project-b — Odoo (OCB) + OCA project (odoo-nix)";
 
   inputs = {
     # odoo/ + modules/* are git submodules; expose their contents to the
@@ -38,8 +38,6 @@
         # odoo-nix.secrets = {
         #   dir = ./secrets;
         #   recipients.you = "ssh-ed25519 AAAA… you@host";
-        #   # The production host decrypts the same file (services.odoo-nix.environmentFiles):
-        #   # hostRecipients.myserver = "ssh-ed25519 AAAA… root@myserver";
         # };
 
         systems = [
@@ -53,16 +51,16 @@
           {
             odoo-nix = {
               enable = true;
-              name = "odoo-ruckus";
+              name = "odoo-project-b";
               workspaceRoot = ./.;
               odooSeries = "18.0";
               python = pkgs.python311;
 
-              settings.dbName = "ruckus";
+              settings.dbName = "project_b";
 
-              # Stable server for client demos: no --dev, so no auto-restart on
-              # .py changes and minified assets. Stop the `odoo` process in
-              # process-compose first (it holds the HTTP port, $ODOO_NIX_HTTP_PORT).
+              # A stable server: no --dev, so no auto-restart on .py changes and
+              # minified assets. Stop the `odoo` process in process-compose first
+              # (it holds the HTTP port, $ODOO_NIX_HTTP_PORT).
               extraScripts.odoo-demo = {
                 description = "Run Odoo without --dev (for demos)";
                 exec = ''
@@ -74,12 +72,6 @@
                   exec python "$REPO_ROOT/odoo/odoo-bin" -c "$REPO_ROOT/odoo.conf" "$@"
                 '';
               };
-
-              # `odoo db restore` / `odoo project restore` from the S3 backups:
-              # restore = {
-              #   sourceDatabase = "production_db";  # folder the server backs up into
-              #   files = true;                      # also download object-store attachments
-              # };
 
               # Build production OCI images with `nix build .#builtOdoo` and the
               # container outputs once enabled:

@@ -1,5 +1,5 @@
 {
-  description = "Odoo based Shop Management for Mill Run Express";
+  description = "An example Odoo project (odoo-nix)";
 
   inputs = {
     # src/odoo + src/external/* are git submodules; expose their contents to the
@@ -35,8 +35,8 @@
           {
             odoo-nix = {
               enable = true;
-              name = "odoo-millrun";
-              dbName = "millrun";
+              name = "odoo-project-a";
+              dbName = "project_a";
               workspaceRoot = ./.;
               odooSeries = "18.0";
               python = pkgs.python311;
@@ -49,7 +49,6 @@
 
               settings = {
                 options = {
-                  admin_passwd = "CCUW&uN8wfs^ewdPS*!MydpvgAUTw7P2";
                   limit_time_real = "600";
                   log_level = "info";
                   logfile = "./odoo.log";
@@ -65,7 +64,7 @@
                 egress = {
                   enable = true;
                   allowHosts = [
-                    "parse.bot"
+                    "example.com"
                   ];
                 };
               };

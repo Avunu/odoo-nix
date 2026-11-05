@@ -10,8 +10,8 @@ where they conflict). Written 2026-11-03 against:
   `078f208`, `bd59032 fix(devenv): stop seeding Odoo.serverConfigPath`);
 - the generated series data `odoo_nix_tools/data/series/{18.0,19.0,20.0}.json` (OCA template `v1.48`,
   commit `a7ac6253`) and its generator `scripts/gen_series_data.py`;
-- the targets: the 10 `Avunu/*-addons` repositories (branch `feat/odoo-standards`), `Avunu/millrun`
-  (`feat/odoo-standards`), `Walnook-LLC/odoo-ruckus` (`feat/odoo-standards`), and the draft
+- the targets: the 10 `Avunu/*-addons` repositories (branch `feat/odoo-standards`), two private
+  client projects, called project A and project B here (`feat/odoo-standards`), and the draft
   `Avunu/odoo-standards-profile` (`profile.toml`, `fleet.json`, `scripts/check.sh`).
 
 Revised the same day after an independent review (2 blocking, 6 major, 10 moderate items and minor ones). Each
@@ -70,10 +70,10 @@ py/odoo_nix_tools/
 ├── scripts/gen_series_data.py     exists; never shipped (flit packs odoo_nix_tools/ only)
 ├── tests/                         unittest suites, run by the package's check phase (§7.2)
 │   ├── support.py                 run_cli(PRODUCT, *argv), make_tree(files), git(root, *args)
-│   ├── shapes/                    copies of target files, real names kept (this is not core/standards)
-│   │   ├── vscode/{ruckus-settings.json, ruckus-extensions.json, millrun-settings.json, millrun-extensions.json}
-│   │   ├── flakes/{ruckus.nix, millrun.nix, edi-addons.nix, vertical-auto-repair-addons.nix}
-│   │   ├── pyproject/{ruckus.toml, edi-addons-nix.toml}   foreign odoo-nix blocks, kept byte for byte
+│   ├── shapes/                    target-shaped files: public addon repos' copies, synthetic project ones
+│   │   ├── vscode/{project-b-settings.json, project-b-extensions.json, project-a-settings.json, project-a-extensions.json}
+│   │   ├── flakes/{project-b.nix, project-a.nix, edi-addons.nix, vertical-auto-repair-addons.nix}
+│   │   ├── pyproject/{project-b.toml, edi-addons-nix.toml}   foreign odoo-nix blocks, kept byte for byte
 │   │   └── icons/{ok-128.png, wide-200x100.png, heavy-150k.png}
 │   └── test_*.py                  §7.2
 └── odoo_nix_tools/
@@ -457,7 +457,7 @@ Notes on values:
   (core §5.6.1): `# >>> odoo-nix: install set (managed from modules.txt) >>>`/`# <<< odoo-nix: install set <<<`,
   `# >>> odoo-nix: module sources (managed) >>>`/`# <<< odoo-nix: module sources <<<`,
   `# >>> odoo-nix: sdist build deps (managed) >>>`/`# <<< odoo-nix: sdist build deps (managed) <<<`
-  (`lib/oca_sources.py:44-47`, `templates/addons/nix/pyproject.toml`, ruckus `pyproject.toml:13,85,140,1217,1230,1237`).
+  (`lib/oca_sources.py:44-47`, `templates/addons/nix/pyproject.toml`, project B's `pyproject.toml`).
   Owned names are kebab-case without spaces (`inputs`, `dev-shell`, `addons-table`).
 - **Caller glob `odoo-*`** matches the five reusable workflows; `fleet-audit.yml` is called only by the profile
   repository and is not a skew row.
@@ -567,7 +567,7 @@ All read `checkout.tracked` and tracked contents only (core §3.4), iterate sort
 **`load_checkout(root)`** wraps `default_load_checkout(PRODUCT)` and adds `extra = {"flake": <comment-stripped
 flake.nix text or "">, "gitlinks": {path: sha} from git ls-files -s mode 160000, "config_path": config_file(root)}`.
 Name: the core rule (`[project].name` of the config file → table `repo` → origin → `root.name`). Two target
-consequences: millrun's `[project].name` is `"odoo-workspace"`, so the checkout is named `odoo-workspace` (its
+consequences: project A's `[project].name` is `"odoo-workspace"`, so the checkout is named `odoo-workspace` (its
 tools project `odoo-workspace-tools`); its only remote is `upstream`, so `new_target_table` writes `repo` (below)
 for the URL placeholders. In an addon repository the config file is `nix/pyproject.toml`, whose `[project].name`
 is the `@PROJECT_NAME@` odoo-init rendered (`edi-addons`, verified), so the name comes from there, not from origin.
@@ -623,16 +623,16 @@ overrides all four (for a repository on `main` whose code targets 20.0, plan C f
 - `cfg.setdefault("shape", facts.shape)`, `cfg.setdefault("series", facts.series)` (so `odoo-nix config series`
   works in CI, §6.4);
 - when the checkout's table has no `integration-branch` and the shape is `project`, set it to `"main"`
-  (step 7 gave the branching default `develop`; a project has no develop+series flow). ruckus gets `master`
-  from `--standards` (origin/HEAD), millrun keeps `main`;
+  (step 7 gave the branching default `develop`; a project has no develop+series flow). project B gets `master`
+  from `--standards` (origin/HEAD), project A keeps `main`;
 - `dependabot.target-branches`: `[]` → `[cfg["integration-branch"]]`;
 - `addon-manifest.licenses-allowed`: `[]` → `[org.license]` when `org.license` is set, else stays `[]`
   (OCA's list, §3.1 pylint-odoo).
 
 **`new_target_table(root, checkout, args, profile)`**: returns `{"repo": "<owner>/<name>"}` when the
-checkout has no `origin` remote and exactly one other remote (millrun: `upstream` →
-`Avunu/millrun`), else `{}`. The core prepends `schema`, `profile` and appends `integration-branch`
-when `origin/HEAD` names another branch (ruckus: `master`; edi-addons: `origin/HEAD -> origin/develop`, the
+checkout has no `origin` remote and exactly one other remote (project A: `upstream` →
+its repository), else `{}`. The core prepends `schema`, `profile` and appends `integration-branch`
+when `origin/HEAD` names another branch (project B: `master`; edi-addons: `origin/HEAD -> origin/develop`, the
 default, so nothing).
 
 ### 2.4 Template context (`context.py`)
@@ -697,7 +697,7 @@ does not depend on the node version (`npm install --package-lock-only` writes `l
 | Path | Hint | `legacy` (replaced silently) |
 |---|---|---|
 | `.pre-commit-config.yaml` | "Move your own hooks into the `# odoo-nix:local-begin hooks` region of the managed file, and your own exclude alternatives into its `exclude` region," | — |
-| `.envrc` | "Put your own lines in the `# odoo-nix:local-begin envrc` region," | `templates/project/.envrc` (the bootstrap `if` + `use flake . --no-pure-eval`); `templates/addons/.envrc` / millrun / all 10 addon repos: `use flake . --no-pure-eval\n`; ruckus: `# The Python env is built from these, so rebuild the shell when they change.\nwatch_file pyproject.toml uv.lock modules.txt\nuse flake . --no-pure-eval\n` |
+| `.envrc` | "Put your own lines in the `# odoo-nix:local-begin envrc` region," | `templates/project/.envrc` (the bootstrap `if` + `use flake . --no-pure-eval`); `templates/addons/.envrc` / project A / all 10 addon repos: `use flake . --no-pure-eval\n`; project B: `# The Python env is built from these, so rebuild the shell when they change.\nwatch_file pyproject.toml uv.lock modules.txt\nuse flake . --no-pure-eval\n` |
 | `.ruff.toml` | "Move your own rules into python-lint's extra-select, ignore and per-file-ignores, or the local region," | — |
 | `.github/dependabot.yml` | "Move your own update entries into the `updates` local region," | — |
 
@@ -758,7 +758,7 @@ def doctor_rows(repo: str, rc: RepoConfig) -> tuple[list[DoctorRow], list[str]]:
     `integration:<id>` with a numeric id (the bump push and the fast-forward need it, core §7.3).
     The variable holds the App's *client ID* (`mirror.yml` passes `vars.AVUNU_CI_APP_ID` as
     `create-github-app-token`'s `client-id`), which is not the numeric App id the ruleset bypass needs; the
-    row says so when release-bypass is missing. A project without an App (ruckus blanks ci.github-app): a
+    row says so when release-bypass is missing. A project without an App (project B blanks ci.github-app): a
     notice that `project-update` PRs get CI by dispatch (§6.4)."""
 ```
 
@@ -819,7 +819,7 @@ def effective(series: str, cfg: Mapping, facts: Facts) -> SeriesData: ...
 | `drop-gen-readme` | always | hook `oca-gen-addon-readme` dropped (Markdown READMEs; OCA's own CI already SKIPs it: `ci.pre_commit_skip`) |
 | `drop-excluded-addons` | always | hook `oca-update-pre-commit-excluded-addons` dropped: the engine renders the `# NOT INSTALLABLE ADDONS` region from discovery; that hook also rewrites `.pre-commit-config.yaml` (`rewrites_pre_commit_config: true`), `.gitignore` and `.coveragerc` |
 | `drop-external-deps` | always (**proposed, pending the user's sign-off**, §0.1) | hook `oca-gen-external-dependencies` dropped: it writes a root `requirements.txt` that nothing in odoo-nix's uv model reads (addons mode derives the lock from manifests, `lib/oca_sources.py --roots=local`). If declined, the hook stays (entry `tools/.venv/bin/oca-gen-external-dependencies`) and `requirements.txt` is tracked as OCA does |
-| `prettier-vscode` | always | the `prettier` hook gets `^\.vscode/` in its exclude, as `check-json` does: prettier would rewrite the editor's JSONC files (ruckus's 4-space `settings.json` to 2 spaces; a final newline and spaces into the one-line `extensions.json`), undoing what jsonc-merge preserves |
+| `prettier-vscode` | always | the `prettier` hook gets `^\.vscode/` in its exclude, as `check-json` does: prettier would rewrite the editor's JSONC files (project B's 4-space `settings.json` to 2 spaces; a final newline and spaces into the one-line `extensions.json`), undoing what jsonc-merge preserves |
 | `addons-dir` | shape project | `oca-fix-manifest-website` gets `--addons-dir=<addons_root>` before its URL argument (its click option defaults to `.`, `tools/fix_manifest_website.py:15`, so in a project with addons in `custom/` it would do nothing) |
 | `forbid-contributing` | `hygiene.forbid-contributing == false` | the `obsolete dotfiles` hook's `files` regex loses the alternative `CONTRIBUTING\.md\|` (an exact substring edit; its absence from a series file is a `RuntimeError`, so a template change is noticed) |
 | `no-readme-fix` | 20.0 | `oca-checks-odoo-module` loses `--fix` (20.0's hook can rename `README.md` → `README.rst`) |
@@ -866,7 +866,7 @@ profile. Strategies are core §5. Every entry lives in `data/manifest.d/<nn>-<ar
 
 Shape gating: `releases` and `packaging` are inert in a project (every entry has `when: shape == "addons"`;
 `release_branch` is `""`), with the notice "<module> applies to addon repositories; it does nothing in a
-project". The Avunu profile turns both on and millrun/ruckus inherit them (ruckus overrides `packaging` off;
+project". The Avunu profile turns both on and projects A and B inherit them (project B overrides `packaging` off;
 neither overrides `releases`), so inert-with-notice is required rather than an error.
 
 #### dev-shell
@@ -882,7 +882,7 @@ neither overrides `releases`), so inert-with-notice is required rather than an e
   {% endif %}
   ```
   Claimed: `odoo-nix`, `standards-profile`. Not claimed: `nixpkgs` (its `follows` stays hand-written; both target
-  shapes have it), `self` (`self.submodules = true;` in millrun/ruckus is never an input, core §5.6.4), `ocb` and
+  shapes have it), `self` (`self.submodules = true;` in projects A and B is never an input, core §5.6.4), `ocb` and
   every other addons-mode input (the vertical-auto-repair flake has 25: OCA, Avunu addon repos, muk-it).
   No `seed_template`: a seed duplicated odoo-init's scaffold, and a seeded copy of `templates/addons/flake.nix`
   carried a hand-written `odoo-nix.url = "github:Avunu/odoo-nix"` outside any block, so its own first sync hit the
@@ -903,8 +903,8 @@ neither overrides `releases`), so inert-with-notice is required rather than an e
 - **`.gitignore` block** (`templates/gitignore/dev-shell.j2`): both shapes `/odoo.conf`, `/odools.toml`, `/.venv`,
   `/.devenv/`, `/.direnv/`, `/.odoo-nix/`, `/tools/.venv`, `/tools/.bin`, `/node_modules`, `/result`, `/result-*`; plus
   `__pycache__/`, `*.py[cod]`. No trailing slash on the links (`odoo-nix` convention: git records a symlink as a
-  file). `absorb` removes the identical hand lines (all 10 addon repos' `/.odoo-nix/` … `/result-*`, millrun's and
-  ruckus's `/odoo.conf`, `/odools.toml`, `/.venv`, `/.devenv/`, `/.direnv/`). The addon repos' `node_modules/`
+  file). `absorb` removes the identical hand lines (all 10 addon repos' `/.odoo-nix/` … `/result-*`, project A's and
+  project B's `/odoo.conf`, `/odools.toml`, `/.venv`, `/.devenv/`, `/.direnv/`). The addon repos' `node_modules/`
   (trailing slash) is not identical and stays; it does not match the `node_modules` link, which `/node_modules`
   does. `absorb` never removes comments (core §5.6.3), so the addon repositories' two comment paragraphs
   ("# odoo-nix addons mode: links the dev shell makes …", "# devenv state: …") are left with nothing under them;
@@ -1017,10 +1017,10 @@ equal to the render, core §5.5) never removes what the shell seeded and will no
 file. `test_ide_real` asserts `set` and `seed` share no leaf.
 
 `templates/ide/settings.json.j2` renders `{set, forbidden, never}`; `extensions.json.j2` renders `{union}`. Real
-shapes the editor must keep (`tests/shapes/vscode/`): ruckus settings (4-space indent, `git.detectSubmodules`,
-`python-envs.defaultEnvManager`, `Odoo.selectedProfile`), millrun settings (2-space, inline
+shapes the editor must keep (`tests/shapes/vscode/`): project B settings (4-space indent, `git.detectSubmodules`,
+`python-envs.defaultEnvManager`, `Odoo.selectedProfile`), project A settings (2-space, inline
 `"python.analysis.extraPaths": [".devenv/state/pythonpath"]`, `git.ignoreLimitWarning`), both `extensions.json`
-one-line with no final newline (millrun keeps `bierner.lit-html`). `python-envs.defaultEnvManager` gets a notice
+one-line with no final newline (project A keeps `bierner.lit-html`). `python-envs.defaultEnvManager` gets a notice
 ("overrides the interpreter; remove it", plan D.4), never an edit. The preserved layout lasts beyond the first
 `prek run` because prettier skips `.vscode/` (deviation `prettier-vscode`, §3.0).
 
@@ -1087,12 +1087,12 @@ no `tags.json`. In a project, `integration_bypass` is `[]` (§2.2). Required che
 
 `checks`: every installable addon has `README.md` or `README.rst` (`readme.required`); 4 of the 37 fleet addons
 lack one (`edi_purchase_order_import`, `shopfloor_mobile_base_theme_carbon`, `fleet_vehicle_simplify`,
-`repair_service_productivity`), ruckus 1 of 4 (`mrp_production_workorder_tab`). Optional root block
+`repair_service_productivity`), project B 1 of 4. Optional root block
 `addons-table`: `| [name](name/README.md) | summary | license |` rows from manifests, sorted.
 
 #### icons
 
-`odoo-nix check icons` (§6.2); none of the 37 fleet addons nor ruckus's 4 has `static/description/icon.png`.
+`odoo-nix check icons` (§6.2); none of the 37 fleet addons nor project B's 4 has `static/description/icon.png`.
 No icon hook is rendered (OCA's data has none); `check icons --fix` passes `--addons-dir=<addons_root>` to
 `oca-gen-addon-icon` (or the failing addon directories), never relying on a default.
 
@@ -1178,7 +1178,7 @@ Rules:
    `exclude` (`# odoo-nix:local-begin exclude` / `# odoo-nix:local-end exclude`, indented inside the block
    scalar: under `(?x)` those lines are regex comments, and core regions accept an indented marker,
    `regions.py:36-37`), then `# odoo-nix: locks` and the `locks-excluded` alternative (last, so it carries no
-   trailing `|`). Each region line is an alternative ending in `|`; millrun's tracked `^artifacts/|` (`.eml`,
+   trailing `|`). Each region line is an alternative ending in `|`; project A's tracked `^artifacts/|` (`.eml`,
    `.html`, `.json`, `.pdf` samples that trailing-whitespace, `mixed-line-ending --fix=lf` and prettier would
    rewrite) and `^docs/|` go there. It applies to every hook, unlike `js-xml.exclude` (prettier and eslint only).
    No `default_language_version`.
@@ -1279,7 +1279,7 @@ def notices(plan: Plan) -> list[str]:
     # the editor use tools/.venv/bin/ruff"); python-envs.* in .vscode/settings.json; shape signals of both kinds;
     # comment paragraphs the .gitignore absorb emptied (§3.1 dev-shell, until CR4); tracked files with unstaged
     # changes that this run writes ("sync stages the files it writes: your own changes in <path> are staged
-    # too; commit or stash them first", until CR5; the real ruckus checkout has 26 such entries today).
+    # too; commit or stash them first", until CR5; a real project checkout had 26 such entries).
 
 def checks(plan: Plan) -> list[Item]:  # wanted == current; exit 1 (drift) under --check and phase B
     # readme: an installable addon without README.md/README.rst
@@ -1871,7 +1871,7 @@ odoo test [MODULES] [DATABASE] [--all] [--fresh-db] [--keep-db] [--coverage RCFI
   passes it explicitly, so the two agree by test (`test_gate`), not by shared code.
 - `--fresh-db`: a database `odoo_nix_test_<pid>` created by `-i <modules>`, dropped afterwards unless
   `--keep-db`; `--test-enable --test-tags /<m1>,/<m2>,…` (own addons only; dependencies' tests do not run);
-  ≥ 19.0 adds `--with-demo`; < 19.0 passes `--without-demo=` so a project's `without_demo = true` (millrun's
+  ≥ 19.0 adds `--with-demo`; < 19.0 passes `--without-demo=` so a project's `without_demo = true` (project A's
   settings) does not reach the test database; `--stop-after-init --workers=0`.
 - `--coverage RCFILE` sets `ODOO_NIX_COVERAGE_RCFILE=RCFILE` for the child (the hook in `lib/raw-odoo.nix`).
 - The tour-prerequisite refusal (`ODOO_NIX_TEST_ALLOW_SKIP`) is unchanged.
@@ -1887,7 +1887,7 @@ def icons(ctx: CheckContext, fix: bool) -> list[str]:
     # --fix: tools/.venv/bin/oca-gen-addon-icon for each failing addon with --src-icon=<pin-path standards-profile>/<src-icon>
     # (flags checked against the pinned maintainer-tools at stage O7); no src-icon file → exit 2
 def submodules(ctx: CheckContext) -> list[str]:
-    # every .gitmodules entry has branch = <series> (projects; millrun 72 entries, ruckus 24, all 18.0 today)
+    # every .gitmodules entry has branch = <series> (projects; project A 72 entries, project B 24, all 18.0 today)
 ```
 
 Exit 0, 1 with one line per problem, 2, 3. `--format github` annotates `file=<addon>/__manifest__.py`.
@@ -1908,11 +1908,11 @@ All pin actions by SHA (`ci-pins`), pass inputs through `env:`, clear `$RUNNER_T
 
 | Workflow | Job (check) | Steps |
 |---|---|---|
-| `odoo-lint.yml` | `lint` | checkout (fetch-depth 0, **no submodules**); Nix + cache; `rev=$(jq -r '.nodes[.nodes.root.inputs["odoo-nix"]].locked.rev' flake.lock)` and owner/repo the same way; `nix develop --impure --expr 'let e = builtins.getFlake "github:<owner>/<repo>/<rev>"; in e.lib.standards.lintShell { system = builtins.currentSystem; root = /. + builtins.getEnv "PWD"; }' -c odoo-nix gate lint --format github`. The project flake is never evaluated: with `self.submodules = true` (millrun: 72 submodules, among them the private odoo-studio) Nix would read the submodules to evaluate it. The CLI is the locked engine's own build, so no install and no skew |
-| `odoo-test.yml` | `test` | checkout **with submodules** (`submodules: recursive`), using the App token when `ci.github-app` is set (installed on every private submodule's repository: odoo-studio for millrun), else `GITHUB_TOKEN` (public submodules only; a private one fails the checkout with that hint); Nix + cache; `ODOO_NIX_CI=1 nix develop --no-pure-eval -c odoo-nix gate test --format github`; upload `.odoo-nix/test/odoo.log` and `coverage.xml`. Tests need the code, so this job cannot avoid the submodules |
+| `odoo-lint.yml` | `lint` | checkout (fetch-depth 0, **no submodules**); Nix + cache; `rev=$(jq -r '.nodes[.nodes.root.inputs["odoo-nix"]].locked.rev' flake.lock)` and owner/repo the same way; `nix develop --impure --expr 'let e = builtins.getFlake "github:<owner>/<repo>/<rev>"; in e.lib.standards.lintShell { system = builtins.currentSystem; root = /. + builtins.getEnv "PWD"; }' -c odoo-nix gate lint --format github`. The project flake is never evaluated: with `self.submodules = true` (project A: 72 submodules, among them the private odoo-studio) Nix would read the submodules to evaluate it. The CLI is the locked engine's own build, so no install and no skew |
+| `odoo-test.yml` | `test` | checkout **with submodules** (`submodules: recursive`), using the App token when `ci.github-app` is set (installed on every private submodule's repository: odoo-studio for project A), else `GITHUB_TOKEN` (public submodules only; a private one fails the checkout with that hint); Nix + cache; `ODOO_NIX_CI=1 nix develop --no-pure-eval -c odoo-nix gate test --format github`; upload `.odoo-nix/test/odoo.log` and `coverage.xml`. Tests need the code, so this job cannot avoid the submodules |
 | `odoo-pr-policy.yml` | `pr-policy` (`if: github.event_name != 'push'`: skipped, so green, on the push run that the bump commit needs) | checkout (fetch-depth 0, no submodules); `standards-install` (`cli: odoo-nix`, `engine-input: odoo-nix`, `env-prefix: ODOO_NIX`, `install-spec` = `engine.install_spec`); committed from the locked engine (`nix profile install github:<owner>/<repo>/<rev>#committed`, §5.1; `--inputs-from .` would fetch the project flake and its submodules); `standards-pr-policy` (`integration: <input>`) |
 | `odoo-release.yml` | `release` (concurrency `release`, no cancel) | App token (`actions/create-github-app-token` with **`client-id`** = the input, as `mirror.yml:43` does; contents + workflows write); checkout with it, **`ref: <integration>`** (the branch head, not `github.sha`: a push-triggered run of an older merge would otherwise bump a stale tree and have its push rejected), fetch-depth 0; `standards-install`; `series=$(odoo-nix config series)`; `standards-release-ff` (`bump: true`, `release-branch: $series`, `sha` = the checked-out head, `wait-checks: 900`, `token`). A push still rejected (a merge in the seconds between checkout and push) is exit 1 under the core (§8.2 step 6) until CR6 (§10) |
-| `odoo-deps.yml` | `relock-plan`, `relock-push`, `automerge`, `update-branches` (addons); `project-update` (projects) | frappe-nix `app-deps.yml`'s graph: a Dependabot nix PR's relock runs `nix run --no-pure-eval .#relock` with no write token, a second job applies its patch with the App token; `standards-deps-automerge` with the decision table (`policy` from `dependabot.auto-merge-policy`); `standards-update-branches` on push when `update-branches`. **project-update**: checkout with submodules (the token rule of `odoo-test.yml`); on `schedule: <ci.project-update>`, `nix develop --no-pure-eval -c odoo project update` (each submodule to the tip of its `.gitmodules` branch, then relock), commit `chore(deps): update submodules`, push `standards/project-update`, `gh pr create` with the App token; auto-merge only when `dependabot.auto-merge`. **Without an App** (ruckus blanks `ci.github-app`): the PR is opened with `GITHUB_TOKEN`, whose events start no workflow, so the job then runs `gh workflow run ci.yml --ref standards/project-update` and the same for `pr-policy.yml` (`actions: write`; a `workflow_dispatch` from `GITHUB_TOKEN` does start a run), whose check runs land on the PR's head commit |
+| `odoo-deps.yml` | `relock-plan`, `relock-push`, `automerge`, `update-branches` (addons); `project-update` (projects) | frappe-nix `app-deps.yml`'s graph: a Dependabot nix PR's relock runs `nix run --no-pure-eval .#relock` with no write token, a second job applies its patch with the App token; `standards-deps-automerge` with the decision table (`policy` from `dependabot.auto-merge-policy`); `standards-update-branches` on push when `update-branches`. **project-update**: checkout with submodules (the token rule of `odoo-test.yml`); on `schedule: <ci.project-update>`, `nix develop --no-pure-eval -c odoo project update` (each submodule to the tip of its `.gitmodules` branch, then relock), commit `chore(deps): update submodules`, push `standards/project-update`, `gh pr create` with the App token; auto-merge only when `dependabot.auto-merge`. **Without an App** (project B blanks `ci.github-app`): the PR is opened with `GITHUB_TOKEN`, whose events start no workflow, so the job then runs `gh workflow run ci.yml --ref standards/project-update` and the same for `pr-policy.yml` (`actions: write`; a `workflow_dispatch` from `GITHUB_TOKEN` does start a run), whose check runs land on the PR's head commit |
 | `fleet-audit.yml` | `audit` | checkout the profile repo; `standards-install` (the profile repo's `flake.lock` pins odoo-nix); `standards-fleet-audit` (`fleet`, `issue-repo`, `audit-token: secrets.AUDIT_TOKEN`) |
 
 Callers in a checkout (§3.1 ci): `ci.yml` (top-level **`name: ci`**, which `workflow_run` matches by name;
@@ -1996,14 +1996,14 @@ The npm lock is the same for every profile that has `js-xml` on (one group).
 |---|---|
 | `test_product` | `PRODUCT` builds; `standards_core.testing.conformance.check(PRODUCT) == []` (static part; render and CI parts as the core grows) |
 | `test_series` | each file loads (`schema_version` 1); every `DEVIATIONS` id changes exactly its fact on the right series; no placeholder survives `effective` with an org; pins of `tool-pins.json` fill every null-version tool |
-| `test_discover` | `config_file` four cases; shape precedence (explicit, flake `addons.enable`, root manifest, odoo gitlink, `modules.txt`, none → 2, both → addons + notice); series precedence and the no-data refusal; addon facts on copies of edi-addons (`web_theme_carbon` package.json), ruckus (no website, `description`), shopfloor (LGPL-3 addon); `new_target_table` with an `upstream`-only remote |
+| `test_discover` | `config_file` four cases; shape precedence (explicit, flake `addons.enable`, root manifest, odoo gitlink, `modules.txt`, none → 2, both → addons + notice); series precedence and the no-data refusal; addon facts on copies of edi-addons (`web_theme_carbon` package.json), a synthetic project addon (no website, `description`), shopfloor (LGPL-3 addon); `new_target_table` with an `upstream`-only remote |
 | `test_precommit` | 18/19/20 hook lists against OCA's reference `.pre-commit-config.yaml` minus the dropped three; `^.github/` per hook; stage names (18.0); `--fix` gone (20.0); not-installable region; module gating; entries resolve to `tools/.venv/bin`/`node_modules/.bin` |
 | `test_tools_groups` | `tools/pyproject.toml` from nothing; a hand-raised ruff pin kept, a lower one raised, a hand-added unknown tool kept in place; pylint-odoo turned off removes `pylint-odoo` and `oca-odoo-pre-commit-hooks` by name while python-lint stays on; `fail_under` seeded once and never overwritten; the `deps` group owns `[project].dependencies` alone |
 | `test_ruff_toml` | every `.ruff.toml` rendering parses with `tomllib`; `extend-exclude` is top-level; a region not opening with a table header is exit 2 |
 | `test_lock_checks` | the stale-lock items for `tools/uv.lock` (root `requires-dist` tables) and `package-lock.json` (`packages[""].devDependencies`), equality and subset modes |
 | `test_package_json` | created in prettier form; a frontend's own scripts kept; pins reconciled as floors |
 | `test_ide_real` | the four `tests/shapes/vscode/*` files: managed leaves set, `Odoo.serverConfigPath` deleted, `python-envs.*` and `Odoo.selectedProfile` untouched, inline arrays stay inline, no final newline stays absent, 4-space indent kept |
-| `test_flake_block` | `tests/shapes/flakes/*`: ruckus (`''${ODOO_NIX_HTTP_PORT:-8069}`, `self.submodules`), millrun, edi-addons (`ocb`, `oca-*` unclaimed), vertical-auto-repair (25 inputs): first opt-in diff exit 2, `--force`, idempotent second run, `lock_problems` clean |
+| `test_flake_block` | `tests/shapes/flakes/*`: project-b (`''${ODOO_NIX_HTTP_PORT:-8069}`, `self.submodules`), project-a, edi-addons (`ocb`, `oca-*` unclaimed), vertical-auto-repair (25 inputs): first opt-in diff exit 2, `--force`, idempotent second run, `lock_problems` clean |
 | `test_foreign_blocks` | `tests/shapes/pyproject/*` keep the install-set, module-sources and sdist-build-deps blocks byte for byte through sync |
 | `test_release` | `OdooSeries` arithmetic (`18.0.1.2.3` + minor → `18.0.1.3.0`), prefix refusal; `ManifestTool.write_version` byte-preserving on real manifest shapes (single and double quotes, trailing comma, comments); `exempt` |
 | `test_checks` | each `checks` item, `preflight` refusal and notice |
@@ -2048,8 +2048,8 @@ fixture × profile (18.0 only).
    [tool.odoo-nix]
    schema = 1
    profile = "github:Avunu/odoo-standards-profile/v1"
-   # integration-branch = "<origin/HEAD>" only when it differs from the default (ruckus: "master")
-   # repo = "<owner>/<name>" only when there is no origin remote (millrun: "Avunu/millrun")
+   # integration-branch = "<origin/HEAD>" only when it differs from the default (project B: "master")
+   # repo = "<owner>/<name>" only when there is no origin remote (project A: its `upstream`)
    ```
 2. Phase A: the `flake.nix` inputs block (`odoo-nix.url = "github:Avunu/odoo-nix/release-2"`, `standards-profile`
    with `flake = false`), `.envrc`, the `.gitignore` block; `nix flake lock`; second build with the locked profile;
@@ -2058,13 +2058,13 @@ fixture × profile (18.0 only).
    --ignore-scripts --no-audit --no-fund`; retire rules; staging. Remaining `checks` items are reported (exit 1).
 
 A first run on any target exits 2 with the inputs-block diff, because every target's `odoo-nix.url` differs from the
-rendered one (`github:Avunu/odoo-nix` in millrun/ruckus, `github:Avunu/odoo-nix/feat/addons-mode` in the 10 addon
+rendered one (`github:Avunu/odoo-nix` in projects A and B, `github:Avunu/odoo-nix/feat/addons-mode` in the 10 addon
 repos). The adopter reads the diff and reruns with `--force`, which also replaces a differing first-opt-in file.
 A repository scaffolded by an odoo-init that carries the §5.5 template change opts in without `--force` (equal
 definitions move silently).
 
 Sync stages the files it writes (core §6.3). In a dirty tree that stages the adopter's own edits in those files
-too (the real ruckus checkout at `/home/batonac/Development/odoo-ruckus` has 26 changed entries, among them
+too (a real project checkout had 26 changed entries, among them
 `.vscode/settings.json`, `flake.nix` and `flake.lock`); `notices` names them (§3.4) until CR5, and the adoption
 steps commit or stash first.
 
@@ -2098,20 +2098,20 @@ Then, per plan D.3: `prek run -a` (`style:` commit), manual lint fixes, the 4 mi
 `release-bypass`). Ordering across repositories: `web-addons`, `edi-addons`, `fleet-addons`, `repair-addons`,
 `shopfloor-app-addons` before `vertical-auto-repair-addons`, which takes them as inputs at `18.0`.
 
-### 8.3 A project (millrun, odoo-ruckus)
+### 8.3 A project (projects A and B)
 
-| Item | millrun (`Avunu/millrun`, `main`, private) | odoo-ruckus (`Walnook-LLC/odoo-ruckus`, `master`, private) |
+| Item | project A (`main`, private) | project B (`master`, private) |
 |---|---|---|
 | Config file | root `pyproject.toml` (`[project].name = "odoo-workspace"`) | root `pyproject.toml` |
-| Table extras | `repo = "Avunu/millrun"` (only remote is `upstream`); `integration-branch` derived `main` | `integration-branch = "master"` from origin/HEAD; the Walnook overrides of plan D.4 (`org`, `addon-manifest`, `ci.runs-on`, blank `ci.github-app`, `dependabot.auto-merge = false`, `repo-policy` off, `packaging` off, `untested ruckus_demo_data`) |
+| Table extras | `repo = "<owner>/<name>"` (only remote is `upstream`); `integration-branch` derived `main` | `integration-branch = "master"` from origin/HEAD; the client's overrides of plan D.4 (`org`, `addon-manifest`, `ci.runs-on`, blank `ci.github-app`, `dependabot.auto-merge = false`, `repo-policy` off, `packaging` off, one addon in `untested`) |
 | Overrides (plan Amendments) | `repo-policy` off, `dependabot.auto-merge = false`, `releases` off | `releases` inherited on → inert with a notice (or set off) |
 | flake.nix | `self.submodules = true;` stays (never an input); `odoo-nix.url = "github:Avunu/odoo-nix"` → block (`--force`); `nixpkgs.follows` stays | same; the `''${ODOO_NIX_HTTP_PORT:-8069}` indented string is lexed correctly (core §5.6.2) |
 | `.envrc` | `use flake . --no-pure-eval` → legacy, replaced (gains the bootstrap block and `watch_file`) | the `watch_file … use flake` text → legacy, replaced |
-| `.gitignore` | `/odoo.conf`, `/odools.toml`, `/.venv`, `/.devenv/`, `/.direnv/` absorbed; `odoo.log`, `docs/.obsidian`, `/.odoo-nix-backup/` stay | the same lines absorbed; `/Ruckus/` stays |
+| `.gitignore` | `/odoo.conf`, `/odools.toml`, `/.venv`, `/.devenv/`, `/.direnv/` absorbed; `odoo.log`, `docs/.obsidian`, `/.odoo-nix-backup/` stay | the same lines absorbed; a local-notes directory line stays |
 | `.vscode` | 2-space settings with inline array; `git.ignoreLimitWarning` kept; extensions keeps `bierner.lit-html` | 4-space settings; `python-envs.defaultEnvManager` → notice (plan D.4: delete before adoption); `Odoo.selectedProfile` untouched |
 | Submodules | 72 `.gitmodules` entries, all `branch = 18.0` (OCB, OCA, the 10 Avunu addon repos, odoo-studio, muk-it) → `check submodules` clean | 24 entries, all `branch = 18.0` |
 | Updates | `deps.yml` `project-update` job weekly; no Dependabot gitsubmodule | same, without auto-merge |
-| Addons | 3 in `custom/` today (`millrun`, `product_napaonline_lookup`, `stock_camera_scanner`; the "31" in the task predates `chore/split-addons-repos`) | 4 in `custom/`, LGPL-3, author `Walnook LLC`, no website, each with the deprecated `description` key (pylint `manifest-deprecated-key`), 3 READMEs, no icon, `ruckus_demo_data` without tests |
+| Addons | 3 in `custom/` today (the "31" in the task predates `chore/split-addons-repos`) | 4 in `custom/`, LGPL-3, the client as author, no website, each with the deprecated `description` key (pylint `manifest-deprecated-key`), 3 READMEs, no icon, a demo-data addon without tests |
 | Dev group `ruff` | `[dependency-groups].dev` lists `ruff` → notice; drop it by hand | same |
 | Nix lint (`nix-lint` is on in `recommended`) | `{ self, odoo-nix, ... }@inputs` with `self` unused: deadnix fails (verified); drop `self` in the `style:` commit | same |
 | Hook excludes | `^artifacts/\|` and `^docs/\|` in the `.pre-commit-config.yaml` `exclude` local region (tracked `.eml`/`.html`/`.json`/`.pdf` samples and planning notes that whitespace fixers and prettier would rewrite) | — |
@@ -2268,7 +2268,7 @@ lines". `test_blocks` adds it.
 
 ### CR5: sync does not stage a file that had the user's changes (improvement)
 
-**Why.** Core §6.3 stages every touched path. In a dirty tree (the real ruckus checkout: 26 changed entries,
+**Why.** Core §6.3 stages every touched path. In a dirty tree (a real project checkout: 26 changed entries,
 `.vscode/settings.json` among them) that stages the user's own edits together with sync's.
 
 **Proposal.** §6.3: "paths with unstaged changes when the run starts (`git diff --name-only`) are written but not
@@ -2324,7 +2324,7 @@ conventional commits on.
 
 Review of 2026-11-03: 2 blocking, 6 major, 10 moderate and 10 minor items. Each was checked against the core code
 (`pdn-standards-core/standards`, stage 1 committed plus the stage-2 files in its working tree), odoo-nix at
-`feat/standards`, the 10 addon repositories, millrun, ruckus, the profile draft and the tools themselves before it
+`feat/standards`, the 10 addon repositories, projects A and B, the profile draft and the tools themselves before it
 was resolved. 27 were accepted (some refined), 1 was accepted in part (P2-12: the statix half did not reproduce),
 none was rejected outright. The critique's "what checks out" list was not re-litigated.
 
@@ -2334,21 +2334,21 @@ none was rejected outright. The critique's "what checks out" list was not re-lit
 | P0-2 | Opting in an addon repository without addons-mode files breaks the relock; seeded flake trips claims | yes: `develop` of all 10 has no `flake.nix`/`nix/` (`git ls-tree`); relock seeds only a missing file (`workspace/relock.py:76`, `update.py:80`); `_replace_block` warns and the sync returns 1 (`oca_sources.py:132-136`, `:224-228`); `templates/addons/flake.nix` has `odoo-nix.url = "github:Avunu/odoo-nix"` outside a block and no `oca-*` | Accepted, with the refuse option: preflight refuses an addons checkout without tracked `flake.nix` and a `nix/pyproject.toml` holding both foreign blocks, with the `odoo-init --addons` hint (§3.4); `odoo-init --addons/--migrate --standards` scaffolds first (§5.5); seed templates dropped (§3.1, §3.5); odoo-init's templates render the release-branch URL so a fresh flake opts in silently (§5.5); the merged `feat/dev-env` PR is the explicit precondition (§0.1, §8.2) |
 | P1-3 | `tools.nix` not feasible: no overrides, `lockAudit`, build deps; maintainer-tools scm version; closure; stale locks undetected; `floors: "uv"` inert | yes: `lib/python.nix:291,314`; cached dist-info `oca_maintainers_tools-0.1.dev1+g31bdbd8e4` and its `Requires-Dist` (selenium, twine, pypandoc, erppeek, setuptools-odoo, unpinned whool); core `UvLockHandler` checks only missing/floors | Accepted. `tools.nix` reuses `pythonLib.overrides` and `lockAudit`, overrides `SETUPTOOLS_SCM_PRETEND_VERSION`, gets sdist build deps through the `odoo-nix-build-deps` block (§5.3); `--check` items compare `tools/uv.lock`'s root `requires-dist` (tables, as in `nix/uv.lock`) and `package-lock.json`'s `packages[""].devDependencies` with their manifests (§3.4); `floors: "uv"` dropped (§3.1) |
 | P1-4 | "No PATH dependency" false for Nix-provided hooks; rule-5 table inconsistent | yes: §3.3 rule 5 entries were bare names | Accepted. `tools/.bin` link to a `buildEnv` of `nixTools`, gitignored, GC-rooted; every Nix hook's entry is `tools/.bin/<tool>`; rule 5 rewritten (§3.1 dev-shell, §3.3, §5.2); `committed_argv` prefers `tools/.bin/committed` |
-| P1-5 | CI lint evaluates a `self.submodules = true` flake after a checkout without submodules; `--inputs-from .` too | yes: millrun `flake.nix:7`, 72 `.gitmodules` entries incl. private `odoo-studio` | Accepted. `odoo-lint.yml` builds `lib.standards.lintShell` from the locked engine over the checkout path (`--impure --expr`); `pr-policy` installs `committed` from the locked engine (`packages.committed`); `odoo-test.yml` and `project-update`, which need the code, check out submodules with the App token (§5.1, §5.2, §6.4) |
+| P1-5 | CI lint evaluates a `self.submodules = true` flake after a checkout without submodules; `--inputs-from .` too | yes: project A's `flake.nix`, 72 `.gitmodules` entries incl. private `odoo-studio` | Accepted. `odoo-lint.yml` builds `lib.standards.lintShell` from the locked engine over the checkout path (`--impure --expr`); `pr-policy` installs `committed` from the locked engine (`packages.committed`); `odoo-test.yml` and `project-update`, which need the code, check out submodules with the App token (§5.1, §5.2, §6.4) |
 | P1-6 | `tools/pyproject.toml` modelling: (a) one dependencies key across groups; (b) lock tied to python-lint; (c) ide needs js-xml | yes: core §5.3 "each group owns its keys"; §3.1 row; `prettier.prettierPath` | Accepted. (a) one `deps` group owns the key; `reconcile` merges by package name against the known tool set (§3.1); (b) both entries list `TOOLS_MODULES`, and `pylint-odoo → python-lint` is no longer needed (§2.1, §3.1); (c) `needs["ide"] = ("python-lint", "js-xml")` (§2.1) |
 | P1-7 | Ruleset/branch logic: `*.0` blocks other series; series integration branch; projects inherit the bypass | yes: `release_pattern="refs/heads/*.0"`; odoo-studio's `origin/HEAD` is `18.0`; core §7.3 bypass condition | Accepted. `repo_policy_values`: `release_pattern = refs/heads/<series>`, `integration_bypass = []` in a project (§2.2); preflight refuses develop+series on a `^\d+\.0$` integration branch (§2.2, §3.4); A12 rewritten (§2.7); core fix proposed as **CR3** |
 | P1-8 | prek workspace mode may run submodules' configs | partly: with prek 0.5.7 a nested config in a tracked plain directory runs, one inside a submodule does not; a root `exclude` does not stop discovery; `-c` limits the run to the root config; `prek install -c` records `--config` in the hook | Accepted for all nested configs, not just submodules: `-c .pre-commit-config.yaml` in the gate, `prek install` and odoo-nix's own `prek-action` (whose synced fixtures would otherwise run); `standards-prek-*` plants a nested config (§1.2, §5.2, §6.1.1, §7.3) |
 | P2-9 | `oca-fix-manifest-website`/`oca-gen-addon-icon` default to `--addons-dir=.`; example lacks `pass_filenames: false` | yes: `fix_manifest_website.py:15` `default="."`; series data has `pass_filenames: false` | Accepted. Deviation `addons-dir` (projects); `check icons --fix` always passes the directory; the example and the `system-language` row keep `pass_filenames: false` (§3.0, §3.1 icons, §3.3) |
-| P2-10 | Repositories cannot extend the top-level exclude | yes: millrun tracks `artifacts/` (2 `.eml`, 3 `.html`, 3 `.json`, 1 `.pdf`, …) and `docs/` | Accepted as a local region `exclude` inside the `(?x)` block scalar (markers are regex comments there; core regions accept indented markers, `regions.py:36-37`); millrun's entries in §8.3 (§3.3 rule 6, rendered example) |
+| P2-10 | Repositories cannot extend the top-level exclude | yes: project A tracks `artifacts/` (2 `.eml`, 3 `.html`, 3 `.json`, 1 `.pdf`, …) and `docs/` | Accepted as a local region `exclude` inside the `(?x)` block scalar (markers are regex comments there; core regions accept indented markers, `regions.py:36-37`); project A's entries in §8.3 (§3.3 rule 6, rendered example) |
 | P2-11 | `.ruff.toml` layout puts top-level keys and the region after `[lint.mccabe]` | yes (TOML table scoping) | Accepted. Top-level keys first; the region last and required to open with a table header (exit 2 otherwise); `test_ruff_toml` parses every rendering (§3.1, §7.2) |
-| P2-12 | `nix-lint` fails on the targets (statix `empty_pattern`, deadnix unused `self`); templates unlinted | **in part**: statix reports nothing on the edi-addons flake or `templates/addons/flake.nix` (its `empty_pattern` does not flag these module lambdas; it does flag a non-module `({ ... }: 1)`); deadnix flags `self` in millrun's and ruckus's flakes; `templates/project/flake.nix` has the same unused `self`; odoo-nix's nix-lint skips `templates/` (`flake.nix:136-143`) | Accepted for deadnix and templates; no `statix.toml` and no deadnix flag change needed. Template fix and a `templates-nix-lint` check (§5.5, §7.3); adoption rows drop `self` (§8.3); the addon flakes are recorded as clean (§8.2) |
+| P2-12 | `nix-lint` fails on the targets (statix `empty_pattern`, deadnix unused `self`); templates unlinted | **in part**: statix reports nothing on the edi-addons flake or `templates/addons/flake.nix` (its `empty_pattern` does not flag these module lambdas; it does flag a non-module `({ ... }: 1)`); deadnix flags `self` in project A's and project B's flakes; `templates/project/flake.nix` has the same unused `self`; odoo-nix's nix-lint skips `templates/` (`flake.nix:136-143`) | Accepted for deadnix and templates; no `statix.toml` and no deadnix flag change needed. Template fix and a `templates-nix-lint` check (§5.5, §7.3); adoption rows drop `self` (§8.3); the addon flakes are recorded as clean (§8.2) |
 | P2-13 | Phase B re-enters the full dev shell for npm; re-exec evaluates the project flake | yes: odoo-init `runtimeInputs` are sources, git, uv (`lib/init.nix:47-52`) | Accepted. `pkgs.nodejs` on odoo-init's PATH; `reexec_argv`/`reentry_argv` run the locked engine's `odoo-init` (§2.1, §2.5, §5.1, §5.5) |
 | P2-14 | `links` anchored on `$DEVENV_ROOT`, unset in the lint shell | yes (`mkShell` sets no `DEVENV_ROOT`) | Accepted. `root="$(git rev-parse --show-toplevel)"` (§5.2) |
 | P2-15 | Release job: `github.sha` checkout; `workflow_run` name; `client-id`; numeric App id | yes: `mirror.yml:43` `client-id: ${{ vars.AVUNU_CI_APP_ID }}`; core §8.2 step 6 makes a rejected push exit 1 | Accepted. `ref: <integration>`, `name: ci`/`name: pr-policy`, `client-id`, the numeric id named in §4.4 and the doctor row (§2.7, §4.4, §6.4); the remaining race is **CR6** |
 | P2-16 | Fixtures and tests contradict each other (README defect vs exit 0; no `flake.lock`; one lock for three profiles; packaged fixtures without locks) | yes (§7.1/§7.2 as written) | Accepted. Clean fixtures plus defect variants; committed `flake.lock` and `ALLOW_SKEW` in checks; locks per fixture × profile; `product.fixtures` carry the superset lock, which the subset comparison accepts; **CR2** for the exact rule (§7.1, §7.2, §7.3) |
 | P2-17 | Stage gating off by one (O1 `cli.py`; O3 needs C1) | yes: core §12 puts `cli.py` in stage 2; `config.resolve`'s root rule | Accepted. `cli.py`/`test_cli`/`packages.odoo-nix` move to O3; O3 needs CR1 for the addons fixture (§9) |
 | P2-18 | `odoo test --all` would import `odoo_nix_tools` into Odoo's interpreter | yes: `lib/cli.nix:112` prefixes the target env; 20.0 is `python314` | Accepted. `tomllib` + `ast` in `odoo_nix_cli`; the gate passes the list explicitly; boundary note in §5.1 (§6.1.2) |
-| P3-a | ruckus without an App: `project-update` PRs never get CI | yes: plan D.4 blanks `ci.github-app`; GITHUB_TOKEN events start no workflow | Accepted. The job dispatches `ci.yml`/`pr-policy.yml` on its branch; doctor notice (§2.7, §6.4, §8.3) |
+| P3-a | project B without an App: `project-update` PRs never get CI | yes: plan D.4 blanks `ci.github-app`; GITHUB_TOKEN events start no workflow | Accepted. The job dispatches `ci.yml`/`pr-policy.yml` on its branch; doctor notice (§2.7, §6.4, §8.3) |
 | P3-b | zizmor runs online audits with `GH_TOKEN` | yes (zizmor's online audits use `GH_TOKEN`) | Accepted. `--offline` in the hook (§3.3) |
 | P3-c | `absorb` leaves `.gitignore` comment paragraphs empty | yes: edi-addons `.gitignore` has two such paragraphs | Accepted. Notice now, core **CR4**, deletion in the adoption commit (§3.1, §3.4, §8.2) |
 | P3-d | Retracting `ide` deletes leaves equal to the devenv seed | yes: `python.defaultInterpreterPath` and the `.devenv`/`.direnv` excludes were in both `seed` and `set` | Accepted. `set` holds only non-seed leaves; `test_ide_real` asserts no overlap (§3.1 ide) |
@@ -2356,14 +2356,14 @@ none was rejected outright. The critique's "what checks out" list was not re-lit
 | P3-f | `forbid-contributing` has no stated edit of OCA's regex | yes | Accepted. Deviation `forbid-contributing`: exact removal of `CONTRIBUTING\.md\|`, `RuntimeError` if absent (§3.0) |
 | P3-g | `drop-external-deps` goes beyond the agreed skips | yes: plan "Decisions" and the task name only the readme and excluded-addons hooks | Accepted as an open question: marked "proposed, pending sign-off", with the behaviour if declined (§0.1, §3.0) |
 | P3-h | `relock-standards-fixtures` says three series; fixtures are 18.0 | yes | Accepted. Per fixture × profile, 18.0 only (§7.1, §7.3) |
-| P3-i | Sync stages user edits in a dirty tree | yes: `/home/batonac/Development/odoo-ruckus` has 26 changed entries incl. `.vscode/settings.json`, `flake.nix`, `flake.lock` | Accepted. Product notice now, core **CR5**, adoption commits first (§3.4, §8.1) |
+| P3-i | Sync stages user edits in a dirty tree | yes: a project checkout had 26 changed entries incl. `.vscode/settings.json`, `flake.nix`, `flake.lock` | Accepted. Product notice now, core **CR5**, adoption commits first (§3.4, §8.1) |
 | P3-j | coverage `data_file`/`source` resolution with `--rcfile=tools/pyproject.toml` | not settled by reading; left to a test | Accepted. `COVERAGE_FILE` set absolutely by the gate and `odoo test`; `source` resolution asserted by `odoo-test-ci-18` at O2, with the `../<addons_root>` fallback (§6.1.2, §7.3, §9) |
 
 Found while verifying (not in the critique):
 
 | Finding | Resolution |
 |---|---|
-| The checkout name in addons mode comes from `nix/pyproject.toml`'s `[project].name` (`edi-addons`), not origin; millrun's is `odoo-workspace` | §2.3 corrected |
+| The checkout name in addons mode comes from `nix/pyproject.toml`'s `[project].name` (`edi-addons`), not origin; project A's is `odoo-workspace` | §2.3 corrected |
 | uv records the root's `requires-dist` as tables (`{ name, specifier?, directory?, git? }`), not requirement strings | the stale-lock item compares (name, specifier, source) sets (§3.4) |
 | odoo-nix's own `prek-action` would run the synced fixtures' nested configs | `extra-args: -c .pre-commit-config.yaml` (§1.2) |
 | Core §2.5, §5.6.2, §5.3 describe odoo values this design no longer uses | **CR7** text corrections |
@@ -2417,7 +2417,7 @@ has no CR1, CR2-CR6.
 |---|---|---|---|
 | O3-1 | §2.1 `hooks.config_file=discover.config_file`, `Identity.config_paths` | `discover.config_file` exists with the four cases of §2.3 and is tested directly; `PRODUCT` passes neither field (still commented out). `discover` itself reads `extra["config_path"]` (`nix/pyproject.toml` in addons mode) for the table's `shape`/`series`/`integration-branch` and `dev_group_ruff`, so the facts are right on the addons fixture today. The cases that go through the core's resolution of the addons fixture (`profile show`, `config`, `derive` with the core's checkout) are skipped with the CR1 reason (`tests/support.py` `HAS_CR1`), and one test records today's gap (the table in `nix/pyproject.toml` is not seen) | CR1 (§10). Closes in the commit that pins a core with CR1: uncomment both fields; the skips lift themselves |
 | O3-2 | §9: `release.py` (`BRANCHING`) is O7 | `release.BRANCHING` (`develop+series`, `trunk`) lands now; `OdooSeries` and `ManifestTool` stay O7. `modules.schema.json` spells `releases.version-scheme` as `{"enum": ["semver", "odoo-series"], "default": "odoo-series"}` | the core composes `releases.branching`'s enum and default and the integration-branch default from `product.branching`: without it an addons checkout resolved `integration-branch = "main"`. A product property replaces the core's whole node, so the enum is spelled out; it equals the composed one once O7 registers `odoo-series` |
-| O3-3 | §4.2 `github-app = { app-id = "", private-key = "" }` | the product schema overrides `ci.github-app`: same object, names may be `""` (`^([A-Za-z_][A-Za-z0-9_]*)?$`), default `{"app-id": "", "private-key": ""}` | the core's pattern refuses `""`, so `recommended@2.3` as written did not validate. `""` means no App (ruckus blanks it). Core follow-up: the doctor/notice code should treat `""` as unset |
+| O3-3 | §4.2 `github-app = { app-id = "", private-key = "" }` | the product schema overrides `ci.github-app`: same object, names may be `""` (`^([A-Za-z_][A-Za-z0-9_]*)?$`), default `{"app-id": "", "private-key": ""}` | the core's pattern refuses `""`, so `recommended@2.3` as written did not validate. `""` means no App (project B blanks it). Core follow-up: the doctor/notice code should treat `""` as unset |
 | O3-4 | §1.1 `pngsize.py` (O7), `manifests.py` | `pngsize.png_size` and `manifests.literal` now; `replace_version`/`version_problem` stay O7 | the addon facts need the icon size and the manifests |
 | O3-5 | §1.1 `data/tool-pins.json` (O4 per O2-7) | now: `prek==0.5.7`, `coverage==7.16.2` (nixpkgs', the one O2's coverage hook uses), `checklog-odoo==1.0`, `manifestoo==1.2`, `manifestoo-core>=1.16.1` (a floor, as §3.1 writes it; `Tool.version` is `None` for a range) | deviation `odoo-nix-pins` and `test_series` need them. O4's lock may move them |
 | O3-6 | §2.4 `odoo_python` "from `lib/odoo-presets.json` … copied by `series.load`" | `data/odoo-presets.json`, a byte copy of `lib/odoo-presets.json`; `test_series` asserts equality (in the Nix build too, through `$ODOO_NIX_TOOLS_REPO`) | a `uv tool install` of the subdirectory has no `lib/`. Whoever edits the presets copies the file (the test fails otherwise) |
@@ -2477,7 +2477,7 @@ working tree's uncommitted stage-7 `ci` command is not in it), which has CR2, CR
 | O5-6 | §7.2 `test_preflight_addons` "`--addons --standards` scaffolds then syncs (§5.5)" | a skipped case naming stage O6 | odoo-init's standards flags are O6 (§9) |
 | O5-7 | §3.1 readme "`\| [name](name/README.md) \| summary \| license \|` rows from manifests, sorted" | a header row (`\| Addon \| Summary \| License \|`, `\| --- \| --- \| --- \|`), then one row per installable addon, sorted by name: the link is `<path>/README.md` or `README.rst` as tracked, `<path>/` without either; cells are one line with `\|` escaped (product filter `md_cell`). Discovery's addon facts gain `summary` (whitespace collapsed). The entry has `uses: ["readme.addons-table"]` and `overridable: true` (§3.5) | a Markdown table needs its header row to render; the path is the addon's (`custom/<name>` in a project). The root `README.md` is excluded from prettier (§8.2), so the table is not re-padded |
 | O5-8 | §3.1 dev-shell inputs block | as written, with `uses: ["dev-shell.odoo-nix-url"]`; the core inserts the block before the `inputs` set's closing `};`, after the hand-written inputs (in an addon repository after `ocb` and the sources) | the design names no position; the core's `nix-attrset` anchor has one |
-| O5-9 | §1.1 `tests/shapes/` | as listed, plus `shapes/gitignore/{ruckus,millrun,edi-addons}.gitignore` and `shapes/README.md` (sources and commits); a new suite `test_blocks` (the `.gitignore` block on the real files, the README table) besides §7.2's four. The flake shapes are left out of nix-lint (`flake.nix` `nixLintIgnore` and `nixFiles`) | odoo-ruckus's and millrun's flakes carry the unused `self` deadnix reports (§8.3): kept byte for byte, they would fail `checks.nix-lint` |
+| O5-9 | §1.1 `tests/shapes/` | as listed, plus `shapes/gitignore/{project-b,project-a,edi-addons}.gitignore` and `shapes/README.md` (sources and commits); a new suite `test_blocks` (the `.gitignore` block on the shape files, the README table) besides §7.2's four. The flake shapes are left out of nix-lint (`flake.nix` `nixLintIgnore` and `nixFiles`) | the project flakes carry the unused `self` deadnix reports (§8.3), which they test: they would fail `checks.nix-lint` |
 | O5-10 | §7.2 `test_flake_block` "`lock_problems` clean" | `engine.stale_inputs` over `fakes.flake_lock` of the synced flake is `[]` (and over the repository's own lock exactly `odoo-nix`, which phase A's `nix flake lock` moves), then `sync --check` exit 0 once the lock follows the flake | `lock_problems` itself skips `odoo-nix` under `ODOO_NIX_ALLOW_SKEW=1`, which every fixture sync needs |
 | O5-11 | §5.4 `vscodeSettingsFile`/`vscodeExtensionsFile` read `seed`/`seed_extensions` | `ideData = lib.importJSON ../py/odoo_nix_tools/odoo_nix_tools/data/ide/vscode.json`; both files are `builtins.toJSON` of it. Their store paths are unchanged (`r6wayzkd…-odoo-nix-vscode-settings.json`, `l6wl87ax…-odoo-nix-vscode-extensions.json`, evaluated before and after on an addons-mode consumer), so no dev shell changes. `test_ide_real.Data.test_devenv_reads_the_same_file` skips in the package build, whose tree has no `modules/` | adding `modules/devenv.nix` to the build's fileset would rebuild the package on every module edit |
 | O5-12 | §3.1 ide retraction "the file is never deleted" | as the core does it: a `.vscode/settings.json` sync created for `ide` (the addons fixture has none) is left as `{\n}\n`, its `extensions.json` with an empty `recommendations` array | core behaviour (jsonc `retract` removes an emptied object, not an emptied array, and keeps the file). Core follow-up, as O5-2 |
@@ -2599,7 +2599,7 @@ is not part of this stage's work: no tag, no version bump, `version.txt` and the
 | O9-15 | §5.3 tools.nix's `coverage` "the lock's coverage built for `odooPython`"; lib/raw-odoo.nix "a coverage.py package built for `python`" | the hook reads `coverage.pythonModule.sitePackages`, which nixpkgs' packages carry and pyproject-nix's do not: every opted-in checkout whose tools lock has coverage (`tests` on, as in `recommended@2.3`) failed to evaluate the default shell and `packages.odooCli` (`attribute 'pythonModule' missing`). tools.nix now adds `passthru.pythonModule = odooPython` (passthru only: the derivation is unchanged). New `checks.standards-shell-eval-coverage` over a new fixture `tests/fixtures/standards-coverage` (symlinks: the opted-in addons tree of `standards-shell-addons`, `addons-repo`'s `nix/uv.lock`, `standards-locks/standards-addons/recommended/tools`): `odooCli.drvPath` and the default shell's packages evaluate, and the CLI differs from the one without the standards' additions (it takes the lock's coverage). Failed before the fix with the same error | blocker of the end-to-end; standards-shell-eval-opted-in had no lock, so nothing evaluated this |
 | O9-16 | §3.1 ide "the seed `modules/devenv.nix` writes" into a missing file; editors.md "the seed already recommends `Odoo.odoo`" | `odoo-init --standards` syncs before the shell is ever entered, so in a repository without `.vscode/` (all 10 addon repositories) sync created the files and the seed never ran. `context.ide_specs(root)` (the templates' `ide_specs`) folds `seed` into the `set` spec when `.vscode/settings.json` does not exist, and `seed_extensions` into the `recommendations` union when `.vscode/extensions.json` does not; for an existing file the spec is the managed one alone, so the next plan neither checks nor retracts the seed's leaves (they are the checkout's, as the shell's seed would be). Not a merge into an existing file on shell entry: that would change every project's shell, opted in or not, and needs a JSONC writer in bash. Tests: `test_ide_real.Data.test_a_missing_file_gets_the_seed`, and the fixture matrix asserts the addons fixture's created files carry `python.defaultInterpreterPath` and `Odoo.odoo`, and keep the first after `ide` is retracted. editors.md corrected | the core's `jsonc-merge` has no seed of its own; this is the product's spec |
 | O9-17 | — (review: no test of `bump_base.py`) | `checks.bump-base` (offline): over a copy of `.github/**`, `py/odoo_nix_tools/pyproject.toml` and `flake.lock`, with a commented-out `uses:` line added, `bump_base.py` with a made-up commit moves every live `.github` pin (counted independently with grep; 18 today, at least 18 required) and the one `standards-core` URL, leaves the commented line, then the core's pins module refuses the tree, and accepts it once `flake.lock`'s node names the same commit | — |
-| O9-18 | lib/odoo_nix_cli/workspace/relock.py "the project root ($REPO_ROOT, else the working directory)" | `nix run .#relock` took `$REPO_ROOT` even from another project's dev-shell environment inherited by the terminal, and relocked that project (seen in the end-to-end: web-addons' relock wrote `nix/` and `.odoo-nix/` into odoo-ruckus; removed). `project_root()`: `$REPO_ROOT` only when the working directory is it or below it (real paths), else the working directory. Tests: `test_workspace.RelockAppTest.test_main_ignores_another_projects_repo_root`, and `tests/relock.sh` (another project's root is left untouched) | predates the standards; a hazard for §8.2's relock across 10 repositories from one terminal |
+| O9-18 | lib/odoo_nix_cli/workspace/relock.py "the project root ($REPO_ROOT, else the working directory)" | `nix run .#relock` took `$REPO_ROOT` even from another project's dev-shell environment inherited by the terminal, and relocked that project (seen in the end-to-end: web-addons' relock wrote `nix/` and `.odoo-nix/` into a project checkout; removed). `project_root()`: `$REPO_ROOT` only when the working directory is it or below it (real paths), else the working directory. Tests: `test_workspace.RelockAppTest.test_main_ignores_another_projects_repo_root`, and `tests/relock.sh` (another project's root is left untouched) | predates the standards; a hazard for §8.2's relock across 10 repositories from one terminal |
 | O9-19 | §3.0 "`docs/standards/managed-files.md` is generated from" `DEVIATIONS` | it is hand-written (O9-8). `test_series.Docs` holds its table to `DEVIATIONS`: the ids in order and each `Applies` cell (code spans unwrapped) equal to `Deviation.applies`, and "proposed" in the cell exactly for a proposed one. Two `applies` strings now read as the page does (`"projects"`, `"always (proposed, pending sign-off)"`). The package's check phase gets the page (`lib/standards/package.nix` `repoFiles`), so `standards-unit` runs the test | — |
 | O9-20 | O9-8's pages | corrected from the docs review: `ci.yml` only with the `lint` or `test` gate and `pr-policy.yml` only with `commits` or `releases` (managed-files.md, ci.md's callers), and the required checks are the gates that are on; `schema` is in both files, the profile-only keys are refused in the table; the built-ins' `[org]` values (`dev-docs-url`, `repo-url`); `tools/pyproject.toml`'s keys (`[project].dependencies`, `[tool.uv]`, `[tool.coverage.*]`); `odoo-nix data-path schema/gate-report.schema.json`; the test cluster's data directory and socket; `releases.tag-prefix` and `releases.tool`; the CI workflows that install through `standards-install` need a `github:` odoo-nix lock (ci.md, `dev-shell.odoo-nix-url`); `console` fences are `bash` as on every other page; layout.md's `check` has three jobs; scaffolder.md links the standards page, not this file | — |
 | O9-21 | §8.2 trying the profile with `--profile-path` before it is published | `--profile-path` changes only where the profile is read: the core's phase A still locks `standards-profile` from `profile`'s URL, a 404 before Avunu/odoo-standards-profile exists (exit 3). Documented, in docs/standards/profiles.md and the profile's README: lock the input from the clone with `--override-input`, put the node's `original` back to the GitHub URL, sync again. Core follow-up (proposed, not done here): phase A passes `--override-input standards-profile <dir>` when `--profile-path` is given and the input cannot be fetched | — |

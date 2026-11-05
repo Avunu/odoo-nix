@@ -1,0 +1,106 @@
+[project]
+name = "odoo-project-b"
+version = "0.1.0"
+description = "Odoo (OCB) + OCA project managed by odoo-nix"
+requires-python = ">=3.11"
+readme = "README.md"
+
+# Install roots: OCB `odoo` + the modules from modules.txt as odoo-addon-<name>.
+# This block is auto-generated from modules.txt by `odoo module add` /
+# `odoo module add-bundle` / `odoo project update` (lib/oca_sources.py) — do
+# not edit by hand.
+dependencies = [
+    # >>> odoo-nix: install set (managed from modules.txt) >>>
+    "odoo",
+    "odoo-addon-account_analytic_required",
+    "odoo-addon-account_asset_management",
+    "odoo-addon-account_chart_update",
+    "odoo-addon-account_financial_report",
+    "odoo-addon-account_journal_lock_date",
+    "odoo-addon-account_lock_date_update",
+    # <<< odoo-nix: install set <<<
+]
+
+[dependency-groups]
+# Development and test tooling. Resolved into the dev env only (python.nix
+# passes `workspace.deps.groups` to devPythonEnv and not to odooPythonEnv), so
+# none of this ships in a production image.
+#
+# Hand-edited on purpose: unlike [project].dependencies and [tool.uv.sources]
+# above, this block is not managed by oca_sources.py, so `odoo project update`
+# leaves it alone.
+dev = [
+    "debugpy",
+    "ruff",
+    # Odoo's --dev=reload watcher is a no-op unless it can import a filesystem
+    # watcher, and Odoo declares neither. watchdog rather than the `inotify`
+    # package (which Odoo would prefer if both were present): inotify is
+    # unmaintained and its watcher loop polls with timeout_s=0.
+    "watchdog",
+    # The two test dependencies Odoo needs but does not declare. Both live in
+    # OCB's tests_require, which uv does not install, so nothing pulls them in.
+    #
+    # freezegun: odoo.tests.common imports it unconditionally -- without it no
+    # Odoo test runs at all, which at least fails loudly.
+    "freezegun",
+    # websocket-client: Odoo drives headless Chrome over the devtools protocol
+    # for HttpCase browser tours and imports `websocket` to do it. This one
+    # fails quietly -- a missing import makes Odoo *skip* every tour, and the
+    # summary line reports a skip exactly like a pass. See the odoo-test script.
+    "websocket-client",
+]
+
+[tool.uv]
+# Single virtual project; the modules load via addons_path, but each is declared
+# as an editable path source below so uv resolves the full dependency graph
+# (every module's external_dependencies.python + Odoo's own requirements).
+package = false
+
+# gevent < 23.7 -- including 22.10.2, Odoo 18's own pin for Python 3.11 --
+# imports pkg_resources, and setuptools >= 81 no longer ships it, so the
+# `odoo-bin gevent` websocket worker dies at import while the dev shell
+# (workers = 0, websockets in-process) never notices. A fresh lock resolves a
+# current gevent and pulls in no setuptools at all, so this is inert until
+# something pins gevent back; it then keeps a working setuptools alongside.
+#
+# reportlab: OCB's setup.py leaves it unpinned, so uv resolves 5.x, whose
+# renderPM needs the separate rlPyCairo backend. Without it every report with a
+# barcode (e.g. the manufacturing order) fails to print. Match OCB's
+# requirements.txt pin for Python 3.11, which bundles its own renderPM.
+constraint-dependencies = ["setuptools<81", "reportlab==3.6.12"]
+
+# Editable path sources for OCB `odoo` + every local OCA/custom module. Modules
+# are modern whool packages whose metadata declares their deps; uv reads them.
+# Auto-generated (lib/oca_sources.py) — do not edit by hand.
+[tool.uv.sources]
+# >>> odoo-nix: module sources (managed) >>>
+    odoo = { path = "odoo" }
+    "odoo-addon-account_analytic_distribution_manual" = { path = "modules/account-analytic/account_analytic_distribution_manual", editable = true }
+    "odoo-addon-account_analytic_line_commercial_partner" = { path = "modules/account-analytic/account_analytic_line_commercial_partner", editable = true }
+    "odoo-addon-account_analytic_maintenance" = { path = "modules/account-analytic/account_analytic_maintenance", editable = true }
+    "odoo-addon-account_analytic_organization" = { path = "modules/account-analytic/account_analytic_organization", editable = true }
+    "odoo-addon-account_analytic_parent" = { path = "modules/account-analytic/account_analytic_parent", editable = true }
+    "odoo-addon-account_analytic_parent_plan_restrict" = { path = "modules/account-analytic/account_analytic_parent_plan_restrict", editable = true }
+    "odoo-addon-account_analytic_required" = { path = "modules/account-analytic/account_analytic_required", editable = true }
+    "odoo-addon-account_analytic_sequence" = { path = "modules/account-analytic/account_analytic_sequence", editable = true }
+# <<< odoo-nix: module sources <<<
+
+# The root is a virtual package with no Python code of its own.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
+
+# Legacy sdist-only deps (from Odoo's requirements) that don't declare setuptools
+# as a build dependency. Auto-maintained from uv.lock (lib/uv_build_deps.py).
+[tool.uv.extra-build-dependencies]
+# >>> odoo-nix: sdist build deps (managed) >>>
+"docopt" = ["setuptools"]
+"odoo" = ["setuptools"]
+"ofxparse" = ["setuptools"]
+"python-ldap" = ["setuptools"]
+"rjsmin" = ["setuptools"]
+"vobject" = ["setuptools"]
+# <<< odoo-nix: sdist build deps (managed) <<<
