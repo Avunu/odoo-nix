@@ -2,15 +2,17 @@
 # The oldest interpreter this code runs under (see ruff.toml).
 python-version = "3.11"
 # The working tree's packages, where the Nix builds put them on sys.path:
-# lib/cli-package.nix (odoo_nix_cli), lib/devguard.nix (odoo_devguard) and
-# lib/journald.nix (odoo_journald). The modules python-devops-nix supplies to
-# them (the devguard core, the journald core, _backups.py, _migrate.py) are
-# merged in at build time and are not in the working tree, so ty reports
-# their imports as unresolved here.
+# lib/cli-package.nix (odoo_nix_cli), lib/devguard.nix (odoo_devguard),
+# lib/journald.nix (odoo_journald) and lib/standards/package.nix
+# (odoo_nix_tools). The modules python-devops-nix supplies to them (the
+# devguard core, the journald core, _backups.py, _migrate.py, standards_core)
+# are merged in or added at build time and are not in the working tree, so ty
+# reports their imports as unresolved here.
 extra-paths = [
     "lib",
     "lib/devguard",
     "lib/journald",
+    "py/odoo_nix_tools",
 ]
 
 [src]

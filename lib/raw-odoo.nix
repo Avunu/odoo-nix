@@ -16,6 +16,14 @@
 # submodule, still goes to odoo-bin, so the error names the tree. The
 # launcher would run the wheel's Odoo instead.
 #
+# With `coverage` (a coverage.py package built for `python`), the text also
+# measures a run when $ODOO_NIX_COVERAGE_RCFILE names an rcfile (`odoo test
+# --coverage`, lib/odoo_nix_cli/testrun.py): Odoo then runs as `python -m
+# coverage run --rcfile=<it> --parallel-mode <odoo-bin or the launcher>`, and
+# writes its data where $COVERAGE_FILE says. Unset, the run is the plain one.
+# The dev shell passes it; builtOdoo and the NixOS service pass null:
+# production never measures, and its text is the same as without the option.
+#
 # Usage: the text runs Odoo from "$tree", which the caller sets first.
 #   import ./lib/raw-odoo.nix { inherit pkgs; python = "${env}/bin/python"; }
 
@@ -23,6 +31,8 @@
   pkgs,
   # The application's interpreter: the environment Odoo runs in.
   python,
+  # coverage.py for that interpreter, or null: no coverage hook.
+  coverage ? null,
 }:
 
 let
@@ -37,8 +47,24 @@ let
       runpy.run_module("odoo", run_name="__main__")
     '';
   };
+  # Before the plain runs below, and the same choice of entry point: the
+  # tree's odoo-bin, or the launcher with the tree first on PYTHONPATH. Under
+  # `coverage run` sys.argv[0] stays the entry point, so a process Odoo
+  # starts again from it (the websocket worker, --dev=reload) is not measured.
+  measure = ''-m coverage run --rcfile="$ODOO_NIX_COVERAGE_RCFILE" --parallel-mode'';
+  coverageHook = pkgs.lib.optionalString (coverage != null) ''
+    if [ -n "''${ODOO_NIX_COVERAGE_RCFILE:-}" ]; then
+      export PYTHONPATH="${coverage}/${coverage.pythonModule.sitePackages}''${PYTHONPATH:+:$PYTHONPATH}"
+      if [ -e "$tree/odoo-bin" ] || [ ! -e "$tree/odoo/__main__.py" ]; then
+        exec ${python} ${measure} "$tree/odoo-bin" "$@"
+      fi
+      export PYTHONPATH="$tree:$PYTHONPATH"
+      exec ${python} ${measure} ${launcher}/odoo-bin "$@"
+    fi
+  '';
 in
-''
+coverageHook
++ ''
   if [ -e "$tree/odoo-bin" ] || [ ! -e "$tree/odoo/__main__.py" ]; then
     exec ${python} "$tree/odoo-bin" "$@"
   fi

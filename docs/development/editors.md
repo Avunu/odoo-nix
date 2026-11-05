@@ -1,9 +1,9 @@
 ---
 title: Editors and live reload
-description: How the dev server restarts itself on a Python change, and how the shell exposes the environment to Pylance, pyright and the odoo-ls language server.
+description: How the dev server restarts itself on a Python change, how the shell exposes the environment to an editor and the odoo-ls language server, and what the standards' ide module sets in VS Code.
 order: 8
-tags: [editor, reload, language-server, odoo-ls]
-updated: 2026-10-23
+tags: [editor, reload, language-server, odoo-ls, vscode]
+updated: 2026-11-04
 ---
 
 ## Live reload
@@ -25,7 +25,7 @@ What it covers:
 
 ## Python analysis
 
-`ide.enable` (the default) makes two things on shell entry. Odoo reads neither; they exist so a static analyser resolves the same names the interpreter does.
+`ide.enable` (the dev-shell option, on by default) makes two things on shell entry. Odoo reads neither; they exist so a static analyser resolves the same names the interpreter does.
 
 | What | Why |
 | --- | --- |
@@ -34,16 +34,18 @@ What it covers:
 
 The second is not optional. uv2nix installs every module editable through `.pth` files that call `os.path.expandvars`, which only a running interpreter executes. And `odoo.addons` is a namespace Odoo extends from `addons_path` at startup, while most standard addons (`sale`, `portal`, `mail`) live in `odoo/addons`, outside the `odoo` package. Without the mirror, `from odoo.addons.sale.models.sale_order import SaleOrder` is unresolved even for stock Odoo. The mirror links each module in first-root-wins order, as Odoo does, and is rebuilt only when that set changes.
 
-With `ide.vscodeSettings` (the default), a `.vscode/settings.json` is seeded once, never overwritten, pointing Pylance at both and keeping the file watcher and search out of `.devenv` and `.direnv`:
+With `ide.vscodeSettings` (the default), a missing `.vscode/settings.json` is seeded once, never overwritten, pointing the editor at both and keeping the file watcher and search out of `.devenv` and `.direnv`:
 
 ```json
 {
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
-  "python.analysis.extraPaths": [".devenv/state/pythonpath"]
+  "python.analysis.extraPaths": [".devenv/state/pythonpath"],
+  "files.watcherExclude": { "**/.devenv/**": true, "**/.direnv/**": true },
+  "search.exclude": { "**/.devenv/**": true, "**/.direnv/**": true }
 }
 ```
 
-For another editor, point its language server at the same two paths, for instance a `pyrightconfig.json` with `"venv": ".venv"` and the same `extraPaths`.
+A missing `.vscode/extensions.json` is seeded the same way, recommending `Odoo.odoo`. For another editor, point its language server at the same two paths, for instance a `pyrightconfig.json` with `"venv": ".venv"` and the same `extraPaths`.
 
 ## The Odoo language server
 
@@ -55,6 +57,26 @@ Any editor's LSP client can run `odoo_ls_server` directly, over stdio, with no i
 
 VS Code is the exception. The official [`Odoo.odoo`](https://marketplace.visualstudio.com/items?itemName=Odoo.odoo) extension bundles its own `odoo_ls_server` and has no setting to use another, so the Nix-built one never runs inside VS Code. Its server still reads the generated `./odools.toml`: it finds the file by walking up from the workspace folder. With `ide.vscodeSettings`, `.vscode/extensions.json` is seeded once to recommend `Odoo.odoo`.
 
-Leave `Odoo.serverConfigPath` unset. The extension passes its value to the server without expanding variables, so `"${workspaceFolder}/odools.toml"` names a file that does not exist, and the server loads no configuration and indexes nothing. Its log then shows `Config file not found: ${workspaceFolder}/odools.toml`. Remove the setting from a `.vscode/settings.json` seeded by an earlier odoo-nix.
+Leave `Odoo.serverConfigPath` unset. The extension passes its value to the server without expanding variables, so `"${workspaceFolder}/odools.toml"` names a file that does not exist, and the server loads no configuration and indexes nothing. Its log then shows `Config file not found: ${workspaceFolder}/odools.toml`. Remove the setting from a `.vscode/settings.json` seeded by an earlier odoo-nix; with the standards' [`ide` module](#the-ide-module) on, sync removes it and keeps it out.
 
 `ide.languageServer.package` defaults to odoo-ls built from odoo-nix's pinned `odoo-ls-src` and `odoo-ls-typeshed` inputs.
+
+## The `ide` module
+
+A repository on odoo-nix's [standards](../standards/README.md) can turn on the `ide` module (`ide.enable = true` in `[tool.odoo-nix]`; `recommended` leaves it off: editor settings are a team's taste). Sync then merges a set of keys into `.vscode/settings.json` and `.vscode/extensions.json`, the seed's files or your own. It owns those keys and nothing else: your other settings, their order, comments, the indent, inline arrays and a missing final newline all stay as they are.
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| `python.languageServer` | `"None"` | Odoo LS is the Python language server; Pylance alongside it reports the ORM's dynamic names as errors |
+| `ty.diagnosticMode`, `ty.disableLanguageServices` | `"off"`, `true` | ty is off for addon code too |
+| `ruff.path` | `["${workspaceFolder}/tools/.venv/bin/ruff"]` | the ruff the pre-commit hooks lock in `tools/uv.lock`, so the editor and the hooks agree |
+| `[python]` | ruff as the formatter, format on save | |
+| `[xml]`, `[javascript]` | prettier as the formatter, format on save | |
+| `prettier.requireConfig`, `prettier.prettierPath` | `true`, `"./node_modules/prettier"` | the prettier `package-lock.json` locks, with the rendered `prettier.config.cjs` |
+| `files.watcherExclude`, `search.exclude` | `.odoo-nix`, `tools/.venv`, `node_modules` | beside the seed's `.devenv` and `.direnv` |
+
+`.vscode/extensions.json` gains `charliermarsh.ruff`, `esbenp.prettier-vscode` and `dbaeumer.vscode-eslint`, and they leave `unwantedRecommendations`.
+
+The dev shell seeds only a missing file, and `odoo-init --standards` usually runs sync before the shell is ever entered. So when sync creates `.vscode/settings.json` or `.vscode/extensions.json`, it writes the seed's keys and the `Odoo.odoo` recommendation into it as well. From then on those are your keys, as if the shell had seeded them: sync does not check them, and turning `ide` off does not remove them. A file that already exists, seeded or your own, gets only the module's keys. `Odoo.serverConfigPath` is deleted wherever it is set (see above); `Odoo.selectedProfile` and every `python-envs.*` setting are never touched, and a `python-envs.*` setting gets a notice, since it overrides the interpreter. The module needs `python-lint` and `js-xml` on, which put ruff in `tools/.venv` and prettier in `node_modules`; the dev shell links both into the checkout. prettier itself skips `.vscode/`, so the files keep the layout you gave them.
+
+Turning `ide` off takes back only the keys it wrote and that still have its values: a key you changed stays, and the seed's keys are never the module's to remove.

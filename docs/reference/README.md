@@ -4,7 +4,7 @@ description: The flake outputs and library functions of odoo-nix, with links to 
 nav_title: Reference
 order: 6
 tags: [reference, flake, outputs]
-updated: 2026-10-21
+updated: 2026-11-03
 ---
 
 ## Flake outputs of odoo-nix
@@ -22,7 +22,8 @@ updated: 2026-10-21
 | `packages.<SYSTEM>.sources`, `apps.<SYSTEM>.sources` | `odoo-nix-sources`, the dev shell's submodule checkout, outside it: `nix run github:Avunu/odoo-nix#sources -- enter --treeless odoo <ROOT>`. |
 | `packages.<SYSTEM>.bootstrap`, `apps.<SYSTEM>.bootstrap` | `odoo-nix-bootstrap <ROOT>`: a fresh clone's submodules, from the `sources` its `flake.lock` pins, before Nix evaluates the project. See [A fresh clone](../development/README.md#a-fresh-clone). |
 | `apps.<SYSTEM>.odoo-init`, `.default` | What `nix run github:Avunu/odoo-nix` runs. |
-| `apps.<SYSTEM>.relock-fixtures`, `.relock-odoo-ls` | Maintenance of odoo-nix itself: see [Repository layout](layout.md#re-locking). |
+| `packages.<SYSTEM>.odoo-nix`, `apps.<SYSTEM>.odoo-nix` | The standards tools, `odoo-nix`: `nix run github:Avunu/odoo-nix#odoo-nix -- sync --check`. See [Repository standards](../standards/README.md). |
+| `apps.<SYSTEM>.relock-fixtures`, `.relock-odoo-ls`, `.relock-standards-fixtures`, `.bump-base`, `.standards-core-pins` | Maintenance of odoo-nix itself: see [Repository layout](layout.md#re-locking). |
 | `devShells.<SYSTEM>.default`, `formatter.<SYSTEM>` | For working on odoo-nix itself. |
 
 ## What a project gets

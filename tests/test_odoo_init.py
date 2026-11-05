@@ -5,7 +5,7 @@ mode and series detection with their exit codes, and the prompts, with rich
 stood in by a fake.
 
 Run: python3 -I tests/test_odoo_init.py <dir holding odoo_nix_cli> <data dir> <template dir>
-     (checks.odoo-init-unit)
+     [<addons template dir>]  (checks.odoo-init-unit)
 """
 
 import io
@@ -23,6 +23,11 @@ from typing import ClassVar
 sys.path.insert(0, os.path.abspath(sys.argv.pop(1)))
 DATA = Path(sys.argv.pop(1)).resolve()
 TEMPLATE = Path(sys.argv.pop(1)).resolve()
+ADDONS_TEMPLATE = (
+    Path(sys.argv.pop(1)).resolve()
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-")
+    else TEMPLATE.parent / "addons"
+)
 
 from odoo_nix_cli import oca
 from odoo_nix_cli.init import args as args_mod
@@ -111,6 +116,8 @@ def run_state(argv=(), **kw):
     cfg = config.InitConfig(
         presets="",
         template=str(TEMPLATE),
+        addons_template=str(ADDONS_TEMPLATE),
+        odoo_nix_major="2",
         oca_dataset="",
         oca_bundles="",
         oca_sources="",
@@ -171,6 +178,82 @@ class ArgsTest(unittest.TestCase):
         a = args_mod.parse_args(["--commit=feat: x"])
         self.assertEqual((a.commit, a.commit_msg), (True, "feat: x"))
 
+    def test_standards_flags(self):
+        a = args_mod.parse_args([])
+        self.assertFalse(a.standards_mode)
+        for argv in (
+            ["--sync"],
+            ["--check"],
+            ["--standards", "recommended"],
+            ["--profile-path=../profile"],
+        ):
+            self.assertTrue(args_mod.parse_args(argv).standards_mode, argv)
+        a = args_mod.parse_args(
+            [
+                "--standards=recommended",
+                "--force",
+                "--dry-run",
+                "--skip-lock",
+                "--offline",
+                "--only",
+                "a,b",
+                "--only=c",
+                "--phase",
+                "b",
+                "--throwaway",
+            ]
+        )
+        self.assertEqual(
+            a.sync_argv(),
+            [
+                "sync",
+                "--write",
+                "--force",
+                "--dry-run",
+                "--skip-lock",
+                "--offline",
+                "--throwaway",
+                "--standards",
+                "recommended",
+                "--phase",
+                "b",
+                "--only",
+                "a,b",
+                "--only",
+                "c",
+            ],
+        )
+        a = args_mod.parse_args(
+            [
+                "--check",
+                "--format",
+                "github",
+                "--expect-rev",
+                "abc",
+                "--profile-path",
+                "p",
+            ]
+        )
+        self.assertEqual(
+            a.sync_argv(),
+            [
+                "sync",
+                "--check",
+                "--profile-path",
+                "p",
+                "--format",
+                "github",
+                "--expect-rev",
+                "abc",
+            ],
+        )
+        self.assertTrue(args_mod.parse_args(["--addons"]).addons)
+        for flag in ("--sync", "--check", "--standards", "--addons", "--offline"):
+            self.assertIn(flag, args_mod.USAGE)
+        # Hidden: a handed-over sync's.
+        for flag in ("--phase", "--throwaway"):
+            self.assertNotIn(flag, args_mod.USAGE)
+
     def test_help_stops_parsing(self):
         self.assertTrue(args_mod.parse_args(["--help", "--bogus"]).help)
         self.assertTrue(args_mod.parse_args(["-h"]).help)
@@ -179,6 +262,15 @@ class ArgsTest(unittest.TestCase):
         for argv, message in (
             (["--bogus"], "unknown flag: --bogus"),
             (["--version"], "--version needs a value"),
+            (["--sync", "--check"], "--sync and --check cannot be combined"),
+            (["--only"], "--only needs a value"),
+            (
+                ["--addons", "--init"],
+                (
+                    "--addons brings an existing directory into addons mode: it"
+                    " cannot be combined with --init"
+                ),
+            ),
         ):
             with self.assertRaises(args_mod.UsageError) as ctx:
                 args_mod.parse_args(argv)
@@ -190,6 +282,8 @@ class ConfigTest(unittest.TestCase):
     GOOD: ClassVar[dict] = {
         "presets": "/p",
         "template": "/t",
+        "addonsTemplate": "/a",
+        "odooNixMajor": "2",
         "ocaDataset": "/d",
         "ocaBundles": "/b",
         "ocaSources": "/s",
@@ -316,6 +410,28 @@ class TemplateTest(InDir):
         for f in template.files(staging):
             self.assertNotRegex((staging / f).read_text(), r"@[A-Z_]+@", f)
         self.assertIn("custom/.gitkeep", template.files(staging))
+        # The URL the standards' inputs block renders (DESIGN.md §5.5), and no
+        # unused `self` in the outputs' arguments (deadnix).
+        self.assertIn('odoo-nix.url = "github:Avunu/odoo-nix/release-2";', flake)
+        self.assertNotRegex(flake, r"\{\s*self\s*,")
+
+    def test_render_addons(self):
+        st = run_state([], version="18.0", name="edi-addons")
+        staging = template.render(st, st.config.addons_template)
+        self.addCleanup(__import__("shutil").rmtree, staging)
+        self.assertEqual(
+            template.files(staging),
+            [".envrc", ".gitignore", "flake.nix", "nix/pyproject.toml"],
+        )
+        flake = (staging / "flake.nix").read_text()
+        self.assertIn('odoo-nix.url = "github:Avunu/odoo-nix/release-2";', flake)
+        self.assertIn('url = "github:OCA/OCB/18.0";', flake)
+        self.assertIn('name = "edi-addons";', flake)
+        pyproject = (staging / "nix/pyproject.toml").read_text()
+        self.assertIn('name = "edi-addons"', pyproject)
+        self.assertIn('requires-python = ">=3.11"', pyproject)
+        for f in template.files(staging):
+            self.assertNotRegex((staging / f).read_text(), r"@[A-Z_]+@", f)
 
     def test_install_never_overwrites(self):
         staging = self.dir / "staging"
@@ -662,6 +778,8 @@ class PromptsTest(unittest.TestCase):
             st.config = config.InitConfig(
                 presets="",
                 template="",
+                addons_template="",
+                odoo_nix_major="2",
                 oca_dataset=f"{d}/m.json",
                 oca_bundles=f"{d}/b.json",
                 oca_sources="",

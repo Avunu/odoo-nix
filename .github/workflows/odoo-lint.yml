@@ -1,0 +1,98 @@
+name: odoo-lint
+
+# The `lint` gate of a repository on odoo-nix's standards (py/odoo_nix_tools/DESIGN.md
+# §6.4), reusable: the caller's job is named `ci`, so the check reads `ci / lint`.
+#
+# It runs `odoo-nix gate lint` in the lint shell of the odoo-nix the checkout's
+# flake.lock pins (lib.standards.lintShell), built over the checkout's path: the
+# checkout's own flake is never evaluated, so its submodules (`self.submodules = true`,
+# private ones among them) are never fetched, and the CLI is the locked engine's own build
+# (no install, no skew). The shell links tools/.venv, tools/.bin and node_modules from
+# the checkout's locks, as the dev shell does.
+
+on:
+  workflow_call:
+    inputs:
+      integration-branch:
+        description: the checkout's integration branch
+        type: string
+        default: develop
+      runs-on:
+        description: >-
+          The runner, as JSON: a label or a list of labels (`["self-hosted", "nixos"]`). A pull
+          request from a fork always runs on ubuntu-latest.
+        type: string
+        default: '["ubuntu-latest"]'
+
+permissions: {}
+
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(inputs.runs-on) }}
+    timeout-minutes: 60
+    permissions:
+      contents: read # the checkout
+    steps:
+      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
+      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
+      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
+      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
+      - if: runner.environment != 'github-hosted'
+        name: Clear what an earlier job left in the runner's temp dir and workspace
+        working-directory: ${{ runner.temp }}
+        run: |
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
+          if [ -d "$GITHUB_WORKSPACE" ]; then
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
+          fi
+
+      # The whole history (the ratchet compares with the pull request's merge-base), no
+      # submodules: nothing here reads them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        if: runner.environment == 'github-hosted'
+        with:
+          determinate: false
+
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+        if: runner.environment == 'github-hosted'
+        with:
+          diagnostic-endpoint: ""
+          use-flakehub: false
+
+      - id: engine
+        name: The odoo-nix flake.lock pins
+        run: |
+          set -euo pipefail
+          node="$(jq -c '.nodes[.nodes.root.inputs["odoo-nix"]].locked' flake.lock)"
+          case "$(jq -r .type <<<"$node")" in
+            github) ref="$(jq -r '"github:\(.owner)/\(.repo)/\(.rev)"' <<<"$node")" ;;
+            git) ref="$(jq -r '"git+\(.url)?rev=\(.rev)"' <<<"$node")" ;;
+            *) echo "::error::flake.lock's odoo-nix input is neither a github nor a git input"; exit 1 ;;
+          esac
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "ODOO_NIX_EXPECT_REV=$(jq -r .rev <<<"$node")" >> "$GITHUB_ENV"
+
+      - name: odoo-nix gate lint
+        env:
+          ENGINE: ${{ steps.engine.outputs.ref }}
+        run: |
+          set -euo pipefail
+          expr="let e = builtins.getFlake \"$ENGINE\"; in e.lib.standards.lintShell { system = builtins.currentSystem; root = /. + builtins.getEnv \"PWD\"; }"
+          nix develop --impure --expr "$expr" -c odoo-nix gate lint --format github
+
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gate-lint
+          path: .odoo-nix/gate/lint.json
+          if-no-files-found: ignore

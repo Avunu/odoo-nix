@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fleet-entry.schema.json",
+  "$comment": "One entry of an odoo-nix fleet.json (docs/standards/fleet.md).",
+  "title": "One repository in an odoo-nix fleet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repo",
+    "shape",
+    "branches",
+    "private"
+  ],
+  "properties": {
+    "repo": {
+      "$ref": "core.schema.json#/$defs/fleet-entry-core/properties/repo"
+    },
+    "shape": {
+      "enum": [
+        "project",
+        "addons"
+      ]
+    },
+    "branches": {
+      "$ref": "core.schema.json#/$defs/fleet-entry-core/properties/branches"
+    },
+    "integration_branch": {
+      "$ref": "core.schema.json#/$defs/fleet-entry-core/properties/integration_branch"
+    },
+    "private": {
+      "$ref": "core.schema.json#/$defs/fleet-entry-core/properties/private"
+    },
+    "documentation": {
+      "$ref": "core.schema.json#/$defs/fleet-entry-core/properties/documentation"
+    },
+    "profile": {
+      "$ref": "core.schema.json#/$defs/fleet-entry-core/properties/profile"
+    }
+  }
+}

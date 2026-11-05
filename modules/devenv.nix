@@ -113,6 +113,17 @@ in
           description = "The program `odoo ui` runs (python-devops-nix's lib.tui.script), for the checks.";
         };
 
+        standardsShell = mkOption {
+          type = types.bool;
+          default = true;
+          internal = true;
+          description = ''
+            Whether the standards' shell additions (lib/standards/shell.nix) are
+            evaluated at all. Off only in checks.standards-shell-eval, which
+            compares a shell that has not opted in with and without them.
+          '';
+        };
+
         name = mkOption {
           type = types.str;
           description = ''
@@ -970,6 +981,44 @@ in
           };
         };
 
+        # odoo-nix's standards (py/odoo_nix_tools/DESIGN.md §5.2-§5.4), all gated
+        # on the [tool.odoo-nix] table of the shape's config file: a shell that
+        # has not opted in is byte for byte one without them.
+        standardsPackages = import ../lib/standards/packages.nix {
+          inherit pkgs;
+          base = inputs.python-devops-nix.lib;
+          coreRev = inputs.python-devops-nix.rev or null;
+        };
+        standardsTools = import ../lib/standards/tools.nix {
+          inherit pkgs lib;
+          base = inputs.python-devops-nix.lib;
+          inherit (inputs) uv2nix pyproject-nix pyproject-build-systems;
+          inherit (cfg) workspaceRoot nodejs;
+          odooPython = cfg.python;
+        };
+        standardsShell = import ../lib/standards/shell.nix {
+          inherit pkgs lib addonsMode;
+          inherit (cfg) workspaceRoot;
+          # odoo-nix's standards read an addon repository's table from
+          # nix/pyproject.toml, whatever addons.lockDir says (asserted below).
+          configFile = if addonsMode then "nix/pyproject.toml" else "pyproject.toml";
+          inherit (standardsPackages) odooNix odooInit;
+          tools = standardsTools;
+        };
+        standards =
+          if !cfg.standardsShell || !standardsShell.optedIn then
+            {
+              optedIn = false;
+              nodeExcludes = [ ];
+              apps = { };
+              devShells = { };
+              devenvModule = { };
+            }
+          else if addonsMode && cfg.addons.lockDir != "nix" then
+            throw ''odoo-nix: odoo-nix's standards read [tool.odoo-nix] from nix/pyproject.toml; keep addons.lockDir = "nix".''
+          else
+            standardsShell;
+
         # Addons mode and the external sources (`addons`, `externalSources`).
         addonsMode =
           if cfg.addons.enable && cfg.coreSource == null then
@@ -1040,7 +1089,7 @@ in
           base = inputs.python-devops-nix.lib;
           inherit (cfg) workspaceRoot layout nodejs;
           inherit (inputs) pnpm2nix;
-          excludes = cfg.nodeExcludes;
+          excludes = cfg.nodeExcludes ++ standards.nodeExcludes;
           overrides = cfg.nodeOverrides;
           inherit (cfg) python;
         };
@@ -1155,7 +1204,11 @@ in
         # no workspace scripts wired in -- there is no git checkout to pull or
         # modules.txt to add to in an assembled /nix/store deployment.
         # A tree without odoo-bin runs as `python -m odoo` (lib/raw-odoo.nix).
-        # The `odoo` process under `devenv up` runs this too.
+        # The `odoo` process under `devenv up` runs this too. `odoo test
+        # --coverage` measures through its coverage hook, with nixpkgs'
+        # coverage.py for the project's interpreter: the standards' tools lock's
+        # once the checkout opts in and the lock has it (the tests module), else
+        # nixpkgs' (py/odoo_nix_tools/DESIGN.md §5.4).
         devRawOdooBin = pkgs.writeShellScript "odoo-nix-dev-odoo-bin" ''
           set -euo pipefail
           cd "''${REPO_ROOT:-$PWD}"
@@ -1163,6 +1216,11 @@ in
           ${import ../lib/raw-odoo.nix {
             inherit pkgs;
             python = "${pythonEnvs.devPythonEnv}/bin/python";
+            coverage =
+              if standards.optedIn && standardsTools.coverage != null then
+                standardsTools.coverage
+              else
+                cfg.python.pkgs.coverage;
           }}
         '';
 
@@ -1521,34 +1579,28 @@ in
         # modules alike.
         pythonpathRoot = "$DEVENV_STATE/pythonpath";
 
-        # No `Odoo.serverConfigPath` here: the Odoo.odoo extension hands it to
-        # its bundled server unexpanded, so "${workspaceFolder}/odools.toml"
-        # names no file and the server indexes nothing. Left unset, the
-        # server finds ./odools.toml by walking up from the workspace folder.
-        vscodeSettingsFile = pkgs.writeText "odoo-nix-vscode-settings.json" (
-          builtins.toJSON {
-            "python.defaultInterpreterPath" = "\${workspaceFolder}/.venv/bin/python";
-            "python.analysis.extraPaths" = [ ".devenv/state/pythonpath" ];
-            # The mirror re-exports ~2k module directories; keep the watcher
-            # and the search index off it (VS Code excludes neither by
-            # default, though Pylance already skips dot-directories).
-            "files.watcherExclude" = {
-              "**/.devenv/**" = true;
-              "**/.direnv/**" = true;
-            };
-            "search.exclude" = {
-              "**/.devenv/**" = true;
-              "**/.direnv/**" = true;
-            };
-          }
-        );
+        # The seed is odoo-nix-tools' data/ide/vscode.json, which the
+        # standards' `ide` module reads too: its managed leaves never repeat a
+        # seeded one, so turning `ide` off never deletes what this wrote
+        # (py/odoo_nix_tools/DESIGN.md §3.1). python.defaultInterpreterPath
+        # names the ./.venv link below, python.analysis.extraPaths the
+        # pythonpathRoot mirror (~2k module directories), which
+        # files.watcherExclude and search.exclude keep the watcher and the
+        # search index off (VS Code excludes neither by default, though
+        # Pylance already skips dot-directories). No
+        # `Odoo.serverConfigPath`: the Odoo.odoo extension hands it to its
+        # bundled server unexpanded, so "${workspaceFolder}/odools.toml" names
+        # no file and the server indexes nothing. Left unset, the server finds
+        # ./odools.toml by walking up from the workspace folder.
+        ideData = lib.importJSON ../py/odoo_nix_tools/odoo_nix_tools/data/ide/vscode.json;
+        vscodeSettingsFile = pkgs.writeText "odoo-nix-vscode-settings.json" (builtins.toJSON ideData.seed);
 
         # Recommends the Odoo.odoo VS Code extension (the odoo-ls client) --
         # seeded once, like vscodeSettingsFile, so VS Code prompts the
         # developer to install it without odoo-nix ever calling any
         # extension-management API itself.
         vscodeExtensionsFile = pkgs.writeText "odoo-nix-vscode-extensions.json" (
-          builtins.toJSON { recommendations = [ "Odoo.odoo" ]; }
+          builtins.toJSON { recommendations = ideData.seed_extensions; }
         );
 
         # Anchored on $DEVENV_ROOT, not $PWD: these paths have to be the
@@ -1744,6 +1796,20 @@ in
           };
         })
 
+        # The standards, once opted in: `nix run .#odoo-init -- --sync`,
+        # `nix run .#odoo-nix`, `nix develop .#odoo-nix-lint`, and the locked
+        # tools as packages (a CI cache warm-up).
+        (lib.mkIf (cfg.enable && standards.optedIn) {
+          inherit (standards) apps devShells;
+          packages =
+            lib.optionalAttrs (standardsTools.toolsEnv != null) {
+              odoo-nix-tools-env = standardsTools.toolsEnv;
+            }
+            // lib.optionalAttrs (standardsTools.nodeModules != null) {
+              odoo-nix-node-modules = standardsTools.nodeModules;
+            };
+        })
+
         (lib.mkIf cfg.enable {
           packages.odooPythonEnv = pythonEnvs.odooPythonEnv;
           packages.odooDevEnv = pythonEnvs.devPythonEnv;
@@ -1765,6 +1831,10 @@ in
           devenv.shells.default =
             { config, lib, ... }:
             {
+              # The standards' packages and shell entry (lib/standards/shell.nix);
+              # nothing when the checkout has not opted in.
+              imports = [ standards.devenvModule ];
+
               # devenv's dotenv integration is loaded by the devenv CLI and
               # asserts against being combined with the flake integration
               # (`nix develop`, as opposed to `devenv shell`) — enabling it

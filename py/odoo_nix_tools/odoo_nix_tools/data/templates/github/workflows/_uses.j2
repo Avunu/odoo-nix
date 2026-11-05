@@ -1,0 +1,28 @@
+{# The locked odoo-nix revision. A lock without one (a path: override, as odoo-nix's own
+   self-tests lock it) keeps the file's pin: this workflow's, else odoo-lint.yml's. #}
+{% macro uses(workflow) %}
+{% set at = odoo_nix.owner ~ "/" ~ odoo_nix.name ~ "/.github/workflows/" %}
+{% if odoo_nix.rev %}
+{{ at ~ workflow }}@{{ odoo_nix.rev }} # v{{ odoo_nix.version }}
+{%- else %}
+{% set kept = pin(at ~ workflow, "", "v" ~ odoo_nix.version) %}
+{% if "@ #" in kept %}
+{% set kept = pin(at ~ "odoo-lint.yml", "", "v" ~ odoo_nix.version).replace("odoo-lint.yml", workflow) %}
+{% endif %}
+{{ kept }}
+{%- endif %}
+{% endmacro %}
+{# The CI App: its client ID (an Actions variable) and private key (a secret), by name. #}
+{% macro app_with() %}
+{% set app = cfg.ci["github-app"] %}
+{% if app["app-id"] %}
+      client-id: {{ "${{ vars." ~ app["app-id"] ~ " }}" }}
+{% endif %}
+{% endmacro %}
+{% macro app_secrets() %}
+{% set app = cfg.ci["github-app"] %}
+{% if app["private-key"] %}
+    secrets:
+      APP_PRIVATE_KEY: {{ "${{ secrets." ~ app["private-key"] ~ " }}" }}
+{% endif %}
+{% endmacro %}

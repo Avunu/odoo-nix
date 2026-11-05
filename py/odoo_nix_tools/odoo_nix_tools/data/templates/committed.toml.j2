@@ -1,0 +1,33 @@
+{% set commits = cfg.commits %}
+{% if commits.convention == "odoo" %}
+# Odoo's commit tags ([ADD], [FIX], …): `odoo-nix policy` checks the subject; committed
+# checks the rest.
+style = "none"
+{% else %}
+# Conventional commits: `fix:` → patch, `feat:` → minor, `!` or BREAKING CHANGE → major
+# (an addon's version under releases).
+style = "conventional"
+allowed_types = [
+{% for t in ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test"] + commits["extra-types"] %}
+  {{ t | json_string }},
+{% endfor %}
+]
+{% if commits.scopes == "addons" %}
+# A scope is optional; when there is one it names an addon (or commits.extra-scopes).
+allowed_scopes = [
+{% for s in scopes %}
+  {{ s | json_string }},
+{% endfor %}
+]
+{% endif %}
+{% endif %}
+subject_length = {{ commits["subject-length"] }}
+line_length = 0
+subject_capitalized = false
+subject_not_punctuated = true
+imperative_subject = false
+no_wip = true
+no_fixup = true
+merge_commit = false
+# odoo-nix:local-begin committed
+# odoo-nix:local-end committed

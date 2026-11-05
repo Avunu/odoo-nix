@@ -1,0 +1,20 @@
+{
+  "$comment": "commits (DESIGN.md §3.1): committed's rules.",
+  "entries": [
+    {
+      "path": "committed.toml",
+      "template": "committed.toml.j2",
+      "strategy": "whole",
+      "module": "commits",
+      "header": "toml",
+      "local_regions": ["committed"],
+      "uses": [
+        "commits.convention",
+        "commits.scopes",
+        "commits.extra-scopes",
+        "commits.extra-types",
+        "commits.subject-length"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+# An org profile for odoo-nix's tests: every module on, [org] filled.
+schema = 1
+name = "example-org"
+description = "Example Org's Odoo standards (odoo-nix's test profile)."
+extends = "recommended@2.3"
+requires-odoo-nix = ">=2.2,<3"
+
+[org]
+publisher = "Example Org"
+email = "dev@example.org"
+license = "AGPL-3"
+github-owner = "example-org"
+docs-url = "https://docs.example.org/{repo_name}/"
+repo-url = "https://github.com/{repo}"
+
+[editorconfig]
+enable = true
+
+[python-lint]
+enable = true
+
+[pylint-odoo]
+enable = true
+
+[addon-manifest]
+enable = true
+author = "Example Org"
+website = "https://github.com/{repo}"
+
+[js-xml]
+enable = true
+
+[ide]
+enable = true
+
+[tests]
+enable = true
+
+[workflow-lint]
+enable = true
+
+[shell-lint]
+enable = true
+
+[nix-lint]
+enable = true
+
+[hygiene]
+enable = true
+
+[commits]
+enable = true
+
+[releases]
+enable = true
+branching = "develop+series"
+
+[packaging]
+enable = true
+
+[dependabot]
+enable = true
+
+[ci]
+enable = true
+
+[ci.github-app]
+app-id = "EXAMPLE_CI_APP_ID"
+private-key = "EXAMPLE_CI_PRIVATE_KEY"
+
+[repo-policy]
+enable = true
+release-bypass = "integration:123"
+required-approvals = 0
+
+[readme]
+enable = true
+addons-table = true
+
+[icons]
+enable = true
+
+[[retire]]
+paths = [".github/workflows/mirror.yml"]
+module = "releases"
+
+[[extra-files]]
+path = "SECURITY.md"
+template = "SECURITY.md.j2"
+strategy = "whole"
+module = "hygiene"
+header = "md"

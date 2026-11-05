@@ -9,8 +9,11 @@
 # Not here, because no upstream hook runs them without nix or a Rust build:
 #   nixfmt, statix, deadnix   the `nix-lint` flake check
 #
-# Patches carry trailing whitespace that is part of the hunk; locks are generated.
-exclude: (\.(patch|diff)$|(^|/)(uv|flake)\.lock$)
+# Patches carry trailing whitespace that is part of the hunk; locks are generated. The
+# standards fixtures are checkouts of their own: what they hold is what odoo-nix-tools
+# reads or writes (an editor's one-line extensions.json, managed files with their own
+# hooks), checked by the standards-* flake checks, not by this repository's hooks.
+exclude: (\.(patch|diff)$|(^|/)(uv|flake)\.lock$|^tests/fixtures/standards-)
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

@@ -1,0 +1,11 @@
+# Every hook runs a locked tool: tools/.venv (tools/uv.lock), node_modules (package-lock.json) or
+# tools/.bin (the engine's Nix tools). Shell entry runs `prek install -c .pre-commit-config.yaml`;
+# CI runs `odoo-nix gate lint`.
+exclude: |
+{{ gen.exclude_block() -}}
+repos:
+  - repo: local
+    hooks:
+{{ gen.hooks_yaml() }}
+  # odoo-nix:local-begin hooks
+  # odoo-nix:local-end hooks

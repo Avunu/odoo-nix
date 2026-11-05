@@ -225,6 +225,168 @@ let
     fi
   '';
 
+  # `odoo-nix gate test`'s Odoo half (py/odoo_nix_tools/DESIGN.md §6.1.2),
+  # for odoo-test-ci-18: the dev shell's raw odoo-bin (lib/raw-odoo.nix with
+  # its coverage hook) over OCB and the test env, run from a copy of the
+  # workspace at $REPO_ROOT, with the CLI around it.
+  measuredRawOdoo = pkgs.writeShellScript "odoo-nix-measured-odoo-bin" ''
+    set -euo pipefail
+    cd "$REPO_ROOT"
+    tree=${ocb}
+    ${import ../lib/raw-odoo.nix {
+      inherit pkgs;
+      python = "${pythonEnvs.testPythonEnv}/bin/python";
+      inherit (python.pkgs) coverage;
+    }}
+  '';
+  measuredCli = import ../lib/cli.nix {
+    inherit pkgs lib python;
+    name = "${projectName}-measured-cli";
+    rawOdooBin = measuredRawOdoo;
+    targetPythonEnv = pythonEnvs.testPythonEnv;
+    base = inputs.python-devops-nix.lib;
+  };
+  # addons_path into the workspace copy: /ROOT becomes its path at run time.
+  workspaceConf = mkConf "/ROOT";
+  # checklog-odoo (ACSONE), which the gate runs over the test log; not in
+  # nixpkgs. The standards' tools lock (tools/uv.lock) pins it once a
+  # repository opts in.
+  checklogOdoo = pkgs.python3.pkgs.buildPythonApplication {
+    pname = "checklog-odoo";
+    version = "1.0";
+    format = "wheel";
+    src = pkgs.fetchurl {
+      url = "https://files.pythonhosted.org/packages/py3/c/checklog-odoo/checklog_odoo-1.0-py3-none-any.whl";
+      hash = "sha256-OPjSYU6CF9ZQt2pNB0UfYaEZkKPvGJD+YwYROidfmzs=";
+    };
+    dependencies = [ pkgs.python3.pkgs.click ];
+    meta.mainProgram = "checklog-odoo";
+  };
+  # What the `tests` module writes (DESIGN.md §3.1): the coverage tables of
+  # tools/pyproject.toml, and the series' checklog-odoo.cfg.
+  toolsPyproject = pkgs.writeText "tools-pyproject.toml" ''
+    [project]
+    name = "${projectName}-tools"
+    version = "0"
+    requires-python = "${presets.${series}.requiresPython}"
+
+    [tool.uv]
+    package = false
+
+    [tool.coverage.run]
+    source = ["custom"]
+    branch = true
+    parallel = true
+    data_file = ".odoo-nix/coverage/.coverage"
+    omit = [".odoo-nix/*", "*/tests/*", "*/migrations/*", "*/upgrades/*", "*/__manifest__.py"]
+
+    [tool.coverage.report]
+    show_missing = true
+    skip_covered = true
+  '';
+  seriesData = lib.importJSON ../py/odoo_nix_tools/odoo_nix_tools/data/series/${series}.json;
+  checklogCfg = pkgs.writeText "checklog-odoo.cfg" seriesData.reference_files."checklog-odoo.cfg";
+
+  # `odoo test --all --fresh-db --coverage --log`, as `odoo-nix gate test`
+  # runs it, then checklog-odoo over the log (DESIGN.md §6.1.2). The
+  # coverage data lands where COVERAGE_FILE says and measures only the
+  # addons root: `source = ["custom"]` in tools/pyproject.toml resolves
+  # against the directory Odoo runs from, the repository root, not the
+  # rcfile's. --all leaves out the [[tool.odoo-nix.untested]] addon, the
+  # fresh database goes afterwards, and a planted `_logger.warning` (a
+  # second run, its database kept) makes checklog fail.
+  odooTestCi = pgCheck "odoo-test-ci-${major}" ''
+    export HOME="$TMPDIR"
+    cp -r ${workspaceRoot} ws
+    chmod -R u+w ws
+    cd ws
+    export REPO_ROOT="$PWD"
+    sed "s|/ROOT|$PWD|" ${workspaceConf} > odoo.conf
+    # The dev shell pins its dbName and sets no dbfilter: through 19.0 that
+    # narrows exp_drop's list_dbs() to odoo_dev, so the run must unpin it to
+    # drop its own database.
+    sed -i '/^\[options\]/a db_name = odoo_dev' odoo.conf
+    grep -qx 'db_name = odoo_dev' odoo.conf
+    mkdir tools
+    cp ${toolsPyproject} tools/pyproject.toml
+    cp ${checklogCfg} checklog-odoo.cfg
+    # Code under the addons root that runs on import, so it is measured.
+    cat > custom/${fixtureAddon}/probe.py <<'PY'
+    import logging
+
+    _logger = logging.getLogger(__name__)
+
+
+    def answer():
+        return 42
+
+
+    ANSWER = answer()
+    PY
+    echo 'from . import probe' >> custom/${fixtureAddon}/__init__.py
+    # An installable addon --all must leave out.
+    mkdir custom/odoo_nix_untested
+    echo '{"name": "untested", "depends": ["base"], "license": "LGPL-3"}' \
+      > custom/odoo_nix_untested/__manifest__.py
+    cat >> pyproject.toml <<'TOML'
+
+    [tool.odoo-nix]
+    untested = [{ addon = "odoo_nix_untested", reason = "planted: --all leaves it out" }]
+    TOML
+    # No browser in the sandbox; the tours are the fixture's own business.
+    export ODOO_NIX_TEST_ALLOW_SKIP=1
+    odoo() { ${measuredCli}/bin/odoo -c odoo.conf --db-host "$PGHOST" --db-user "$PGUSER" "$@"; }
+    test_dbs() { psql -d "$PGDATABASE" -tAc "select datname from pg_database where datname like 'odoo_nix_test_%'"; }
+
+    odoo test --all --fresh-db --coverage tools/pyproject.toml --log .odoo-nix/test/odoo.log | tee cli.log
+    grep -q "==> Testing ${fixtureAddon} on 'odoo_nix_test_" cli.log
+    grep -q "dropped the test database 'odoo_nix_test_" cli.log
+    test -z "$(test_dbs)"
+    # The log has Odoo's whole output: the fixture's tests ran and passed.
+    cd .odoo-nix/test
+    ${noErrors}
+    cd ../..
+    grep -E '${fixtureAddon}: [1-9][0-9]* tests' .odoo-nix/test/odoo.log
+    grep -E ' 0 failed, 0 error\(s\) of [1-9][0-9]* tests' .odoo-nix/test/odoo.log
+
+    # Parallel data files beside COVERAGE_FILE's default, every measured
+    # file under the addons root, the probe among them.
+    ls .odoo-nix/coverage/.coverage.*
+    export COVERAGE_FILE="$PWD/.odoo-nix/coverage/.coverage"
+    cov() { ${python.pkgs.coverage}/bin/coverage "$@" --rcfile=tools/pyproject.toml; }
+    cov combine
+    cov json -o coverage.json
+    cov report | tee report.txt
+    ${pkgs.python3.interpreter} - <<'PY'
+    import json
+    files = json.load(open("coverage.json"))["files"]
+    assert files, "no file measured"
+    outside = [f for f in files if not f.startswith("custom/")]
+    assert not outside, f"measured outside the addons root: {outside}"
+    probe = files.get("custom/${fixtureAddon}/probe.py")
+    assert probe and probe["summary"]["covered_lines"] > 0, sorted(files)
+    PY
+
+    # checklog-odoo, with the series' ignore list: the clean log passes...
+    ${lib.getExe checklogOdoo} .odoo-nix/test/odoo.log
+
+    # ...and one with a planted warning does not.
+    echo '_logger.warning("odoo-nix: a planted warning")' >> custom/${fixtureAddon}/probe.py
+    odoo test --all --fresh-db --keep-db --log planted.log | tee cli2.log
+    grep -q "kept the test database 'odoo_nix_test_" cli2.log
+    db="$(test_dbs)"
+    test -n "$db"
+    psql -d "$db" -tAc "select state from ir_module_module where name = '${fixtureAddon}'" | grep -qx installed
+    test "$(psql -d "$db" -tAc "select state from ir_module_module where name = 'odoo_nix_untested'")" = uninstalled
+    if ${lib.getExe checklogOdoo} planted.log > checklog.out 2>&1; then
+      cat checklog.out
+      echo "odoo-nix: checklog-odoo passed a log with a planted warning" >&2
+      exit 1
+    fi
+    cat checklog.out
+    grep -q 'odoo-nix: a planted warning' checklog.out
+  '';
+
   installed = mod: ''
     psql -d "$PGDATABASE" -tAc "select state from ir_module_module where name = '${mod}'" | grep -qx installed \
       || { echo "odoo-nix: module ${mod} is not installed in $PGDATABASE" >&2; exit 1; }
@@ -691,5 +853,7 @@ in
         odooModule = inputs.self.nixosModules.default;
       }
     );
-  };
+  }
+  # The coverage hook, checklog and `odoo test`'s new flags, on one series.
+  // lib.optionalAttrs (series == "18.0") { odoo-test-ci = odooTestCi; };
 }

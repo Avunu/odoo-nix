@@ -10,7 +10,18 @@
 # with the OCA catalog in lib/odoo_nix_cli/oca.py). This file is its glue: the
 # store paths it needs, as the JSON ODOO_NIX_INIT_CONFIG names, and the
 # commands it runs on PATH.
-{ pkgs, base }:
+#
+# `odoo-init --sync | --check | --standards` is odoo-nix-tools' `odoo-nix sync`
+# in the same process (py/odoo_nix_tools/DESIGN.md §5.5): `odooNixTools` (built
+# for pkgs.python3) is importable by the interpreter, and phase B's lock steps
+# (`uv lock`, `npm install --package-lock-only`) find uv and node on PATH, so a
+# sync never re-enters a dev shell. `odooNix` is the `odoo-nix` command.
+{
+  pkgs,
+  base,
+  odooNixTools,
+  odooNix,
+}:
 
 let
   inherit (pkgs) lib;
@@ -22,7 +33,10 @@ let
   # The tool interpreter, with rich for the prompts.
   python = base.python.rich {
     python = pkgs.python3;
-    extraPackages = ps: [ (cliModule ps) ];
+    extraPackages = ps: [
+      (cliModule ps)
+      odooNixTools
+    ];
   };
 
   # What odoo-init reads (lib/odoo_nix_cli/init/config.py); it refuses a
@@ -31,6 +45,9 @@ let
     builtins.toJSON {
       presets = "${./odoo-presets.json}";
       template = "${../templates/project}";
+      addonsTemplate = "${../templates/addons}";
+      # The templates' flake follows odoo-nix's release branch for this major.
+      odooNixMajor = lib.versions.major (lib.trim (builtins.readFile ../version.txt));
       ocaDataset = "${../data/oca-modules.json}";
       ocaBundles = "${../data/oca-bundles.json}";
       ocaSources = "${./oca_sources.py}";
@@ -49,6 +66,9 @@ pkgs.writeShellApplication {
     (import ./shell-tools.nix { inherit pkgs base; }).sources
     pkgs.git
     pkgs.uv
+    # The standards run's npm lock step, and the `odoo-nix` command.
+    pkgs.nodejs
+    odooNix
   ];
   text = launch;
   passthru = {

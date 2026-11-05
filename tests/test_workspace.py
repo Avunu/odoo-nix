@@ -469,6 +469,23 @@ class RelockAppTest(Workspace):
         self.assertEqual(self.calls()[2], "uv lock --upgrade-package lxml")
         self.assertIn(relock.DONE, out)
 
+    def test_main_ignores_another_projects_repo_root(self):
+        # A terminal that carries another project's dev-shell environment:
+        # its $REPO_ROOT is not an ancestor of the working directory, so the
+        # working directory is the root, and that other project is untouched.
+        here = Path.cwd()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        other = Path(tmp.name)
+        (other / "pyproject.toml").touch()
+        with unittest.mock.patch.dict(os.environ, {"REPO_ROOT": str(other)}):
+            self.assertEqual(relock.project_root(), str(here.resolve()))
+            rc, _, _ = self.main()
+        self.assertEqual((rc, Path.cwd()), (0, here))
+        self.assertEqual(
+            self.calls()[0], f"sources enter --treeless odoo {here.resolve()}"
+        )
+
     def test_main_checks_out_what_shell_entry_would(self):
         # First the submodules a clone whose shell never started has never
         # had, as shell entry checks them out, so the install set has their

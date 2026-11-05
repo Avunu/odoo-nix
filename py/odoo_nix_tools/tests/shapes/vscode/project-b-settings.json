@@ -1,0 +1,17 @@
+{
+    "files.watcherExclude": {
+        "**/.devenv/**": true,
+        "**/.direnv/**": true
+    },
+    "git.detectSubmodules": false,
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python.analysis.extraPaths": [
+        ".devenv/state/pythonpath"
+    ],
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+    "search.exclude": {
+        "**/.devenv/**": true,
+        "**/.direnv/**": true
+    },
+    "Odoo.selectedProfile": "default"
+}

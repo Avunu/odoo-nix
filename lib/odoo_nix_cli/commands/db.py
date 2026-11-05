@@ -29,7 +29,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from .. import migrate_plan, odoo_db, odooenv
+from .. import migrate_plan, odoo_db, odooenv, testrun
 from .._migrate import migrate as flow
 from ..backups import BackupError, backups
 from ..progress import MigrationProgress
@@ -96,17 +96,7 @@ def _local_addons() -> list[str]:
     rel = os.environ.get("ODOO_NIX_LOCAL_ADDONS")
     if not rel:
         return []
-    import ast
-
-    found = []
-    for manifest in sorted((odooenv.repo_root() / rel).glob("*/__manifest__.py")):
-        try:
-            data = ast.literal_eval(manifest.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError, ValueError):
-            continue
-        if isinstance(data, dict) and data.get("installable", True) is not False:
-            found.append(manifest.parent.name)
-    return found
+    return testrun.installable_addons(odooenv.repo_root() / rel)
 
 
 @db_group.command("provision")
