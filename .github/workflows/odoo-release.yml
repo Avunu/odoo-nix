@@ -101,7 +101,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@7887586590d83942dac7db84c655478f633a7005 # python-devops-nix 7887586590d83942dac7db84c655478f633a7005
         with:
           cli: odoo-nix
           engine-input: odoo-nix
@@ -134,7 +134,7 @@ jobs:
 
       # The push authenticates with the App's token through a header given to the
       # action's git commands only (nothing is written to .git/config).
-      - uses: Avunu/python-devops-nix/.github/actions/standards-release-ff@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+      - uses: Avunu/python-devops-nix/.github/actions/standards-release-ff@7887586590d83942dac7db84c655478f633a7005 # python-devops-nix 7887586590d83942dac7db84c655478f633a7005
         with:
           cli: odoo-nix
           release-branch: ${{ inputs.release-branch }}

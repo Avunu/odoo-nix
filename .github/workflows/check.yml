@@ -103,7 +103,7 @@ jobs:
         run: nix build .#default -L 2>&1 | tee -a "$RUNNER_TEMP/nix.log"
 
       - if: failure()
-        uses: Avunu/python-devops-nix/.github/actions/nix-failures@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+        uses: Avunu/python-devops-nix/.github/actions/nix-failures@7887586590d83942dac7db84c655478f633a7005 # python-devops-nix 7887586590d83942dac7db84c655478f633a7005
         with:
           log: ${{ runner.temp }}/nix.log
           title: flake
@@ -163,6 +163,6 @@ jobs:
     permissions:
       pull-requests: write # the comment
     steps:
-      - uses: Avunu/python-devops-nix/.github/actions/check-report@2a96bf1b0e5006cf738e8dd16a5604e8dba8333a # python-devops-nix#58 (feat/standards-core, unreleased)
+      - uses: Avunu/python-devops-nix/.github/actions/check-report@7887586590d83942dac7db84c655478f633a7005 # python-devops-nix 7887586590d83942dac7db84c655478f633a7005
         with:
           needs: ${{ toJSON(needs) }}
