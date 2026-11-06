@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.4](https://github.com/Avunu/odoo-nix/compare/v2.3.3...v2.3.4) (2026-11-06)
+
+
+### Bug Fixes
+
+* **ci:** make room for a project's tests on GitHub-hosted runners ([#158](https://github.com/Avunu/odoo-nix/issues/158)) ([7d5b097](https://github.com/Avunu/odoo-nix/commit/7d5b09749bbe2bdefc90c3f9fb4a8975bfd2b29a))
+
 ## [2.3.3](https://github.com/Avunu/odoo-nix/compare/v2.3.2...v2.3.3) (2026-11-06)
 
 
