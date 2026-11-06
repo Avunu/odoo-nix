@@ -304,7 +304,7 @@ class Test(GateCase):
                 ["coverage", "report", rc],
                 ["coverage", "xml", rc, "-o", ".odoo-nix/coverage/coverage.xml"],
                 [*mo, "check-licenses"],
-                [*mo, "check-dev-status"],
+                [*mo, "check-dev-status", "--default-dev-status=Beta"],
             ],
         )
         self.assertEqual(
