@@ -28,6 +28,21 @@ direnv reload
 
 To check: clone the project, change any tracked file, `direnv allow`. The submodules are checked out first, then the flake evaluates.
 
+### Nix cannot read the flake: shallow or missing submodules
+
+```text
+error: '…/modules/connector' is a shallow Git repository, so 'revCount' is not available
+fatal: '…/modules/connector' does not appear to be a git repository
+```
+
+A project's flake sets `self.submodules = true`. With any change in the tree (an updated `flake.lock` counts) Nix reads each submodule from its checkout, so it stops at one with no checkout, a nested one included, and under Determinate Nix at a shallow one too. A plain `git submodule update --init` makes shallow clones when `.gitmodules` says `shallow = true`. This happens before any flake output exists, so neither the dev shell nor `nix run .#…` can get as far as fixing it. Run this from the project, from outside its flake:
+
+```bash
+nix run github:Avunu/odoo-nix#repair
+```
+
+It checks out what is missing, brings back a submodule removed by hand, gives a shallow clone its history without moving its checkout, and then asks Nix to read the flake. It exits 0 only if Nix can. It changes no tracked file and overwrites nothing: a directory in a submodule's way is named and left for you to move.
+
 ### `uv.lock does not cover every declared dependency`
 
 `pyproject.toml` declares a dependency `uv.lock` lacks, usually a module added to `modules.txt` without re-locking. The message names it. Run `nix run .#relock` from the project root, commit `pyproject.toml` and `uv.lock`, and re-enter the shell. See [A stale lock is an evaluation error](../development/locks.md#a-stale-lock-is-an-evaluation-error).
