@@ -12,7 +12,9 @@ from odoo_nix_tools.cabundle import ensure_ca_bundle
 
 
 def verify_paths(cafile: str | None) -> ssl.DefaultVerifyPaths:
-    return ssl.DefaultVerifyPaths(cafile, "/etc/ssl/certs", "SSL_CERT_FILE", "", "SSL_CERT_DIR", "")
+    return ssl.DefaultVerifyPaths(
+        cafile, "/etc/ssl/certs", "SSL_CERT_FILE", "", "SSL_CERT_DIR", ""
+    )
 
 
 class EnsureCaBundle(unittest.TestCase):
@@ -22,7 +24,9 @@ class EnsureCaBundle(unittest.TestCase):
         self.bundle = Path(tmp.name) / "bundle.crt"
         self.bundle.touch()
         self.missing = str(Path(tmp.name) / "missing.crt")
-        patcher = mock.patch("ssl.get_default_verify_paths", return_value=verify_paths(None))
+        patcher = mock.patch(
+            "ssl.get_default_verify_paths", return_value=verify_paths(None)
+        )
         self.default_paths = patcher.start()
         self.addCleanup(patcher.stop)
 
