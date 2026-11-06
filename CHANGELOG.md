@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.3.1](https://github.com/Avunu/odoo-nix/compare/v2.3.0...v2.3.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **app-standards:** count an addon with no development_status as Beta ([#144](https://github.com/Avunu/odoo-nix/issues/144)) ([915afe3](https://github.com/Avunu/odoo-nix/commit/915afe331911c4d351f4d30ed582e6520752cc7c))
+* **app-standards:** give odoo-nix a CA bundle for fetching a profile ([#147](https://github.com/Avunu/odoo-nix/issues/147)) ([455d365](https://github.com/Avunu/odoo-nix/commit/455d36580795c56e7a85280b94a4180b0ef0571c))
+* **cli:** send `odoo test`'s log to stdout whatever logfile odoo.conf sets ([#149](https://github.com/Avunu/odoo-nix/issues/149)) ([e88a8e0](https://github.com/Avunu/odoo-nix/commit/e88a8e0b48ef4cfa3a333a4a1aee26f77bf85056))
+* **deps:** bump the nix group with 2 updates ([#146](https://github.com/Avunu/odoo-nix/issues/146)) ([0b18173](https://github.com/Avunu/odoo-nix/commit/0b181734da757f7b28f36f05a22e82d0a0c3bec3))
+* **deps:** bump the ocb group with 3 updates ([#145](https://github.com/Avunu/odoo-nix/issues/145)) ([9dd5466](https://github.com/Avunu/odoo-nix/commit/9dd5466c0c4b4c240080b9e2cf9047b278e8b1c0))
+* **deps:** restore the OCB pins and keep them out of Dependabot's cooldown ([#143](https://github.com/Avunu/odoo-nix/issues/143)) ([5708851](https://github.com/Avunu/odoo-nix/commit/57088513cf7dfd92981eeba005536fc09105a3bb))
+
 ## [2.3.0](https://github.com/Avunu/odoo-nix/compare/v2.2.0...v2.3.0) (2026-11-05)
 
 
