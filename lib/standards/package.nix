@@ -86,6 +86,15 @@ buildPythonPackage {
     export ODOO_NIX_TOOLS_REPO=${repoFiles}
   '';
 
+  # The tools fetch an org profile over HTTPS with urllib, and a Nix-built Python has no
+  # CA bundle of its own: on a machine with no SSL_CERT_FILE (the pr-policy job on a
+  # self-hosted NixOS runner) the fetch fails with CERTIFICATE_VERIFY_FAILED.
+  makeWrapperArgs = [
+    "--set-default"
+    "SSL_CERT_FILE"
+    "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+  ];
+
   pythonImportsCheck = [
     "odoo_nix_tools"
     "odoo_nix_tools.cli"
