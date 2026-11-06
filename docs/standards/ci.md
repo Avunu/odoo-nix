@@ -42,7 +42,7 @@ ODOO_NIX_CI=1 nix develop --no-pure-eval -c odoo-nix gate test
 | `odoo-test` | `odoo test <modules> --fresh-db --coverage tools/pyproject.toml --log .odoo-nix/test/odoo.log` | `tests` |
 | `checklog` | checklog-odoo over that log with `checklog-odoo.cfg` | `tests.checklog` |
 | `coverage` | combine, report against `fail_under`, write `coverage.xml` | `tests` |
-| `manifestoo` | `check-licenses` and `check-dev-status` | `addon-manifest` |
+| `manifestoo` | `check-licenses` and `check-dev-status` (an addon with no `development_status` counts as Beta, as in OCA) | `addon-manifest` |
 
 Outside CI the test gate uses the dev shell's PostgreSQL. `COVERAGE_FILE` is `.odoo-nix/coverage/.coverage` unless you export one.
 
