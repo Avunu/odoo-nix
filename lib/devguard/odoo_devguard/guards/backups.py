@@ -1,4 +1,4 @@
-"""Backup guard: auto_backup jobs may only write to local disk.
+"""Backup guard: auto_backup jobs may only write to local storage.
 
 A restored production database carries the production backup job (SFTP, or an
 FS Storage). Run on a developer machine it would push a dev-mutated database
@@ -7,9 +7,12 @@ backups -- ``cleanup`` removes every file older than ``days_to_keep``.
 
 ``egress`` and ``objectstore`` already make both fail; this skips the record up
 front with a message in its chatter, and keeps the retention pass from ever
-being attempted. Local jobs are untouched. The bridge module
-(``auto_backup_fs_storage``) overrides both methods and handles its own records
-before calling ``super()``, so the same wrapper is applied to its class too.
+being attempted. Local jobs are untouched, and that includes a bridge job whose
+storage is local: ``odoo db restore`` points remote storages at local disk, so
+"remote" has to mean what the storage opens, by the same protocols ``objectstore``
+allows. The bridge module (``auto_backup_fs_storage``) overrides both methods and
+handles its own records before calling ``super()``, so the same wrapper is applied
+to its class too.
 """
 
 import functools
@@ -17,6 +20,8 @@ import functools
 from .._hook import on_import
 from .._patch import announce, require, warn
 from .._settings import settings
+from .objectstore import NAME as OBJECTSTORE
+from .objectstore import _effective_protocol
 
 NAME = "backups"
 
@@ -32,8 +37,17 @@ def enabled():
     return settings().guard_enabled(NAME)
 
 
+def _is_remote(rec):
+    if rec.method == "local":
+        return False
+    if rec.method == "fs_storage" and rec.fs_storage_id:
+        local = settings().items(OBJECTSTORE, "local_protocols")
+        return _effective_protocol(rec.fs_storage_id) not in local
+    return True
+
+
 def _remote(recs):
-    return recs.filtered(lambda r: r.method != "local")
+    return recs.filtered(_is_remote)
 
 
 def _wrap(original, what):
