@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ssl
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -57,6 +59,16 @@ class EnsureCaBundle(unittest.TestCase):
         environ: dict[str, str] = {}
         self.assertIsNone(ensure_ca_bundle(environ, (self.missing,)))
         self.assertEqual(environ, {})
+
+
+class ImportOrder(unittest.TestCase):
+    def test_cli_does_not_import_the_core_before_main_runs(self) -> None:
+        # standards_core reads SSL_CERT_FILE at import: see cli.main.
+        code = (
+            "import sys, odoo_nix_tools.cli; sys.exit('standards_core' in sys.modules)"
+        )
+        done = subprocess.run([sys.executable, "-c", code], check=False)
+        self.assertEqual(done.returncode, 0)
 
 
 if __name__ == "__main__":
