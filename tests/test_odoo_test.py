@@ -209,6 +209,7 @@ class UpdateTest(Case):
                 "--test-tags",
                 "/a,/b",
                 "--stop-after-init",
+                "--logfile=",
             ],
         )
         self.assertEqual(self.ran()["env"]["ODOO_NIX_COVERAGE_RCFILE"], None)
@@ -371,6 +372,7 @@ class FreshDbTest(Case):
                 "--test-tags",
                 "/a,/b",
                 "--stop-after-init",
+                "--logfile=",
                 "--workers=0",
             ],
         )
