@@ -74,6 +74,10 @@ The PostgreSQL cluster predates `postgres.noCow`. Stop `devenv up` and run the `
 
 Odoo would skip every browser tour and report it as a pass. Add `websocket-client` to `[dependency-groups].dev` and re-lock, and keep `testBrowser` set (Chromium by default). `ODOO_NIX_TEST_ALLOW_SKIP=1` runs anyway.
 
+### A browser tour times out on `Emulation.setDeviceMetricsOverride`
+
+Chromium has no working page, usually because `Zygote could not fork` under a hardened service such as the NixOS GitHub runner. The `testBrowser` the dev shell provides passes `--no-zygote` for this. A browser from elsewhere on `PATH` needs the same flag.
+
 ### `odoo test --coverage`: `no coverage data was written`
 
 The `odoo` CLI that ran was not the dev shell's, whose odoo-bin has the coverage hook: a deployed host's never measures. Run it in the dev shell.

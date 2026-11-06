@@ -1144,6 +1144,24 @@ in
         # `odoo` CLI re-executes itself through this when the credentials are
         # absent: decryption happens per command, never at shell entry (see
         # loadSecrets in python-devops-nix's lib.secrets.tools for why).
+        # On a hardened service (the NixOS GitHub runner) Chromium's zygote can't fork, so no
+        # page ever starts and Odoo times out on its first devtools call that needs one.
+        # Odoo's headless runs pass --no-sandbox, where the zygote isn't needed. Chromium
+        # refuses --no-zygote with the sandbox on, so a watched run is left as it is.
+        testBrowserNoZygote = pkgs.runCommandLocal "odoo-nix-test-browser" { } ''
+          mkdir -p "$out/bin"
+          for browser in ${cfg.testBrowser}/bin/*; do
+            {
+              echo '#!${pkgs.runtimeShell}'
+              echo 'for arg in "$@"; do'
+              echo "  [ \"\$arg\" = --no-sandbox ] && exec $browser --no-zygote \"\$@\""
+              echo 'done'
+              echo "exec $browser \"\$@\""
+            } > "$out/bin/$(basename "$browser")"
+            chmod +x "$out/bin/$(basename "$browser")"
+          done
+        '';
+
         withBackupAccess = pkgs.writeShellScript "odoo-nix-with-backup-access" ''
           ${secretsTools.loadSecrets config.agenix-shell.installationScript}
           export ODOO_NIX_SECRETS_LOADED=1
@@ -1889,7 +1907,7 @@ in
                   just
                 ]
                 ++ nodeLib.managers
-                ++ lib.optional (cfg.testBrowser != null) cfg.testBrowser
+                ++ lib.optional (cfg.testBrowser != null) testBrowserNoZygote
                 ++ lib.optional (cfg.ide.enable && cfg.ide.languageServer.enable) cfg.ide.languageServer.package
                 ++ secretsTools.packages
                 ++ lib.optional restoreEnabled pkgs.rclone
