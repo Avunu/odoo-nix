@@ -145,6 +145,9 @@ def odoo_argv(
     else:
         argv += ["-u", joined]
     argv += ["--test-enable", "--test-tags", tags_for(modules), "--stop-after-init"]
+    # To stdout, whatever odoo.conf's logfile says: `--log` tees stdout for checklog-odoo,
+    # which fails on a file with no log records, and the run's result belongs on screen.
+    argv.append("--logfile=")
     if fresh:
         argv.append("--workers=0")
     return [*argv, *db_args]
