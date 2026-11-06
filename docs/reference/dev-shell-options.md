@@ -118,7 +118,7 @@ See [Development guard rails](../development/guard-rails.md).
 | `devguard.jobs.enable` | bool | `true` | Skip denylisted scheduled actions. |
 | `devguard.jobs.extraBlocked` | list of strings | `[ ]` | More cron external ids (`<module>.<name>`) to skip. |
 | `devguard.objectstore.enable` | bool | `true` | Refuse to open an `fs.storage` that is not local. |
-| `devguard.backups.enable` | bool | `true` | Skip `auto_backup` jobs to a remote destination, and their retention. |
+| `devguard.backups.enable` | bool | `true` | Skip `auto_backup` jobs to a remote destination, and their retention. A job on an `fs.storage` with a local protocol counts as local. |
 | `devguard.webhooks.enable` | bool | `true` | Make outbound webhook actions do nothing. |
 | `devguard.iap.enable` | bool | `true` | Make IAP calls fail with a readable error. |
 

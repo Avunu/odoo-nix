@@ -641,7 +641,7 @@ in
           backups.enable = mkOption {
             type = types.bool;
             default = true;
-            description = "Skip `auto_backup` jobs that write to a remote destination, and their retention pass.";
+            description = "Skip `auto_backup` jobs that write to a remote destination, and their retention pass. A job on an `fs.storage` with a local protocol (`devguard.objectstore`'s list) counts as local.";
           };
 
           webhooks.enable = mkOption {
