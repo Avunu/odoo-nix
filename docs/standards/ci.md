@@ -92,7 +92,7 @@ The release flow needs it: the bump commit and the series branch's move are push
 
 ## Dependabot
 
-`.github/dependabot.yml` updates GitHub Actions and the Nix inputs, one entry per `dependabot.target-branches` branch (default: the integration branch), on `dependabot.schedule` with a `cooldown-days` cooldown; its `updates` local region takes your own entries (an addon's own `package.json`, say). The locked tools (`tools/uv.lock`, `package-lock.json`) are not configured: they follow the series data.
+`.github/dependabot.yml` updates GitHub Actions and the Nix inputs, one entry per `dependabot.target-branches` branch (default: the integration branch), on `dependabot.schedule` with a `cooldown-days` cooldown, except for an addon repository's `ocb` input, which follows the branch tip (a cooldown would lock an odoo/odoo commit that OCB merged, which has no OCB `pyproject.toml`); its `updates` local region takes your own entries (an addon's own `package.json`, say). The locked tools (`tools/uv.lock`, `package-lock.json`) are not configured: they follow the series data.
 
 With `dependabot.auto-merge`, `odoo-deps.yml` gives every Dependabot PR a verdict, `auto` (auto-merge, where every enabled gate is a required check of the integration branch), `review` (labelled `needs-review`), `relock` or `close`. The first rule of the PR's ecosystem that matches decides:
 

@@ -1046,7 +1046,9 @@ region. `releases` on with `convention = "odoo"` → preflight exit 2 (levels ne
 
 `templates/github/dependabot.yml.j2`, one entry per `(ecosystem, branch)` for `branch` in
 `dependabot.target-branches`, ecosystems `github-actions` (`/`) and `nix` (`/`), each with `schedule.interval`,
-`cooldown.default-days`, `commit-message.prefix: "chore(deps)"`, `groups.actions` (github-actions), and ignores:
+`cooldown.default-days`, `commit-message.prefix: "chore(deps)"`, `groups.actions` (github-actions), `cooldown.exclude:
+["ocb"]` (nix: a cooldown locks an odoo/odoo commit inside one of OCB's merges, which has no OCB `pyproject.toml`), and
+ignores:
 
 ```yaml
     ignore:

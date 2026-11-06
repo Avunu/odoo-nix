@@ -48,8 +48,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # OCB merges odoo/odoo in every night, and the cooldown picks the newest commit older
+    # than its window by date, which is almost always an odoo/odoo commit inside such a
+    # merge. Those have no OCB pyproject.toml, so every check that evaluates the Python
+    # environment fails with "path .../pyproject.toml does not exist" (#63, #140). Dependabot
+    # applies a 3-day cooldown even when none is configured, so the OCB pins must be excluded.
     cooldown:
       default-days: 7
+      exclude: ["ocb-*"]
     commit-message:
       prefix: "fix(deps)"
     # python-devops-nix is standards-core too: its lock node moves with the
