@@ -67,7 +67,7 @@ Every step runs, and a step whose module is off is skipped with the reason. `--r
 
 ## The reusable workflows
 
-All of them pin every action by SHA, pass inputs through `env:`, clear `$RUNNER_TEMP` on self-hosted runners, and run a fork's pull request on `ubuntu-latest` whatever `ci.runs-on` says.
+All of them pin every action by SHA, pass inputs through `env:`, clear `$RUNNER_TEMP` on self-hosted runners, and run a fork's pull request on `ubuntu-latest` whatever `ci.runs-on` says. On a GitHub-hosted runner, `odoo-test.yml` also deletes the preinstalled toolchains it doesn't use and clones submodules at depth 1, because Nix clones each submodule's full history itself.
 
 | Workflow | Inputs | What it runs |
 | --- | --- | --- |
