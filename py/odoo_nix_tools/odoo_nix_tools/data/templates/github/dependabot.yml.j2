@@ -28,8 +28,11 @@ updates:
     target-branch: {{ branch | json_string }}
     schedule:
       interval: {{ d.schedule }}
+    # An addon repository's OCB follows the branch tip: a cooldown picks an odoo/odoo commit
+    # inside one of OCB's merges, which has no OCB pyproject.toml and does not evaluate.
     cooldown:
       default-days: {{ d["cooldown-days"] }}
+      exclude: ["ocb"]
     commit-message:
       prefix: chore(deps)
     labels: [dependencies]
