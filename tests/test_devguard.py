@@ -110,8 +110,8 @@ fake_module("odoo.addons.fs_storage.models.fs_storage", FSStorage=FSStorage)
 
 
 class Backup:
-    def __init__(self, name, method):
-        self.name, self.method = name, method
+    def __init__(self, name, method, storage=None):
+        self.name, self.method, self.fs_storage_id = name, method, storage
 
 
 class DbBackup:
@@ -410,6 +410,34 @@ class BackupGuardTest(unittest.TestCase):
         with env(DISABLE="backups"):
             self._recs().action_backup()
         self.assertEqual(len(CALLS[0][1]), 3)
+
+    def _storage_recs(self):
+        class R(Recs):
+            action_backup = DbBackup.action_backup
+            cleanup = DbBackup.cleanup
+
+        return R(
+            [
+                Backup("memory", "fs_storage", FSStorage("memory", "memory")),
+                Backup("file", "fs_storage", FSStorage("file", "file")),
+                Backup("rooted", "fs_storage", FSStorage("rooted", "rooted_dir")),
+                Backup("s3", "fs_storage", FSStorage("s3", "s3")),
+                Backup(
+                    "rooted_s3",
+                    "fs_storage",
+                    FSStorage("rooted_s3", "rooted_dir", '{"target_protocol": "s3"}'),
+                ),
+                Backup("no_storage", "fs_storage"),
+            ]
+        )
+
+    def test_a_job_on_a_local_storage_is_local(self):
+        self._storage_recs().action_backup()
+        self.assertEqual(CALLS, [("backup", ["memory", "file", "rooted"])])
+
+    def test_retention_treats_a_local_storage_as_local(self):
+        self._storage_recs().cleanup()
+        self.assertEqual(CALLS, [("cleanup", ["memory", "file", "rooted"])])
 
 
 class WebhookAndIapGuardTest(unittest.TestCase):
