@@ -1855,7 +1855,7 @@ Every step runs; exit 1 when any failed, 2 for configuration, 3 for environment.
 | `odoo-test` | `odoo test --all --fresh-db --coverage tools/pyproject.toml --log .odoo-nix/test/odoo.log` (below) |
 | `checklog` | `tools/.venv/bin/checklog-odoo .odoo-nix/test/odoo.log` with `checklog-odoo.cfg` (when `tests.checklog`) |
 | `coverage` | `tools/.venv/bin/coverage combine` then `coverage report --rcfile=tools/pyproject.toml` (exit non-zero below `fail_under`), `coverage xml -o .odoo-nix/coverage/coverage.xml`. Every coverage process runs from the repository root with `COVERAGE_FILE=<root>/.odoo-nix/coverage/.coverage` exported (the gate and `odoo test --coverage` both set it), so the data file does not depend on whether coverage resolves `data_file` against the current directory or the rcfile's (`tools/`). Whether `[run] source` resolves the same way is verified at O2 (`odoo-test-ci-18` asserts every measured file is under `addons_root`); if it resolves against `tools/`, the `tests` group writes `source` as `../<addons_root>` |
-| `manifestoo` | `tools/.venv/bin/manifestoo --select-addons-dir <addons_root> --addons-path <odoo.conf addons_path> check-licenses`, then `check-dev-status` (addon-manifest on) |
+| `manifestoo` | `tools/.venv/bin/manifestoo --select-addons-dir <addons_root> --addons-path <odoo.conf addons_path> check-licenses`, then `check-dev-status --default-dev-status=Beta` (addon-manifest on) |
 
 `odoo test` redesign (`lib/odoo_nix_cli/commands/__init__.py` `test_cmd`):
 
