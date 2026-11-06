@@ -268,7 +268,13 @@ let
           lib.optional (prev ? ${attr}) (
             lib.nameValuePair attr (
               prev.${attr}.overrideAttrs (_: {
-                src = "${nodeBuilds.${key}}${a.sub}";
+                # Named after the addon: whool takes the addon's name from the
+                # directory it builds in, which is the source's store name.
+                # The bare build output, `<addon>-built`, would install as a
+                # second module of that name.
+                src = pkgs.runCommand a.module { } ''
+                  cp -r ${nodeBuilds.${key}}${a.sub} $out
+                '';
               })
             )
           )
