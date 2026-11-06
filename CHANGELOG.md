@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.3.2](https://github.com/Avunu/odoo-nix/compare/v2.3.1...v2.3.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* **app-standards:** find a CA bundle when the tools run on uv's Python ([#150](https://github.com/Avunu/odoo-nix/issues/150)) ([4704036](https://github.com/Avunu/odoo-nix/commit/4704036d0a9df32f12948f041719841844a73d52))
+* **devguard:** treat an auto_backup job on a local storage as local ([#152](https://github.com/Avunu/odoo-nix/issues/152)) ([c404f75](https://github.com/Avunu/odoo-nix/commit/c404f759da4ca23c893ecd7d0684d90918af92c3))
+* **node:** name a built wheel's source after its addon ([#151](https://github.com/Avunu/odoo-nix/issues/151)) ([76c07a7](https://github.com/Avunu/odoo-nix/commit/76c07a7df0487067ceba304dcd7c2c6caf850f92))
+
 ## [2.3.1](https://github.com/Avunu/odoo-nix/compare/v2.3.0...v2.3.1) (2026-11-06)
 
 
