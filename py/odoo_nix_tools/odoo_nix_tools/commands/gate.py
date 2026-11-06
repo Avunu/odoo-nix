@@ -343,7 +343,12 @@ def _manifestoo(ctx: GateContext) -> StepResult:
         "--addons-path",
         addons_path(ctx.root, ctx.env),
     ]
-    return ctx.sh([*base, "check-licenses"], [*base, "check-dev-status"])
+    # Beta for an addon with no development_status, as OCA reads it: many OCA addons
+    # have none, and the check also reads the addons' dependencies.
+    return ctx.sh(
+        [*base, "check-licenses"],
+        [*base, "check-dev-status", "--default-dev-status=Beta"],
+    )
 
 
 TEST = (
