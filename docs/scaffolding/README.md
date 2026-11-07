@@ -4,7 +4,7 @@ description: The two things the odoo-nix scaffolder does, how it picks one from 
 nav_title: Scaffolding
 order: 3
 tags: [scaffolding, odoo-init]
-updated: 2026-11-02
+updated: 2026-11-07
 ---
 
 `nix run github:Avunu/odoo-nix` runs `odoo-init`. It has two modes, and it detects which one from the target directory (the current directory when that is an Odoo tree or an odoo-nix project, otherwise a new directory it asks for or you name):
@@ -18,6 +18,6 @@ updated: 2026-11-02
 
 `--init` and `--migrate` force a mode, and `--dry-run` prints the plan without changing anything. Neither mode overwrites a file that exists or commits anything unless you pass `--commit`: the result is staged for you to review.
 
-A repository that is a **library of modules** mounted by other projects is a different shape: it takes OCB as a flake input instead of a submodule. The scaffolder does not write that one. See [A repository of addons](addons-repository.md) for one developed on its own, with its dependencies as flake inputs, and [Write the flake by hand](write-the-flake.md#a-repository-of-modules) for the minimal variant.
+A repository that is a **library of modules** mounted by other projects is a different shape: it takes OCB as a flake input instead of a submodule, and the scaffolder does not detect it. Run `nix run github:Avunu/odoo-nix -- --addons` in it to bring it into addons mode. See [A repository of addons](addons-repository.md) for one developed on its own, with its dependencies as flake inputs, and [Write the flake by hand](write-the-flake.md#a-repository-of-modules) for the minimal variant.
 
 Every flag and exit code is in the [scaffolder reference](../reference/scaffolder.md).

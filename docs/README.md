@@ -4,7 +4,7 @@ description: Reusable Nix infrastructure for Odoo Community (OCB) and OCA projec
 nav_title: Overview
 order: 0
 tags: [odoo, oca, nix, overview]
-updated: 2026-11-03
+updated: 2026-11-07
 ---
 
 odoo-nix packages everything needed to develop and ship an [Odoo](https://www.odoo.com/) project built on the [Odoo Community Backports (OCB)](https://github.com/OCA/OCB) distribution and [OCA](https://odoo-community.org/) modules, declaratively. A project that uses it is a thin wrapper: a `flake.nix`, a `pyproject.toml` with its `uv.lock`, a `modules.txt`, and git submodules for OCB and the module repositories. The same description builds the development shell on a laptop and the production system on a server.
@@ -21,6 +21,8 @@ You consume it as a [flake-parts](https://flake.parts/) module.
 - A single-instance **NixOS module**, `services.odoo-nix`, that migrates the database behind a verified snapshot before every start, keeps secrets out of the Nix store and logs to the journal.
 - An **OCI container image**.
 - **Age-encrypted secrets** committed next to the code, which the dev shell decrypts and the server can read from the same ciphertext.
+- **Addons mode**, for a repository of addons published the way the OCA publishes them: addons at the root, OCB and the repositories they depend on as flake inputs, and a dev shell that installs every addon in it. See [A repository of addons](scaffolding/addons-repository.md).
+- **Repository standards**: the `odoo-nix` command keeps a project's or an addon repository's lint, format, test, editor, Dependabot and CI files in line with a profile, using the OCA's per-series rules with the tools locked by Nix, and reusable GitHub workflows run the gates and release addon repositories. See [Repository standards](standards/README.md).
 
 ## How the pieces fit
 
