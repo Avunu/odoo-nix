@@ -310,7 +310,7 @@
       "releases": {
         "type": "object",
         "additionalProperties": false,
-        "description": "The post-merge bump of each addon's version, and the series branch's fast-forward. Addon repositories only.",
+        "description": "Each addon's releases. Under branching = \"series\": release-please on each series branch, tags <addon>-<series>.x.y.z and a GitHub release per addon carrying its zip and wheel. Under \"develop+series\": the post-merge bump of each addon's version, and the series branch's fast-forward. Addon repositories only.",
         "properties": {
           "enable": {
             "type": "boolean",
@@ -323,6 +323,18 @@
             ],
             "default": "odoo-series",
             "description": "odoo-series: <series>.x.y.z per addon."
+          },
+          "build": {
+            "type": "object",
+            "default": {},
+            "propertyNames": {
+              "pattern": "^[A-Za-z0-9_]+$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Front ends to build into an addon's release package: addon name = the directory under it whose package.json has a build script (npm ci, then npm run build; what it writes under the addon, static/dist, goes into the zip and wheel). Repository-wide: set it in [tool.odoo-nix.releases]."
           }
         }
       },

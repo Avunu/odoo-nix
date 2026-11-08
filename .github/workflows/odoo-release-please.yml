@@ -1,0 +1,336 @@
+name: odoo-release-please
+
+# The series release flow of an addon repository (py/odoo_nix_tools/DESIGN.md §2.2,
+# releaseplease.py), reusable. Each series branch (18.0, 19.0) is its own integration
+# branch; a push to one runs, on that branch:
+#
+# 1. seed: each installable addon with no release on this series yet gets one, for the
+#    version its manifest has, at the branch head (`odoo-nix release unreleased`), so
+#    release-please counts its commits from there (adoption, and every new addon);
+# 2. release-please: keeps the series' release PR up to date (one PR, every changed addon:
+#    its CHANGELOG.md and .release-please-manifest.json), and once it is merged tags each
+#    released addon `<addon>-<series>.x.y.z` and publishes its GitHub release;
+# 3. sync: on the release PR's branch, `odoo-nix release sync` writes release-please's
+#    versions into the addons' __manifest__.py, which release-please cannot do itself;
+# 4. package: for every release the run made, `odoo-nix release package` in the dev shell
+#    builds the addon's zip (with its front end built, `releases.build`) and its wheel,
+#    and attaches both to the release.
+#
+# Every write uses the CI App's token: a GITHUB_TOKEN PR starts no CI, and the App's
+# pushes and PR do. `repackage: <tag>` (workflow_dispatch) builds one release's files
+# again, from its tag.
+
+on:
+  workflow_call:
+    inputs:
+      series-branch:
+        description: the series branch this run releases (18.0), the caller's integration branch
+        type: string
+        required: true
+      repackage:
+        description: a release tag whose zip and wheel to build and upload again; skips steps 1-3
+        type: string
+        default: ""
+      runs-on:
+        description: >-
+          The runner, as JSON: a label or a list of labels (`["self-hosted", "nixos"]`).
+        type: string
+        default: '["ubuntu-latest"]'
+      client-id:
+        description: "ci.github-app: the CI App's client ID (an Actions variable)"
+        type: string
+        default: ""
+    secrets:
+      APP_PRIVATE_KEY:
+        description: "ci.github-app: the CI App's private key (PEM)"
+        required: false
+
+permissions: {}
+
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  release-please:
+    name: release-please
+    if: inputs.repackage == ''
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 30
+    permissions:
+      contents: read # the checkout; every write uses the App's token
+    outputs:
+      packages: ${{ steps.plan.outputs.packages }}
+      pr-branch: ${{ steps.plan.outputs.pr-branch }}
+    steps:
+      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
+      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
+      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
+      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
+      - if: runner.environment != 'github-hosted'
+        name: Clear what an earlier job left in the runner's temp dir and workspace
+        working-directory: ${{ runner.temp }}
+        run: |
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
+          if [ -d "$GITHUB_WORKSPACE" ]; then
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
+          fi
+
+      - name: The release flow needs the CI App
+        env:
+          ENABLED: ${{ inputs.client-id != '' && secrets.APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$ENABLED" != true ]; then
+            echo "::error::the series release opens its PR, tags and publishes with the CI App's token: set ci.github-app (\`odoo-nix repo doctor\` lists what the flow needs)"
+            exit 1
+          fi
+
+      # Contents write (tags, releases, the release PR's branch), Pull requests write (the
+      # release PR) and Workflows write (a release PR that carries .github/workflows/).
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.client-id }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      # The series head, not github.sha: a run started by an older merge would otherwise
+      # seed or release a stale tree.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.series-branch }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@7887586590d83942dac7db84c655478f633a7005 # python-devops-nix 7887586590d83942dac7db84c655478f633a7005
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+
+      - name: The series branch is the checkout's series
+        env:
+          SERIES_BRANCH: ${{ inputs.series-branch }}
+        run: |
+          set -euo pipefail
+          series="$(odoo-nix config series)"
+          if [ "$series" != "$SERIES_BRANCH" ]; then
+            echo "::error::series-branch is $SERIES_BRANCH, but the checkout's series is $series: run odoo-init --sync"
+            exit 1
+          fi
+
+      # 1. A first release for each addon that has none on this series.
+      - id: seed
+        name: Seed a release for each addon without one
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          SERIES_BRANCH: ${{ inputs.series-branch }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          seeded="$(odoo-nix release unreleased)"
+          printf '%s\n' "$seeded" | jq -r '.[] | "\(.path) \(.tag)"' | while read -r path tag; do
+            notes="The version of \`$path\` on $SERIES_BRANCH when its releases began. Later releases list their changes; earlier ones are in the git history."
+            gh release create "$tag" --repo "$REPO" --target "$sha" --title "$tag" --notes "$notes"
+            echo "::notice::seeded $tag"
+          done
+          echo "seeded=$(jq -c . <<<"$seeded")" >> "$GITHUB_OUTPUT"
+
+      # 2. The release PR, and the releases of a merged one.
+      - id: rp
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: ${{ inputs.series-branch }}
+
+      - id: plan
+        name: What to sync and what to package
+        env:
+          OUTPUTS: ${{ toJSON(steps.rp.outputs) }}
+          SEEDED: ${{ steps.seed.outputs.seeded }}
+        run: |
+          set -euo pipefail
+          released="$(jq -c '
+            . as $o
+            | (try ($o.paths_released | fromjson) catch []) // []
+            | map({path: ., tag: $o[. + "--tag_name"]})
+            | map(select(.tag != null and .tag != ""))' <<<"$OUTPUTS")"
+          packages="$(jq -c -n --argjson a "$SEEDED" --argjson b "$released" '$a + $b | unique_by(.tag)')"
+          branch="$(jq -r '(try (.pr | fromjson) catch null) // {} | .headBranchName // ""' <<<"$OUTPUTS")"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+          echo "pr-branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "released: $released"
+          echo "release PR branch: ${branch:-none}"
+
+  # 3. The release PR's manifest versions.
+  sync:
+    name: sync
+    needs: release-please
+    if: needs.release-please.outputs.pr-branch != ''
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 15
+    permissions:
+      contents: read # the checkout; the push uses the App's token
+    steps:
+      - if: runner.environment != 'github-hosted'
+        name: Clear what an earlier job left in the runner's temp dir and workspace
+        working-directory: ${{ runner.temp }}
+        run: |
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
+          if [ -d "$GITHUB_WORKSPACE" ]; then
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
+          fi
+
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.client-id }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.pr-branch }}
+          persist-credentials: false
+
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@7887586590d83942dac7db84c655478f633a7005 # python-devops-nix 7887586590d83942dac7db84c655478f633a7005
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+
+      # The commit is the App's bot's; the push authenticates through a header given to
+      # this step's git commands only (nothing is written to .git/config).
+      - name: Write release-please's versions into the manifests
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SLUG: ${{ steps.app-token.outputs.app-slug }}
+          BRANCH: ${{ needs.release-please.outputs.pr-branch }}
+        run: |
+          set -euo pipefail
+          odoo-nix release sync
+          if git diff --quiet; then
+            echo "the manifests already carry release-please's versions"
+            exit 0
+          fi
+          id="$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)"
+          git -c user.name="${SLUG}[bot]" -c user.email="${id}+${SLUG}[bot]@users.noreply.github.com" \
+            commit -am "chore(release): write the release versions into the manifests"
+          GIT_CONFIG_COUNT=1
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+          echo "::add-mask::$GIT_CONFIG_VALUE_0"
+          git push origin "HEAD:refs/heads/$BRANCH"
+
+  # A dispatch's repackage tag, as a one-entry plan.
+  repackage:
+    name: repackage
+    if: inputs.repackage != ''
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      packages: ${{ steps.plan.outputs.packages }}
+    steps:
+      - id: plan
+        env:
+          TAG: ${{ inputs.repackage }}
+          SERIES_BRANCH: ${{ inputs.series-branch }}
+        run: |
+          set -euo pipefail
+          addon="${TAG%%-"$SERIES_BRANCH".*}"
+          if [ "$addon" = "$TAG" ]; then
+            echo "::error::$TAG is no <addon>-$SERIES_BRANCH.x.y.z release tag"
+            exit 1
+          fi
+          echo "packages=$(jq -c -n --arg p "$addon" --arg t "$TAG" '[{path: $p, tag: $t}]')" >> "$GITHUB_OUTPUT"
+
+  # 4. Each release's zip and wheel.
+  package:
+    name: package (${{ matrix.package.tag }})
+    needs: [release-please, repackage]
+    if: >-
+      always()
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+      && (needs.release-please.outputs.packages || needs.repackage.outputs.packages || '[]') != '[]'
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 60
+    permissions:
+      contents: read # the checkout; the upload uses the App's token
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.release-please.outputs.packages || needs.repackage.outputs.packages) }}
+    steps:
+      - if: runner.environment != 'github-hosted'
+        name: Clear what an earlier job left in the runner's temp dir and workspace
+        working-directory: ${{ runner.temp }}
+        run: |
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
+          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
+          if [ -d "$GITHUB_WORKSPACE" ]; then
+            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ matrix.package.tag }}
+          persist-credentials: false
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        if: runner.environment == 'github-hosted'
+        with:
+          determinate: false
+
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+        if: runner.environment == 'github-hosted'
+        with:
+          diagnostic-endpoint: ""
+          use-flakehub: false
+
+      # The dev shell links tools/.venv (whool, pyproject-build) and has node for a
+      # front-end build.
+      - name: odoo-nix release package
+        env:
+          ODOO_NIX_CI: "1"
+          ADDON: ${{ matrix.package.path }}
+          OUT: ${{ runner.temp }}/dist
+        run: nix develop --no-pure-eval -c odoo-nix release package "$ADDON" --out "$OUT"
+
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.client-id }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Attach the zip and the wheel to the release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ matrix.package.tag }}
+          OUT: ${{ runner.temp }}/dist
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=("$OUT"/*.zip "$OUT"/*.whl)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::odoo-nix release package wrote nothing for $TAG"
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --repo "$REPO" --clobber
+          printf '::notice::%s: %s\n' "$TAG" "$(basename -a "${files[@]}" | paste -sd ' ')"

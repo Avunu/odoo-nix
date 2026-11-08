@@ -136,6 +136,17 @@ def preflight(checkout: Checkout, resolved: Resolved) -> None:
             f" series branch it releases to, and it is {integration}: create develop and"
             " make it the default branch (or set integration-branch)"
         )
+    if _on(modules, "releases") and branching == "series" and shape == "addons":
+        # A project has no addons to tag: it renders no release flow, as under
+        # develop+series, so a profile shared with projects needs no override there.
+        series_name = str(facts.get("series") or "")
+        if integration != series_name:
+            raise ConfigError(
+                f'under releases.branching = "series" the integration branch is the'
+                f" series branch, {series_name or '(no series)'}, and it is"
+                f" {integration or 'unset'}: drop integration-branch from"
+                " [tool.odoo-nix], or check .odoo-series"
+            )
 
 
 def _no_flake(shape: str) -> str:

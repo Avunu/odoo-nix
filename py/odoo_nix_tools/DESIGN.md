@@ -539,6 +539,35 @@ edi_import_router, import_preview` to `develop` and pushes; `ci fast-forward` mo
 contexts on that commit are green (push-triggered `ci.yml` and `pr-policy.yml`, §6.4). A project's
 `release_branch` is `""`, so neither the release caller nor the release ruleset is rendered there.
 
+#### 2.2.1 `series`: release-please tags (2.4)
+
+`BRANCHING["series"]` (`flow="none"`, `release_branch` `""`, `tags=True`): every series branch is an integration
+branch, developed in parallel, and a release is a tag. `discover.derive` sets `integration-branch` to the
+checkout's series unless the table names one; `preflight` refuses it for a project and for an integration branch
+other than the series.
+
+- **Files** (`manifest.d/85-releases.json`, `releaseplease.py`, when `context.release_please` is not None:
+  `releases` on, addons shape, `series`): `release-please-config.json` (one `simple` package per installable
+  addon: component `<addon>-<series>`, `tag-separator` `.`, no `v`, `exclude-paths` = the `EXEMPT` directories)
+  and `.release-please-manifest.json` (`{path: x.y.z}`), both `whole` with no header, rendered from the
+  manifests. The tag is `<addon>-<series>.x.y.z`; release-please's tag pattern takes the longest component that
+  leaves an `x.y.z`, so it parses back to `(<addon>-<series>, ".", x.y.z)`. The pre-commit top-level exclude adds
+  `CHANGELOG.md` and the release-please manifest.
+- **Flow** (`odoo-release-please.yml`, called by `release.yml` on a push to the series branch): seed (`odoo-nix
+  release unreleased`, then `gh release create` at the head for each addon with no tag on the series), then
+  release-please with the App token, then `odoo-nix release sync` on the release PR's branch (commit and push
+  with the App token), then `odoo-nix release package` per release in `nix develop` and `gh release upload`.
+- **Packages** (`releaseplease.package`): the tracked files (`git ls-files`) and, with `releases.build.<addon>`
+  set, what `npm ci && npm run build` in that directory leaves under the addon, minus `node_modules` and caches,
+  staged outside git. The zip (`<addon>-<version>.zip`) has the addon directory at its root and fixed member
+  times; the wheel is whool's, built from the staged tree (`WHOOL_POST_VERSION_STRATEGY_OVERRIDE=none`, and no
+  git, so whool takes the whole tree).
+- **Policy**: `pr_checks` refuses a manifest version moved outside `release-please--branches--<series>`;
+  `OdooSeries.message_problems` lets `Release-As` through.
+- **Repo policy** (`fleet.repo_policy_values`, odoo-nix's own `repo-policy/rulesets/integration.json` with
+  `{integration_label}` and `{integration_refs}`): one integration ruleset over `refs/heads/*.0`, no bypass, and
+  the core's tags ruleset over `refs/tags/*`. Doctor checks the App's variable and secret.
+
 ### 2.3 Discovery (`discover.py`)
 
 ```python

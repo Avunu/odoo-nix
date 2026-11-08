@@ -554,6 +554,15 @@ def derive(cfg: dict[str, Any], checkout: Checkout | None) -> None:
             # A project has no develop+series flow: its integration branch is main
             # unless its table (or --standards, from origin/HEAD) names another.
             cfg["integration-branch"] = "main"
+        elif (
+            found["shape"] == "addons"
+            and (cfg.get("releases") or {}).get("branching") == "series"
+            and found["series"]
+            and "integration-branch" not in _table(doc)
+        ):
+            # Under series each series branch is its own integration branch
+            # (release.py): this checkout's is the series it is for.
+            cfg["integration-branch"] = found["series"]
     dependabot = cfg.get("dependabot")
     if isinstance(dependabot, dict) and not dependabot.get("target-branches"):
         dependabot["target-branches"] = [cfg["integration-branch"]]

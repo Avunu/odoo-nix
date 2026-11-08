@@ -244,6 +244,27 @@ def template_globals(
         "scopes": scopes(cfg, facts),
         "ide": ide_data(),
         "ide_specs": ide_specs(Path(checkout.root)),
+        "release_please": release_please(cfg, modules, facts),
+    }
+
+
+def release_please(
+    cfg: Mapping[str, Any], modules: Mapping[str, Any], facts: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """release-please's config and manifest under the series branching (an addon
+    repository with releases on), else None."""
+    from odoo_nix_tools import release, releaseplease
+
+    if not (
+        modules.get("releases")
+        and facts.get("shape") == "addons"
+        and (cfg.get("releases") or {}).get("branching") == release.SERIES
+    ):
+        return None
+    addons = facts.get("addons", [])
+    return {
+        "config": releaseplease.config(addons, facts["series"]),
+        "manifest": releaseplease.manifest(addons, facts["series"]),
     }
 
 
@@ -478,7 +499,10 @@ class Gen:
         from odoo_nix_tools import precommit
 
         return precommit.exclude_block(
-            self.data, self.ctx["discover"], _local(self.ctx)
+            self.data,
+            self.ctx["discover"],
+            _local(self.ctx),
+            release_please=self.ctx["release_please"] is not None,
         )
 
     def hooks_yaml(self) -> str:

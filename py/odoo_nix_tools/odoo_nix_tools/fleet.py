@@ -13,12 +13,19 @@ pull requests. A project needs no override: its release branch is ``""``
 (``release.BRANCHING``), so the core gives its integration ruleset no bypass actor (core
 CR3, DESIGN.md §10).
 
+an addon repository under ``series``: one integration ruleset for every series branch
+(``refs/heads/*.0``: they are developed in parallel, each its own integration branch), and
+a tags ruleset over every tag (``<addon>-<series>.x.y.z``), through odoo-nix's own
+``repo-policy/rulesets/integration.json`` (``{integration_label}``,
+``{integration_refs}``).
+
 ``AUDIT_ROWS``: A12 (an addon repository's branches against its series and Dependabot's
 targets) and A13 (a project's submodules on its series).
 
 ``doctor_rows``: what the ``develop+series`` release flow needs from the repository: the
 CI App's client-ID variable and private-key secret (``ci.github-app``), and a
-``repo-policy.release-bypass`` naming that App by its numeric id; and, for a project
+``repo-policy.release-bypass`` naming that App by its numeric id (the ``series`` flow
+needs the App's variable and secret only); and, for a project
 without an App, how its ``project-update`` pull requests get CI.
 """
 
@@ -44,8 +51,12 @@ if TYPE_CHECKING:
     from standards_core.commands.repo.audit import Audit
     from standards_core.common.repoconfig import RepoConfig
 
-# The release flow the App-only rows are about (release.BRANCHING).
+# The release flows the App-only rows are about (release.BRANCHING).
 SERIES_FLOW = "develop+series"
+TAGS_FLOW = "series"
+# The integration ruleset of the series branching: every series branch.
+SERIES_RULESET = "series branches (*.0)"
+SERIES_REFS = "refs/heads/*.0"
 # repo-policy.release-bypass naming a GitHub App by its numeric id.
 APP_BYPASS = re.compile(r"integration:(\d+)")
 
@@ -74,15 +85,34 @@ def _series_flow(cfg: Mapping[str, Any]) -> bool:
     return (cfg.get("releases") or {}).get("branching") == SERIES_FLOW
 
 
+def _tags_flow(cfg: Mapping[str, Any]) -> bool:
+    return (cfg.get("releases") or {}).get("branching") == TAGS_FLOW
+
+
 def repo_policy_values(
     cfg: Mapping[str, Any], modules: Mapping[str, bool], gates: Sequence[str]
 ) -> dict[str, Any]:
-    """The per-series release pattern of an addon repository (module docstring)."""
+    """The per-series release pattern of an addon repository, and the integration and
+    tags rulesets of the ``series`` branching (module docstring)."""
     shape = cfg.get("shape")
     series = cfg.get("series")
+    integration = str(cfg.get("integration-branch") or "")
+    out: dict[str, Any] = {
+        "integration_label": integration,
+        "integration_refs": [f"refs/heads/{integration}"],
+    }
     if shape == "addons" and _series_flow(cfg) and series:
-        return {"release_pattern": f"refs/heads/{series}", "release_label": series}
-    return {}
+        out.update(release_pattern=f"refs/heads/{series}", release_label=series)
+    elif shape == "addons" and _tags_flow(cfg):
+        # Every series branch is an integration branch, developed in parallel, so one
+        # ruleset guards them all; the tags are `<addon>-<series>.x.y.z`.
+        out.update(
+            integration_label=SERIES_RULESET,
+            integration_refs=[SERIES_REFS],
+            tag_prefix="",
+            tag_pattern="refs/tags/*",
+        )
+    return out
 
 
 # --- audit rows ----------------------------------------------------------------------
@@ -120,10 +150,13 @@ def _a12(a: Audit) -> tuple[str, str]:
     red: list[str] = []
     unknown: list[str] = []
     branches = list(a.t.entry.get("branches") or [])
+    # Under series every listed branch is a series branch; under develop+series the
+    # first is the integration branch.
+    listed_series = branches if _tags_flow(cfg) else branches[1:]
     if not branches:
         unknown.append("no fleet entry branches to compare")
-    elif series not in branches[1:]:
-        listed = ", ".join(branches[1:]) or "none"
+    elif series not in listed_series:
+        listed = ", ".join(listed_series) or "none"
         red.append(
             f"the fleet's series branches ({listed}) do not include {series} ({source})"
         )
@@ -287,6 +320,10 @@ def doctor_rows(r: str, rc: RepoConfig) -> tuple[list[DoctorRow], list[str]]:
     if bumps:
         rows += _app_rows(r, cfg, settings)
         rows.append(_bypass_row(cfg, settings))
+    elif modules.get("releases") and _tags_flow(cfg):
+        # release-please opens its PR with the App's token, so CI runs on it, and
+        # pushes the manifest versions to it; nothing bypasses a ruleset.
+        rows += _app_rows(r, cfg, settings)
     app = (cfg.get("ci") or {}).get("github-app") or {}
     update = (cfg.get("ci") or {}).get("project-update", "")
     if (
