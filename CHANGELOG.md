@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/Avunu/odoo-nix/compare/v2.3.4...v2.4.0) (2026-11-08)
+
+
+### Features
+
+* **release:** tag and package each addon with release-please on parallel series branches ([#161](https://github.com/Avunu/odoo-nix/issues/161)) ([b95cec1](https://github.com/Avunu/odoo-nix/commit/b95cec1b520a21724d561f613b0a56a488f797a9))
+
 ## [2.3.4](https://github.com/Avunu/odoo-nix/compare/v2.3.3...v2.3.4) (2026-11-06)
 
 
