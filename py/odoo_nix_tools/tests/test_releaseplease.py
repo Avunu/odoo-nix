@@ -57,7 +57,8 @@ class Config(unittest.TestCase):
 
     def test_manifest_holds_x_y_z(self) -> None:
         self.assertEqual(
-            releaseplease.manifest(ADDONS, "18.0"), {"web_a": "1.10.0", "web_b": "2.0.1"}
+            releaseplease.manifest(ADDONS, "18.0"),
+            {"web_a": "1.10.0", "web_b": "2.0.1"},
         )
 
     def test_a_version_off_the_series_is_refused(self) -> None:
@@ -143,7 +144,9 @@ class Package(TempRepos):
             return zf.namelist()
 
     def test_tracked_files_only_without_a_build(self) -> None:
-        out = releaseplease.package(self.root, ADDONS[1], self.tmp / "dist", wheel=False)
+        out = releaseplease.package(
+            self.root, ADDONS[1], self.tmp / "dist", wheel=False
+        )
         self.assertEqual(out.zip.name, "web_a-18.0.1.10.0.zip")
         self.assertIsNone(out.wheel)
         self.assertEqual(
@@ -163,7 +166,9 @@ class Package(TempRepos):
 
     def test_the_zip_is_reproducible(self) -> None:
         first = releaseplease.package(self.root, ADDONS[1], self.tmp / "a", wheel=False)
-        second = releaseplease.package(self.root, ADDONS[1], self.tmp / "b", wheel=False)
+        second = releaseplease.package(
+            self.root, ADDONS[1], self.tmp / "b", wheel=False
+        )
         self.assertEqual(first.zip.read_bytes(), second.zip.read_bytes())
 
     def test_a_wheel_needs_pyproject_build(self) -> None:
@@ -177,7 +182,9 @@ class PrCheck(TempRepos):
 
     def setUp(self) -> None:
         super().setUp()
-        self.root = self.make_tree({"web_a/__manifest__.py": MANIFEST % ("A", "18.0.1.0.0")})
+        self.root = self.make_tree(
+            {"web_a/__manifest__.py": MANIFEST % ("A", "18.0.1.0.0")}
+        )
         git(self.root, "branch", "-m", "18.0")
         git(self.root, "checkout", "-q", "-b", "topic")
         (self.root / "web_a/__manifest__.py").write_text(MANIFEST % ("A", "18.0.1.1.0"))
@@ -243,7 +250,9 @@ class SeriesSync(SyncCase):
         text = profile.read_text().replace(
             'branching = "develop+series"', 'branching = "series"'
         )
-        config = (repo / "tests/fixtures/standards-addons/nix/pyproject.toml").read_text()
+        config = (
+            repo / "tests/fixtures/standards-addons/nix/pyproject.toml"
+        ).read_text()
         config = config.replace(
             'profile = "recommended"', 'profile = "./.standards-profile"'
         ).replace('["develop", "17.0"]', '["18.0", "17.0"]')
@@ -289,8 +298,13 @@ class SeriesSync(SyncCase):
         code, out, err = run_cli("release", "sync", "--check", cwd=self.root)
         self.assertEqual((code, out.strip()), (0, ""), err)
         code, out, err = run_cli(
-            "release", "package", "fixture_a", "--no-wheel", "--out",
-            str(self.tmp / "dist"), cwd=self.root,
+            "release",
+            "package",
+            "fixture_a",
+            "--no-wheel",
+            "--out",
+            str(self.tmp / "dist"),
+            cwd=self.root,
         )
         self.assertEqual(code, 0, err)
         self.assertTrue((self.tmp / "dist/fixture_a-18.0.1.0.0.zip").is_file())

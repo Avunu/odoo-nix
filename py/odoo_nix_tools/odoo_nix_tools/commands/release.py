@@ -131,9 +131,9 @@ def run(args: argparse.Namespace) -> int:
     product: Product = args.product
     rc = common.load(product)
     _require_addons(rc)
-    return {"sync": _sync, "unreleased": _unreleased, "package": _package}[
-        args.step
-    ](rc, args)
+    return {"sync": _sync, "unreleased": _unreleased, "package": _package}[args.step](
+        rc, args
+    )
 
 
 def register(sub: argparse._SubParsersAction, product: Product) -> None:
@@ -157,9 +157,7 @@ def register(sub: argparse._SubParsersAction, product: Product) -> None:
         "unreleased",
         help="the addons with no release on this series yet, as JSON",
     )
-    k = steps.add_parser(
-        "package", help="build each addon's zip and wheel into --out"
-    )
+    k = steps.add_parser("package", help="build each addon's zip and wheel into --out")
     k.add_argument("addons", nargs="*", metavar="ADDON", help="addon names or paths")
     k.add_argument("--all", action="store_true", help="every installable addon")
     k.add_argument("--out", default="dist", help="the output directory (dist)")

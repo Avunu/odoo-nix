@@ -128,7 +128,10 @@ class RepoPolicyValues(unittest.TestCase):
     @staticmethod
     def integration(branch: str) -> dict[str, Any]:
         # odoo-nix's integration ruleset names one branch outside the series branching.
-        return {"integration_label": branch, "integration_refs": [f"refs/heads/{branch}"]}
+        return {
+            "integration_label": branch,
+            "integration_refs": [f"refs/heads/{branch}"],
+        }
 
     def test_an_addon_repository_protects_its_series_only(self) -> None:
         self.assertEqual(
@@ -178,7 +181,9 @@ class RepoPolicyValues(unittest.TestCase):
         by_name = {r["name"]: r for r in policy.rulesets}
         self.assertEqual(sorted(by_name), ["* tags", "series branches (*.0)"])
         series = by_name["series branches (*.0)"]
-        self.assertEqual(series["conditions"]["ref_name"]["include"], ["refs/heads/*.0"])
+        self.assertEqual(
+            series["conditions"]["ref_name"]["include"], ["refs/heads/*.0"]
+        )
         # Nothing pushes to a series branch outside a pull request: no bypass.
         self.assertEqual(series["bypass_actors"], [])
         tags = by_name["* tags"]

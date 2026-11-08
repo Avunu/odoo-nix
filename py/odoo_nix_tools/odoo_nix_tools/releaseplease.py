@@ -46,9 +46,7 @@ from odoo_nix_tools.manifests import SERIES_VERSION
 
 CONFIG_FILE = "release-please-config.json"
 MANIFEST_FILE = ".release-please-manifest.json"
-SCHEMA = (
-    "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
-)
+SCHEMA = "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
 # An addon's directories whose changes alone never release it (release.EXEMPT's
 # directories: release-please's exclude-paths are directory prefixes, so the README's
 # own changes fall to their commit type, `docs:`, which releases nothing either).
@@ -207,7 +205,9 @@ def build_frontend(root: Path, addon_path: str, build_dir: str) -> None:
     if not where.is_relative_to((root / addon_path).resolve()):
         raise ConfigError(f"releases.build: {build_dir!r} is outside {addon_path}")
     if not (where / "package.json").is_file():
-        raise ConfigError(f"releases.build: {addon_path}/{build_dir} has no package.json")
+        raise ConfigError(
+            f"releases.build: {addon_path}/{build_dir} has no package.json"
+        )
     npm = shutil.which("npm")
     if npm is None:
         raise EnvError("npm is not on PATH: run in the dev shell (`nix develop`)")
@@ -225,12 +225,18 @@ def files(root: Path, addon_path: str, *, built: bool = False) -> list[str]:
     (ignored or not: ``static/dist``), minus caches and ``node_modules``."""
     found = repo.git(root, "ls-files", "-z", "--", addon_path).split("\0")
     if built:
+        found += repo.git(root, "ls-files", "-z", "--others", "--", addon_path).split(
+            "\0"
+        )
         found += repo.git(
-            root, "ls-files", "-z", "--others", "--", addon_path
-        ).split("\0")
-        found += repo.git(
-            root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard",
-            "--", addon_path,
+            root,
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--",
+            addon_path,
         ).split("\0")
     out = set()
     for rel in found:
