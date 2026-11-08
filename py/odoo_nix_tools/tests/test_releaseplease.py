@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import unittest
 import zipfile
 from pathlib import Path
@@ -203,7 +204,7 @@ class PrCheck(TempRepos):
         def show(rev: str, path: str) -> str | None:
             try:
                 return git(self.root, "show", f"{rev}:{path}")
-            except Exception:
+            except subprocess.CalledProcessError:
                 return None
 
         pr = PrContext(
