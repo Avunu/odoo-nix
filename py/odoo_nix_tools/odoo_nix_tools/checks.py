@@ -136,12 +136,9 @@ def preflight(checkout: Checkout, resolved: Resolved) -> None:
             f" series branch it releases to, and it is {integration}: create develop and"
             " make it the default branch (or set integration-branch)"
         )
-    if _on(modules, "releases") and branching == "series":
-        if shape != "addons":
-            raise ConfigError(
-                'releases.branching = "series" releases addons: a project has no'
-                " addons to tag; turn releases off or use another branching"
-            )
+    if _on(modules, "releases") and branching == "series" and shape == "addons":
+        # A project has no addons to tag: it renders no release flow, as under
+        # develop+series, so a profile shared with projects needs no override there.
         series_name = str(facts.get("series") or "")
         if integration != series_name:
             raise ConfigError(

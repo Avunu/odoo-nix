@@ -311,5 +311,25 @@ class SeriesSync(SyncCase):
         self.assertTrue((self.tmp / "dist/fixture_a-18.0.1.0.0.zip").is_file())
 
 
+class SeriesProject(SyncCase):
+    """A profile shared with projects: under series a project with releases on renders no
+    release flow, as under develop+series."""
+
+    def test_no_release_flow_in_a_project(self) -> None:
+        repo = need_root(self)
+        profile = repo / "tests/fixtures/standards-profiles/example-org/profile.toml"
+        text = profile.read_text().replace(
+            'branching = "develop+series"', 'branching = "series"'
+        )
+        root = self.profile_fixture(
+            "standards-project",
+            "example-org",
+            {".standards-profile/profile.toml": text},
+        )
+        self.sync(root, "--write", "--offline")
+        self.assertFalse((root / releaseplease.CONFIG_FILE).exists())
+        self.assertFalse((root / ".github/workflows/release.yml").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
