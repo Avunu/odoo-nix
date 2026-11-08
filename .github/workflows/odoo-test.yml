@@ -62,6 +62,12 @@ jobs:
             find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
           fi
 
+      # A project's flake takes more than a GitHub-hosted runner has free: Nix clones each
+      # submodule's full history itself (OCB's alone is many GiB), then builds the shell.
+      - if: runner.environment == 'github-hosted'
+        name: Free disk space on the GitHub-hosted runner
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -114,7 +120,13 @@ jobs:
           export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
           echo "::add-mask::$GIT_CONFIG_VALUE_0"
           git submodule sync --recursive
-          git submodule update --init --recursive --force
+          # A hosted runner starts empty each time and only needs the files: history here would
+          # sit beside the copy Nix clones. A self-hosted runner keeps its clones between jobs.
+          depth=()
+          if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then
+            depth=(--depth 1)
+          fi
+          git submodule update --init --recursive --force "${depth[@]}"
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         if: runner.environment == 'github-hosted'

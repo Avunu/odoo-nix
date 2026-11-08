@@ -3,7 +3,7 @@ title: Profiles
 description: The built-in profiles minimal and recommended@2.3, an organisation's own profile, the in-repo profile, and the order in which the layers and your table merge.
 order: 1
 tags: [standards, profiles, configuration]
-updated: 2026-11-04
+updated: 2026-11-07
 ---
 
 A profile is a TOML file that turns [modules](modules.md) on and off and sets their keys. Your `[tool.odoo-nix]` table names one with `profile`, and anything else in the table overrides it.
@@ -48,6 +48,8 @@ enable = true
 enable = true
 branching = "develop+series"
 ```
+
+Avunu's own profile is public at [Avunu/odoo-standards-profile](https://github.com/Avunu/odoo-standards-profile), with the repositories it covers listed in its `fleet.json`.
 
 Beside it, a `templates/` directory may override a managed file's template (the overridable ones are marked in [Managed files](managed-files.md)) or add `[[extra-files]]` of its own, and `[[retire]]` entries delete files the organisation no longer wants. A file in `templates/` that is neither is refused (exit 2), so assets such as the icon `check icons --fix` copies (`icons.src-icon`, default `assets/addon-icon.png`) live beside `templates/`, not in it.
 

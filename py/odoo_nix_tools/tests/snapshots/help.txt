@@ -18,6 +18,7 @@ commands:
     policy     the commit-msg hook and the pr-policy check
     profile    show the resolved profile, validate an org profile, list the built-ins
     ratchet    the coverage floor only rises
+    release    the series release flow's steps: sync, unreleased, package
     repo       repository settings, rulesets, the scorecard, rollouts and the fleet
     sync       render, write or check the odoo-nix managed files of the checkout in the current
                directory

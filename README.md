@@ -14,6 +14,8 @@ odoo-nix packages everything needed to develop and ship an Odoo and OCA project 
 -   a single-instance **NixOS module**, `services.odoo-nix`, with snapshot-protected migrations before every start, secrets kept out of the store and journald logging
 -   an **OCI container image**
 -   **age-encrypted secrets**, shared by the dev shell and the server
+-   **addons mode** for a repository of addons published the OCA way (addons at the root, one branch per series), with OCB and the repositories it depends on as flake inputs and a dev shell of its own
+-   **repository standards**: an `odoo-nix` command that writes and checks a project's or addon repository's lint, format, test, editor, Dependabot and CI files from one profile (OCA's per-series rules, with the tools locked by Nix), and reusable GitHub workflows for the lint and test gates, commit policy and releases
 
 It is consumed as a [flake-parts](https://flake.parts/) module.
 
@@ -34,6 +36,8 @@ The banner prints the server's and Mailpit's addresses. See [Getting started](do
 | --- | --- |
 | try it | [Getting started](docs/getting-started.md) |
 | scaffold a project or migrate an existing tree | [Choose a mode](docs/scaffolding/README.md) |
+| develop a repository of addons on its own | [A repository of addons](docs/scaffolding/addons-repository.md) |
+| keep repositories to one standard, with CI | [Repository standards](docs/standards/README.md), [CI](docs/standards/ci.md) |
 | write or understand the flake | [Write the flake by hand](docs/scaffolding/write-the-flake.md) |
 | work in the dev shell | [The development shell](docs/development/README.md), [The odoo command](docs/development/commands.md), [Manage modules](docs/development/modules.md) |
 | restore production data | [Secrets](docs/development/secrets.md), [Restore a production backup](docs/development/restore-from-production.md) |

@@ -324,14 +324,25 @@ def hooks_yaml(items: list[Hook]) -> str:
     return "".join(hook_yaml(h) for h in items).rstrip("\n")
 
 
+# What release-please writes in its own style, under the series branching: prettier
+# would rewrite its `*` bullets, so the release PR would never pass lint.
+RELEASE_PLEASE_EXCLUDE = (
+    "release-please writes these in its own style",
+    [r"(^|/)CHANGELOG\.md$", r"^\.release-please-manifest\.json$"],
+)
+
+
 def exclude_block(
     data: series.SeriesData,
     facts: Mapping[str, Any],
     local: str,
     indent: str = "  ",
+    *,
+    release_please: bool = False,
 ) -> str:
     """The top-level ``exclude`` block scalar's lines (rule 6), ``(?x)`` first and the
-    locks last; ``local`` is the region's leader (``# odoo-nix:local``)."""
+    locks last; ``local`` is the region's leader (``# odoo-nix:local``). With
+    ``release_please``, release-please's changelogs and manifest too."""
     markers = data.raw["exclude"]["excluded_addons_markers"]
     lines = [data.raw["exclude"]["flags"], markers["begin"]]
     for name in facts.get("not_installable", []):
@@ -348,6 +359,8 @@ def exclude_block(
             groups[-1][1].append(alt["pattern"])
         else:
             groups.append((alt["comment"], [alt["pattern"]]))
+    if release_please:
+        groups.append((RELEASE_PLEASE_EXCLUDE[0], list(RELEASE_PLEASE_EXCLUDE[1])))
     for comment, patterns in groups:
         lines.append(f"# {comment}")
         lines.append("".join(f"{p}|" for p in patterns))

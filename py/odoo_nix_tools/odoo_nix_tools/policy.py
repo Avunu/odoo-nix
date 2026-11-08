@@ -7,7 +7,10 @@ shell links ``tools/.bin`` to the engine's Nix tools, DESIGN.md §5.2), else the
 ``pr_checks``: under a ``post-merge-bump`` branching (``develop+series``) the CI App
 bumps each addon's version after the merge (``ci bump``), so a pull request to the
 integration branch that moves a version by hand would be bumped twice (or skipped, with a
-notice): it is refused, naming the manifest.
+notice): it is refused, naming the manifest. Under ``series`` versions move in
+release-please's release PR only (its head is ``release-please--branches--<series>``,
+where ``odoo-nix release sync`` writes them), so the same hand edit is refused in every
+other pull request: release-please would release from the old version and overwrite it.
 """
 
 from __future__ import annotations
@@ -55,22 +58,53 @@ def _merge_base(pr: PrContext) -> str | None:
     return None
 
 
+def _branching(pr: PrContext) -> str:
+    if pr.rules.scheme is None:  # releases off
+        return ""
+    return str((pr.rules.cfg.get("releases") or {}).get("branching", ""))
+
+
 def _post_merge_bump(pr: PrContext) -> bool:
     from odoo_nix_tools.release import BRANCHING
 
-    rules = pr.rules
-    if rules.scheme is None:  # releases off
-        return False
-    name = (rules.cfg.get("releases") or {}).get("branching", "")
-    branching = BRANCHING.get(name)
+    branching = BRANCHING.get(_branching(pr))
     return branching is not None and branching.flow == "post-merge-bump"
+
+
+def _release_please_pr(pr: PrContext) -> bool | None:
+    """``None`` outside the ``series`` branching, else whether ``pr`` is release-please's
+    release PR on its series."""
+    from odoo_nix_tools import release
+
+    if _branching(pr) != release.SERIES:
+        return None
+    series = str(pr.rules.facts.get("series") or pr.rules.cfg.get("series") or "")
+    return pr.head_ref == release.rp_branch(series)
 
 
 def pr_checks(pr: PrContext) -> list[str]:
     """A version moved by hand in a pull request to the integration branch, under a
-    ``post-merge-bump`` branching."""
+    ``post-merge-bump`` branching, or outside release-please's release PR under
+    ``series``."""
+    release_pr = _release_please_pr(pr)
+    if release_pr is not None:
+        return [] if release_pr else _hand_moved(pr, _SERIES_WHY)
     if not _post_merge_bump(pr) or pr.base_ref != pr.rules.integration:
         return []
+    return _hand_moved(pr, _BUMP_WHY.format(branching=_branching(pr)))
+
+
+_BUMP_WHY = (
+    "under {branching} the release bumps it after the merge, from the conventional"
+    " commits that touch the addon"
+)
+_SERIES_WHY = (
+    "under series release-please's release PR moves it, from the conventional commits"
+    " that touch the addon (use a `Release-As: x.y.z` footer to choose the version)"
+)
+
+
+def _hand_moved(pr: PrContext, why: str) -> list[str]:
     manifests_changed = [
         p for p in pr.changed() if p == MANIFEST or p.endswith("/" + MANIFEST)
     ]
@@ -85,9 +119,6 @@ def pr_checks(pr: PrContext) -> list[str]:
         new = _version(pr.show(pr.head_sha, path), path)
         if old is not None and new is not None and old != new:
             out.append(
-                f"{path}: version moved by hand ({old} → {new}): under"
-                f" {pr.rules.cfg['releases']['branching']} the release bumps it after"
-                " the merge, from the conventional commits that touch the addon; keep"
-                f" {old}"
+                f"{path}: version moved by hand ({old} → {new}): {why}; keep {old}"
             )
     return out

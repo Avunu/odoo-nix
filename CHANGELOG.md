@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.3.4](https://github.com/Avunu/odoo-nix/compare/v2.3.3...v2.3.4) (2026-11-06)
+
+
+### Bug Fixes
+
+* **ci:** make room for a project's tests on GitHub-hosted runners ([#158](https://github.com/Avunu/odoo-nix/issues/158)) ([7d5b097](https://github.com/Avunu/odoo-nix/commit/7d5b09749bbe2bdefc90c3f9fb4a8975bfd2b29a))
+
+## [2.3.3](https://github.com/Avunu/odoo-nix/compare/v2.3.2...v2.3.3) (2026-11-06)
+
+
+### Bug Fixes
+
+* **app-standards:** find the CA bundle before importing standards_core ([#154](https://github.com/Avunu/odoo-nix/issues/154)) ([e1d1b91](https://github.com/Avunu/odoo-nix/commit/e1d1b91998df2b245adfd2cb5e79e560f39d502b))
+* **tests:** run browser tours without Chromium's zygote ([#156](https://github.com/Avunu/odoo-nix/issues/156)) ([bda2952](https://github.com/Avunu/odoo-nix/commit/bda2952e8ebc11b33b5a2d08b01aa4640adfd1cd))
+
 ## [2.3.2](https://github.com/Avunu/odoo-nix/compare/v2.3.1...v2.3.2) (2026-11-06)
 
 

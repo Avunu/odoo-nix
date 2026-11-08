@@ -1,7 +1,14 @@
 """Version scheme, release tool and branching models (DESIGN.md §2.2).
 
-``develop+series`` (the default): pull requests go to ``develop``; after a merge the CI App
-bumps each changed addon's version (``odoo-nix ci bump``: ``OdooSeries`` over the units
+``series``: each series branch (``18.0``, ``19.0``) is its own integration branch, the
+way OCA works: pull requests go to the series they are for, and series are developed in
+parallel. Releases are tags, cut by release-please on each series branch: its release PR
+raises each changed addon's version and writes its ``CHANGELOG.md``; merging it tags
+``<addon>-<series>.x.y.z`` and publishes a GitHub release carrying the addon's zip and
+wheel (``odoo-nix release``, ``releaseplease.py``). No branch is moved.
+
+``develop+series``: pull requests go to ``develop``; after a merge the CI App bumps each
+changed addon's version (``odoo-nix ci bump``: ``OdooSeries`` over the units
 ``ManifestTool`` reads) and fast-forwards the series branch ``.odoo-series`` names. A
 project has no release branch. ``trunk``: one ``main``, no release flow.
 
@@ -75,6 +82,9 @@ class OdooSeries:
     def message_problems(
         self, text: str, cfg: Mapping[str, Any], facts: Facts
     ) -> list[str]:
+        # release-please honours Release-As; only the post-merge bump has no use for it.
+        if (cfg.get("releases") or {}).get("branching") == SERIES:
+            return []
         if _RELEASE_AS.search(text):
             return [
                 (
@@ -85,6 +95,8 @@ class OdooSeries:
         return []
 
     def tag_problem(self, tag: str, cfg: Mapping[str, Any], facts: Facts) -> str | None:
+        # No odoo-series flow moves a branch to a tag: under series the tags are
+        # release-please's and no branch follows them.
         return "odoo-series releases make no tags" if tag else None
 
 
@@ -117,6 +129,31 @@ class ManifestTool:
         return globs.match_any(EXEMPT, path.removeprefix(unit.path))
 
 
+# The branching whose releases are release-please's tags (module docstring).
+SERIES = "series"
+# release-please's tag is `<component><separator><x.y.z>`: with the component
+# `<addon>-<series>` and the separator ".", it reads `<addon>-<series>.x.y.z`, the addon's
+# full Odoo version, and release-please still parses it back (its tag pattern takes the
+# longest component that leaves an x.y.z).
+TAG_SEPARATOR = "."
+
+
+def component(addon: str, series: str) -> str:
+    """release-please's component of ``addon`` on ``series``: ``web_x-18.0``."""
+    return f"{addon}-{series}"
+
+
+def tag(addon: str, version: str) -> str:
+    """The release tag of ``addon`` at its full manifest ``version``:
+    ``web_x-18.0.1.2.3``."""
+    return f"{addon}-{version}"
+
+
+def rp_branch(series: str) -> str:
+    """The head branch of release-please's release PR on ``series``."""
+    return f"release-please--branches--{series}"
+
+
 BRANCHING = MappingProxyType(
     {
         "develop+series": Branching(
@@ -130,6 +167,16 @@ BRANCHING = MappingProxyType(
             release_pattern="refs/heads/*.0",
             release_label="*.0",
             tags=False,
+        ),
+        SERIES: Branching(
+            name=SERIES,
+            # The core moves nothing: release-please tags, and no branch follows a tag.
+            flow="none",
+            # discover.derive sets the series; a checkout without one has no default.
+            integration=lambda cfg: str(cfg.get("series") or ""),
+            release_branch=lambda cfg, facts: "",
+            # The tags ruleset (`<addon>-<series>.x.y.z` tags: fleet.repo_policy_values).
+            tags=True,
         ),
         "trunk": Branching(
             name="trunk",

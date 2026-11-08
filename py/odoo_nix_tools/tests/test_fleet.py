@@ -125,20 +125,69 @@ class RepoPolicyValues(unittest.TestCase):
             "releases": {"enable": True, "branching": branching},
         }
 
+    @staticmethod
+    def integration(branch: str) -> dict[str, Any]:
+        # odoo-nix's integration ruleset names one branch outside the series branching.
+        return {
+            "integration_label": branch,
+            "integration_refs": [f"refs/heads/{branch}"],
+        }
+
     def test_an_addon_repository_protects_its_series_only(self) -> None:
         self.assertEqual(
             fleet.repo_policy_values(self.cfg("addons"), {"releases": True}, []),
-            {"release_pattern": "refs/heads/18.0", "release_label": "18.0"},
+            {
+                **self.integration("develop"),
+                "release_pattern": "refs/heads/18.0",
+                "release_label": "18.0",
+            },
         )
 
     def test_trunk_keeps_the_core_values(self) -> None:
         cfg = self.cfg("addons", "trunk")
-        self.assertEqual(fleet.repo_policy_values(cfg, {"releases": True}, []), {})
+        self.assertEqual(
+            fleet.repo_policy_values(cfg, {"releases": True}, []),
+            self.integration("develop"),
+        )
 
     def test_a_project_keeps_the_core_values(self) -> None:
         self.assertEqual(
-            fleet.repo_policy_values(self.cfg("project"), {"releases": True}, []), {}
+            fleet.repo_policy_values(self.cfg("project"), {"releases": True}, []),
+            self.integration("main"),
         )
+
+    def test_series_guards_every_series_branch_and_every_tag(self) -> None:
+        cfg = {**self.cfg("addons", "series"), "integration-branch": "18.0"}
+        self.assertEqual(
+            fleet.repo_policy_values(cfg, {"releases": True}, []),
+            {
+                "integration_label": "series branches (*.0)",
+                "integration_refs": ["refs/heads/*.0"],
+                "tag_prefix": "",
+                "tag_pattern": "refs/tags/*",
+            },
+        )
+
+    def test_series_through_the_core(self) -> None:
+        modules = {"releases": True, "repo-policy": True}
+        cfg = {
+            **self.cfg("addons", "series"),
+            "integration-branch": "18.0",
+            "repo-policy": {"release-bypass": "integration:1"},
+        }
+        policy = repo_policy.for_target(
+            PRODUCT, cfg, modules, [], phase="full", release_branch=""
+        )
+        by_name = {r["name"]: r for r in policy.rulesets}
+        self.assertEqual(sorted(by_name), ["* tags", "series branches (*.0)"])
+        series = by_name["series branches (*.0)"]
+        self.assertEqual(
+            series["conditions"]["ref_name"]["include"], ["refs/heads/*.0"]
+        )
+        # Nothing pushes to a series branch outside a pull request: no bypass.
+        self.assertEqual(series["bypass_actors"], [])
+        tags = by_name["* tags"]
+        self.assertEqual(tags["conditions"]["ref_name"]["include"], ["refs/tags/*"])
 
     def test_through_the_core_values(self) -> None:
         modules = {"releases": True, "repo-policy": True}

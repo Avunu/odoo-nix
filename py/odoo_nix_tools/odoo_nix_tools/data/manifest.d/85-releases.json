@@ -1,0 +1,21 @@
+{
+  "$comment": "releases under the series branching (DESIGN.md §2.2, releaseplease.py): release-please's config and manifest, rendered from the addons' manifests. release-please rewrites the manifest in its release PR, and odoo-nix release sync then writes the same versions into the addons, so the two never disagree on a merged commit.",
+  "entries": [
+    {
+      "path": "release-please-config.json",
+      "template": "releases/release-please-config.json.j2",
+      "strategy": "whole",
+      "module": "releases",
+      "when": "release_please",
+      "header": "none"
+    },
+    {
+      "path": ".release-please-manifest.json",
+      "template": "releases/release-please-manifest.json.j2",
+      "strategy": "whole",
+      "module": "releases",
+      "when": "release_please",
+      "header": "none"
+    }
+  ]
+}
