@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.4.1](https://github.com/Avunu/odoo-nix/compare/v2.4.0...v2.4.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **release:** end release-please's config and manifest with one newline ([#163](https://github.com/Avunu/odoo-nix/issues/163)) ([165420b](https://github.com/Avunu/odoo-nix/commit/165420b4cd3eddaa77aaef6d7236d49bbdcf865b))
+
+## [2.4.0](https://github.com/Avunu/odoo-nix/compare/v2.3.4...v2.4.0) (2026-11-08)
+
+
+### Features
+
+* **release:** tag and package each addon with release-please on parallel series branches ([#161](https://github.com/Avunu/odoo-nix/issues/161)) ([b95cec1](https://github.com/Avunu/odoo-nix/commit/b95cec1b520a21724d561f613b0a56a488f797a9))
+
 ## [2.3.4](https://github.com/Avunu/odoo-nix/compare/v2.3.3...v2.3.4) (2026-11-06)
 
 

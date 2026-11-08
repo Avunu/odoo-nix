@@ -269,6 +269,10 @@ class SeriesSync(SyncCase):
         return (self.root / rel).read_text()
 
     def test_release_please_files(self) -> None:
+        # One final newline, as prettier writes JSON (its hook checks both files).
+        for rel in (releaseplease.CONFIG_FILE, releaseplease.MANIFEST_FILE):
+            text = self.read(rel)
+            self.assertTrue(text.endswith("}\n") and not text.endswith("\n\n"), rel)
         cfg = json.loads(self.read(releaseplease.CONFIG_FILE))
         self.assertEqual(sorted(cfg["packages"]), ["fixture_a", "fixture_b"])
         self.assertEqual(cfg["packages"]["fixture_a"]["component"], "fixture_a-18.0")
