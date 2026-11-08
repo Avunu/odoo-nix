@@ -117,7 +117,11 @@ class ProductBuilds(unittest.TestCase):
         self.assertEqual(conformance.check(PRODUCT, render=False), [])
 
     def test_branching(self) -> None:
-        self.assertEqual(list(PRODUCT.branching), ["develop+series", "trunk"])
+        self.assertEqual(list(PRODUCT.branching), ["develop+series", "series", "trunk"])
+        tags = PRODUCT.branching["series"]
+        self.assertEqual(tags.integration({"series": "19.0"}), "19.0")
+        self.assertEqual(tags.release_branch({}, {"shape": "addons"}), "")
+        self.assertEqual((tags.flow, tags.tags), ("none", True))
         series = PRODUCT.branching["develop+series"]
         self.assertEqual(series.integration({}), "develop")
         self.assertEqual(

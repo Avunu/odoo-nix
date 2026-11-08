@@ -1,9 +1,9 @@
 ---
 title: Versioning
-description: How odoo-nix and odoo-nix-tools are released and pinned, the frozen profile snapshots, the version-skew checks, how a release reaches your repositories, and the addons' <series>.x.y.z release flow.
+description: How odoo-nix and odoo-nix-tools are released and pinned, the frozen profile snapshots, the version-skew checks, how a release reaches your repositories, and the addons' <series>.x.y.z releases (tagged per addon by release-please, with a zip and a wheel each).
 order: 5
 tags: [standards, versioning, releases, skew]
-updated: 2026-11-04
+updated: 2026-11-07
 ---
 
 ## odoo-nix's own releases
@@ -53,9 +53,38 @@ Under `releases` (addon repositories), each addon carries its own version, `<ser
 | `feat:` | y, z to 0 | `18.0.1.3.0` |
 | `!` or `BREAKING CHANGE` | x, y and z to 0 | `18.0.2.0.0` |
 
-A change only under `tests/`, `README.md`/`README.rst`, `readme/`, `i18n/`, `i18n_extra/` or `static/description/` raises nothing. A `Release-As` footer is refused (each addon's version moves in `ci bump`), and odoo-series makes no tags. The version prefix must be the series (`17.0.1.0.0` in an 18.0 repository is a `check manifests` problem).
+A change only under `tests/`, `readme/`, `i18n/`, `i18n_extra/` or `static/description/` raises nothing (nor does a `docs:` commit to a README). The version prefix must be the series (`17.0.1.0.0` in an 18.0 repository is a `check manifests` problem). Two branchings release addons: `series`, where release-please tags each release and publishes it with its zip and wheel, and `develop+series`, a post-merge bump with no tags.
 
-`releases.branching = "develop+series"` (the default) is a post-merge-bump flow:
+### `series`: parallel series branches, tagged releases
+
+`releases.branching = "series"` is how OCA works, with releases on top. Each series has its branch (`18.0`, `19.0`, …), and **each is its own integration branch**: pull requests go to the series they are for, so the series move on in parallel. Nothing moves a branch: a release is a tag.
+
+1. Pull requests target the series branch. pr-policy refuses one that moves a manifest's version by hand: versions move in the release PR (a `Release-As: x.y.z` footer picks one).
+2. After each merge, `release.yml` runs `odoo-release-please.yml` on that series. release-please keeps **one release PR** open (`chore(release): release 18.0`, branch `release-please--branches--18.0`) with each changed addon's next version and its `CHANGELOG.md`, and the workflow writes those versions into the addons' `__manifest__.py` on the PR's branch (`odoo-nix release sync`; release-please cannot edit a Python manifest).
+3. **Merging the release PR releases.** release-please tags each changed addon `<addon>-<series>.x.y.z` (`web_theme_carbon-18.0.1.0.2`) and publishes its GitHub release with the changelog section as notes. The workflow then builds, in the dev shell, the addon's **zip** (`web_theme_carbon-18.0.1.0.2.zip`: the addon directory at its root) and its **wheel** (`odoo_addon_web_theme_carbon-18.0.1.0.2-py3-none-any.whl`, from whool) and attaches both.
+
+The tags carry the series, so `web_theme_carbon-18.0.1.0.2` and `web_theme_carbon-19.0.1.0.2` never collide, and release-please finds each series' last release by its component, `<addon>-<series>`.
+
+An addon with no release on its series yet (every addon when a repository adopts this flow, and each new addon) gets one at the head of the series branch, for the version its manifest has, before release-please runs, so release-please counts its commits from there rather than from the addon's first commit.
+
+`release-please-config.json` and `.release-please-manifest.json` are managed files rendered from the manifests (`odoo-nix sync`), so `sync --check` fails whenever a manifest's version and release-please's disagree. release-please's own files (the changelogs and its manifest) are left out of the pre-commit hooks, which would reformat them.
+
+**Installing a release without git.** Download the zip from the release, unpack it into a directory on the server's `addons_path`, and install or update the module (`-i`/`-u <addon>`, or Apps → Update Apps List). To update, replace the directory with the new release's and run `-u <addon>`. A uv or pip project can take the wheel instead: `uv add "odoo-addon-web_theme_carbon @ https://github.com/Avunu/web-addons/releases/download/web_theme_carbon-18.0.1.0.2/odoo_addon_web_theme_carbon-18.0.1.0.2-py3-none-any.whl"`. Its OCA dependencies are separate packages either way: the zip carries this addon alone.
+
+**Built front ends.** An addon whose front end is compiled, not tracked (`static/dist/`), names its source directory in `releases.build`, and the package step runs `npm ci` and `npm run build` there before packing; what the build writes under the addon goes into the zip and the wheel, `node_modules` and caches never do:
+
+```toml
+[tool.odoo-nix.releases]
+build = { carbon_ui = "frontend" }
+```
+
+`odoo-nix release package <addon> [--out dist]` builds the same files locally; `odoo-nix release unreleased` lists the addons a release run would seed. The workflow's `workflow_dispatch` takes `repackage: <tag>` to build and upload one release's files again.
+
+With `repo-policy` on, one ruleset guards every series branch (`refs/heads/*.0`: pull requests and the gates, no bypass) and another every tag (no deletion or move). release-please works with the CI App's token (`ci.github-app`), so its PR runs CI; `odoo-nix repo doctor` checks the App's variable and secret.
+
+### `develop+series`: one integration branch, post-merge bumps
+
+`releases.branching = "develop+series"` (the default) is a post-merge-bump flow; it makes no tags, and a `Release-As` footer is refused:
 
 1. Pull requests target **`develop`**. pr-policy refuses a pull request that moves a manifest's version by hand.
 2. After each merge, `release.yml` runs `odoo-release.yml`: `odoo-nix ci bump --base origin/<series> --push` writes the new versions into the manifests and pushes one `chore(release): bump <addons>` commit to `develop` with the CI App's token (the integration ruleset lets the App past its pull-request rule).

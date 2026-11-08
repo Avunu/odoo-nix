@@ -50,7 +50,7 @@
       "template": "github/workflows/release.yml.j2",
       "strategy": "whole",
       "module": "releases",
-      "when": "branches.release",
+      "when": "branches.release or release_please",
       "header": "yaml",
       "uses": ["ci.runs-on", "ci.github-app"]
     },

@@ -136,6 +136,20 @@ def preflight(checkout: Checkout, resolved: Resolved) -> None:
             f" series branch it releases to, and it is {integration}: create develop and"
             " make it the default branch (or set integration-branch)"
         )
+    if _on(modules, "releases") and branching == "series":
+        if shape != "addons":
+            raise ConfigError(
+                "releases.branching = \"series\" releases addons: a project has no"
+                " addons to tag; turn releases off or use another branching"
+            )
+        series_name = str(facts.get("series") or "")
+        if integration != series_name:
+            raise ConfigError(
+                f"under releases.branching = \"series\" the integration branch is the"
+                f" series branch, {series_name or '(no series)'}, and it is"
+                f" {integration or 'unset'}: drop integration-branch from"
+                " [tool.odoo-nix], or check .odoo-series"
+            )
 
 
 def _no_flake(shape: str) -> str:

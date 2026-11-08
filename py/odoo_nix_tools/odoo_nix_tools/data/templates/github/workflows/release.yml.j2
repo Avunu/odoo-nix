@@ -1,4 +1,35 @@
 {% import "github/workflows/_uses.j2" as w with context %}
+{% if release_please %}
+# Releases (odoo-nix docs: standards/versioning.md): release-please keeps one release PR
+# open on {{ branches.integration }}, raising each changed addon's version and changelog.
+# Merging it tags each released addon `<addon>-{{ series }}.x.y.z` and publishes its GitHub
+# release, which carries the addon's zip and wheel. An addon with no release yet gets one
+# for the version it has, at the head of {{ branches.integration }}.
+name: release
+on:
+  push:
+    branches: [{{ branches.integration | json_string }}]
+  workflow_dispatch:
+    inputs:
+      repackage:
+        description: "A release tag to build and upload the zip and wheel for again"
+        type: string
+        default: ""
+permissions: {}
+concurrency:
+  group: release-{{ branches.integration }}
+  cancel-in-progress: false
+jobs:
+  release:
+    permissions:
+      contents: read
+    uses: {{ w.uses("odoo-release-please.yml") }}
+    with:
+      series-branch: {{ branches.integration | json_string }}
+      runs-on: {{ cfg.ci["runs-on"] | yaml_json }}
+      {{ "repackage: ${{ inputs.repackage || '' }}" }}
+{{ w.app_with() }}{{ w.app_secrets() -}}
+{% else %}
 # Releases (odoo-nix docs: standards/versioning.md): after a merge to {{ branches.integration }} the CI App
 # bumps each changed addon's version (`chore(release): bump …`) and fast-forwards
 # {{ branches.release }} once that commit's checks are green.
@@ -27,3 +58,4 @@ jobs:
       release-branch: {{ branches.release | json_string }}
       runs-on: {{ cfg.ci["runs-on"] | yaml_json }}
 {{ w.app_with() }}{{ w.app_secrets() -}}
+{% endif %}
