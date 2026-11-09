@@ -15,6 +15,11 @@
 #                       project's .envrc runs it on a fresh clone
 #                       (`nix run github:Avunu/odoo-nix#bootstrap`), OCB
 #                       (odoo/) commits-only when the project has it there.
+#   odoo-nix-repair     `odoo-nix-sources repair`, OCB (odoo/) commits-only when
+#                       the project has it there: what it takes for Nix to read
+#                       a project's flake when it cannot. From this flake, since
+#                       the project's cannot be evaluated in that state
+#                       (`nix run github:Avunu/odoo-nix#repair`).
 #   odoo-nix-db-nocow   lib.dbNocow: the dev PostgreSQL datadir off btrfs
 #                       copy-on-write. devenv runs initdb only when $PGDATA is
 #                       missing, so the parent is marked until it has made it;
@@ -57,6 +62,14 @@ rec {
     ''
     + builtins.readFile ./bootstrap.sh;
     meta.description = "Check out a fresh clone's submodules before Nix evaluates the project's flake";
+  };
+
+  repair = pkgs.writeShellApplication {
+    name = "odoo-nix-repair";
+    text = ''
+      exec ${pkgs.lib.getExe sources} repair --treeless odoo "$@"
+    '';
+    meta.description = "Settle a project's submodules so that Nix can read its flake";
   };
 
   dbNocow = base.dbNocow {

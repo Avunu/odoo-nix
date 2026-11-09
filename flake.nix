@@ -305,6 +305,7 @@
       #   devguard-core, devguard, devguard-baked             the dev guard rails: base core, odoo-nix's side (all systems)
       #   sources                                             shell entry's submodule checkout (all systems)
       #   bootstrap, bootstrap-lock-*                         the fresh-clone checkout before `use flake` (all systems)
+      #   repair                                              settling submodules Nix cannot read (all systems)
       #   scaffold, odoo-init-unit                            odoo-init: its projects, offline; its pieces (all systems)
       #   odoo-module-cli, odoo-module-unit                   `odoo module add|add-bundle|remove`, offline; their pieces (all systems)
       #   relock                                              a project's `nix run .#relock`, offline (all systems)
@@ -941,6 +942,19 @@
               ''
                 bash ${./tests/sources.sh} ${lib.getExe (shellTools pkgs).sources}
               '';
+
+          # odoo-nix-repair: python-devops-nix's lib.sources repair, as this
+          # flake configures it (tests/repair.sh).
+          repair =
+            scriptCheck pkgs "repair"
+              {
+                tools = [
+                  pkgs.git
+                ];
+              }
+              ''
+                bash ${./tests/repair.sh} ${lib.getExe (shellTools pkgs).repair}
+              '';
         }
         // lib.optionalAttrs isLinux {
           # The dev datadir's btrfs NOCOW attribute (python-devops-nix's
@@ -1259,10 +1273,11 @@
       # sources and bootstrap are the submodule checkout, outside the dev
       # shell: a project's .envrc runs bootstrap on a fresh clone, before Nix
       # evaluates the project's flake (lib/bootstrap.sh), and bootstrap runs
-      # sources from the revision the project's flake.lock pins.
+      # sources from the revision the project's flake.lock pins. repair is for
+      # a person, when Nix cannot read a project's flake.
       packages = forAllSystems (pkgs: rec {
         odoo-init = odooInit pkgs;
-        inherit (shellTools pkgs) sources bootstrap;
+        inherit (shellTools pkgs) sources bootstrap repair;
         odoo-ls = import ./lib/odoo-ls.nix {
           inherit pkgs;
           inherit (pkgs) lib;
@@ -1310,6 +1325,14 @@
             type = "app";
             program = pkgs.lib.getExe (shellTools pkgs).bootstrap;
             meta.description = "Check out a fresh clone's submodules before Nix evaluates the project's flake";
+          };
+          # `nix run github:Avunu/odoo-nix#repair`, from a project: its submodules,
+          # settled, when Nix cannot read its flake. Here and not in the project's
+          # flake, which Nix cannot evaluate in that state.
+          repair = {
+            type = "app";
+            program = pkgs.lib.getExe (shellTools pkgs).repair;
+            meta.description = "Settle a project's submodules so that Nix can read its flake";
           };
           # `nix run github:Avunu/odoo-nix/<rev>#sources -- enter --treeless odoo ROOT`:
           # the dev shell's submodule checkout, outside it.

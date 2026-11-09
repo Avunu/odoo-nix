@@ -45,7 +45,7 @@ lib/
   odoo-ls.nix, odoo-ls-Cargo.lock  # odoo-ls, with a vendored lock (upstream commits none)
   overrides.nix              # lib.overrides
   build-deps.nix             # odoo-nix-build-deps
-  shell-tools.nix            # odoo-nix-sources, -bootstrap, -db-nocow, -banner
+  shell-tools.nix            # odoo-nix-sources, -bootstrap, -repair, -db-nocow, -banner
   bootstrap.sh               # odoo-nix-bootstrap
   bootstrap-lock.nix         # the odoo-nix a project's flake.lock pins, read without evaluating it
 data/
@@ -84,7 +84,7 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | `scaffold`, `odoo-init-unit` | `odoo-init` offline: every flag and exit code, and its pieces. |
 | `odoo-module-cli`, `odoo-module-unit` | `odoo module add`, `add-bundle` and `remove` offline, and their pieces. |
 | `relock`, `relock-stale-lock` | A project's `nix run .#relock` offline over a stale lock, and that it evaluates where the dev shell does not. |
-| `sources`, `bootstrap`, `bootstrap-lock-*` | Shell entry's submodule checkout and the fresh-clone bootstrap. |
+| `sources`, `bootstrap`, `bootstrap-lock-*`, `repair` | Shell entry's submodule checkout, the fresh-clone bootstrap, and settling submodules Nix cannot read. |
 | `db-nocow` | The btrfs NOCOW handling (Linux). |
 | `secrets-*`, `restore-*`, `settings-*`, `rename-*`, `identity-*`, `ports-*`, `mailpit-*`, `watch-*`, `ci-mode`, `tree`, `python-default-*`, `container-name*` | The flake-parts module's options, evaluated. |
 | `service-*`, `nginx`, `service-<18\|19\|20>` | `services.odoo-nix`, evaluated, and in NixOS VMs (KVM) with a stub and with the real Odoo: migrations on deploy, rollback leaving Odoo down, nginx, X-Sendfile, the journal, hardening. |
