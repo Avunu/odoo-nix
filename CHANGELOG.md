@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.6.0](https://github.com/Avunu/odoo-nix/compare/v2.5.0...v2.6.0) (2026-11-10)
+
+
+### Features
+
+* **update:** odoo project update ends with odoo-init --sync ([#167](https://github.com/Avunu/odoo-nix/issues/167)) ([21e037c](https://github.com/Avunu/odoo-nix/commit/21e037c88d4c4f49caa2560a6caf0c8eeace8262))
+
+
+### Bug Fixes
+
+* **ci:** give each odoo-test job a port offset of its own ([#166](https://github.com/Avunu/odoo-nix/issues/166)) ([d013a82](https://github.com/Avunu/odoo-nix/commit/d013a820da474f0cd6909a75b6c574c45fa80fc0))
+
 ## [2.5.0](https://github.com/Avunu/odoo-nix/compare/v2.4.1...v2.5.0) (2026-11-09)
 
 

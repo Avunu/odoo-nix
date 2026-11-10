@@ -10,7 +10,7 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "odoo-nix-tools"
 # release-please moves this, version.txt and odoo_nix_tools/__init__.py together.
-version = "2.5.0"
+version = "2.6.0"
 description = "odoo-nix's standards tools: managed files, profiles, gates and release steps for Odoo repositories"
 readme = "README.md"
 requires-python = ">=3.11"
