@@ -72,7 +72,7 @@ All of them pin every action by SHA, pass inputs through `env:`, clear `$RUNNER_
 | Workflow | Inputs | What it runs |
 | --- | --- | --- |
 | `odoo-lint.yml` | `integration-branch`, `runs-on` | the lint shell of the locked odoo-nix, then `odoo-nix gate lint --format github` |
-| `odoo-test.yml` | `integration-branch`, `runs-on`, `test-timeout-minutes`, `client-id`; secret `APP_PRIVATE_KEY` | the checkout with its submodules (the App's token for private ones), `ODOO_NIX_CI=1 nix develop --no-pure-eval -c odoo-nix gate test`, the log and `coverage.xml` as an artifact |
+| `odoo-test.yml` | `integration-branch`, `runs-on`, `test-timeout-minutes`, `client-id`; secret `APP_PRIVATE_KEY` | the checkout with its submodules (the App's token for private ones), a port offset of its own (`ODOO_NIX_PORT_OFFSET`, the first free from a hash of the run, attempt and runner, so jobs sharing a self-hosted host don't meet on the project's hashed ports), `ODOO_NIX_CI=1 nix develop --no-pure-eval -c odoo-nix gate test`, the log and `coverage.xml` as an artifact |
 | `odoo-pr-policy.yml` | `integration-branch`, `runs-on` | odoo-nix-tools installed at the locked revision, `committed` from the locked odoo-nix, then the policy |
 | `odoo-release.yml` | `integration-branch`, `release-branch` (required), `runs-on`, `client-id`; secret `APP_PRIVATE_KEY` | the bump and the fast-forward, with the App's token |
 | `odoo-deps.yml` | `shape` (required), `integration-branch`, `runs-on`, `auto-merge`, `auto-merge-policy`, `update-branches`, `merge-method`, `client-id`; secret `APP_PRIVATE_KEY` | `relock-plan`/`relock-push` (addons), `automerge`, `update-branches`, `project-update` (projects) |
