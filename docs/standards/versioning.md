@@ -80,7 +80,7 @@ build = { carbon_ui = "frontend" }
 
 `odoo-nix release package <addon> [--out dist]` builds the same files locally; `odoo-nix release unreleased` lists the addons a release run would seed. The workflow's `workflow_dispatch` takes `repackage: <tag>` to build and upload one release's files again.
 
-With `repo-policy` on, one ruleset guards every series branch (`refs/heads/*.0`: pull requests and the gates, no bypass) and another every tag (no deletion or move). release-please works with the CI App's token (`ci.github-app`), so its PR runs CI; `odoo-nix repo doctor` checks the App's variable and secret.
+With `repo-policy` on, one ruleset guards every series branch (`refs/heads/*.0`: pull requests and the gates, no bypass; it excludes `refs/heads/release-please--*`, which `*.0` would otherwise match, so release-please can create its release PR branch) and another every tag (no deletion or move). release-please works with the CI App's token (`ci.github-app`), so its PR runs CI; `odoo-nix repo doctor` checks the App's variable and secret.
 
 ### `develop+series`: one integration branch, post-merge bumps
 
