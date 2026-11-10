@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.0](https://github.com/Avunu/odoo-nix/compare/v2.4.1...v2.5.0) (2026-11-09)
+
+
+### Features
+
+* **sources:** add a repair app for a flake Nix cannot read ([#157](https://github.com/Avunu/odoo-nix/issues/157)) ([6a0e7cf](https://github.com/Avunu/odoo-nix/commit/6a0e7cfa3a3c684430d806359a0664615919406e))
+
 ## [2.4.1](https://github.com/Avunu/odoo-nix/compare/v2.4.0...v2.4.1) (2026-11-08)
 
 
