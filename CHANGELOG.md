@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.7.0](https://github.com/Avunu/odoo-nix/compare/v2.6.0...v2.7.0) (2026-11-10)
+
+
+### Features
+
+* **update:** odoo project update leaves submodules on their branches ([#172](https://github.com/Avunu/odoo-nix/issues/172)) ([9ad6c4d](https://github.com/Avunu/odoo-nix/commit/9ad6c4d766d92dba95f151c4ccc8dbd0d9ab71be))
+
+
+### Bug Fixes
+
+* **app-standards:** let release-please create its branch under series ([#170](https://github.com/Avunu/odoo-nix/issues/170)) ([ba7ed64](https://github.com/Avunu/odoo-nix/commit/ba7ed64b3d39eace39423955cd5f154ad46d7ae9))
+
 ## [2.6.0](https://github.com/Avunu/odoo-nix/compare/v2.5.0...v2.6.0) (2026-11-10)
 
 
