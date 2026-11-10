@@ -43,6 +43,8 @@ rec {
     noun = "project";
     recursive = true;
     updateCommand = "odoo project update";
+    # `odoo project update` moves each submodule with `odoo-nix-sources pull`.
+    forceEnv = "ODOO_NIX_UPDATE_FORCE";
   };
 
   bootstrap = pkgs.writeShellApplication {

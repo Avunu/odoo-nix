@@ -821,54 +821,6 @@ class CoreShadowTest(unittest.TestCase):
             self.assertIsNone(shadow)
 
 
-class FetchDepthTest(Workspace):
-    """How much of a submodule's pinned branch `project update` fetches."""
-
-    def test_by_how_it_was_cloned(self):
-        git("init", "-q", "-b", "main", "full")
-        git(
-            "-C",
-            "full",
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@t",
-            "commit",
-            "-q",
-            "--allow-empty",
-            "-m",
-            "1",
-        )
-        git(
-            "-C",
-            "full",
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@t",
-            "commit",
-            "-q",
-            "--allow-empty",
-            "-m",
-            "2",
-        )
-        self.assertEqual(update.fetch_depth("full", "odoo"), [])
-        url = Path("full").resolve().as_uri()
-        git("clone", "-q", "--depth", "1", url, "shallow")
-        self.assertEqual(update.fetch_depth("shallow", "odoo"), ["--depth=1"])
-        for path in ("partial", "odoo"):
-            git("clone", "-q", url, path)
-            git("-C", path, "config", "remote.origin.promisor", "true")
-        self.assertEqual(update.fetch_depth("partial", "odoo"), ["--filter=blob:none"])
-        self.assertEqual(update.fetch_depth("odoo", "odoo"), [])
-
-    def test_pinned_branch(self):
-        git("init", "-q", "-b", "17.0", "sub")
-        self.assertEqual(update.pinned_branch("sub"), "17.0")
-        git("config", "-f", ".gitmodules", "submodule.sub.branch", "18.0")
-        self.assertEqual(update.pinned_branch("sub"), "18.0")
-
-
 class CoreSourceConfigTest(unittest.TestCase):
     def test_nullable(self):
         self.assertIsNone(config.parse(GOOD).core_source)

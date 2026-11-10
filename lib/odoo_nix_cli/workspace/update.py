@@ -8,8 +8,8 @@ In a repository of addons (addons mode) pyproject.toml and uv.lock are in the
 lock directory (nix/), the install set is every installable local addon, and
 the flake inputs the shell links in (externalSources) are linked first, so a
 relock works in a clone whose shell has never started.
-update first moves every submodule to the tip of the branch .gitmodules pins
-it to, then does the same, and ends with ``odoo-init --sync`` (odoo-nix's
+update first moves every submodule onto the tip of the branch .gitmodules pins
+it to (as that branch: python-devops-nix's ``sources pull``), then does the same, and ends with ``odoo-init --sync`` (odoo-nix's
 standards: the managed files and the standards' own locks), so everything that
 follows from new sources is settled in one command. ``module add``,
 ``add-bundle`` and ``remove`` re-lock through ``regenerate``, as update does.
@@ -25,11 +25,12 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from odoo_nix_cli.init import ui
-from odoo_nix_cli.init.proc import attempt, git, probe, run
+from odoo_nix_cli.init.proc import attempt, git, run
 from odoo_nix_cli.workspace.config import WorkspaceConfig
 from odoo_nix_cli.workspace.lock import core_shadow, lock
 
 LOCK_FAILED = "⚠  uv lock failed — resolve in pyproject.toml and re-run."
+PULL_SKIPPED = "⚠  Not every submodule is on its branch's tip — see above."
 SYNC_FAILED = "⚠  odoo-init --sync did not finish clean (exit {rc}) — fix what it names and run `odoo-init --sync`."
 
 
@@ -153,73 +154,27 @@ def regenerate(cfg: WorkspaceConfig) -> int:
     return relock(cfg).sources
 
 
-def fetch_depth(path: str, core_src: str) -> list[str]:
-    """How much of a submodule's branch to fetch follows how it was cloned. A
-    partial clone (odoo-nix-sources) keeps its branch with every commit's
-    folders, and OCB (CORE_SRC) with its commits only, so ask for the folders
-    except for OCB. ``--depth 1`` would turn it into a shallow clone again, so
-    that is only for one still shallow. PATH is the submodule's working tree."""
-    if probe(git("config", "remote.origin.promisor", cwd=path)) == "true":
-        return [] if path == core_src else ["--filter=blob:none"]
-    if probe(git("rev-parse", "--is-shallow-repository", cwd=path)) == "true":
-        return ["--depth=1"]
-    return []
-
-
-def pinned_branch(path: str) -> str:
-    """The branch .gitmodules pairs PATH with (keyed on the path, as the bash
-    did), else the branch the submodule has checked out, else ''."""
-    return (
-        probe(git("config", "-f", ".gitmodules", "--get", f"submodule.{path}.branch"))
-        or probe(git("symbolic-ref", "--quiet", "--short", "HEAD", cwd=path))
-        or ""
-    )
-
-
-def checked_out() -> list[str]:
-    """The paths of the submodules checked out at the top level: what ``git
-    submodule foreach`` visits."""
-    listing = probe(git("submodule", "foreach", "--quiet", 'printf "%s\\n" "$sm_path"'))
-    return [line for line in (listing or "").splitlines() if line]
-
-
 def pull(cfg: WorkspaceConfig) -> None:
-    """Every submodule at the tip of its pinned branch. A failed checkout of a
-    new one stops it (ui.Exit, with the step's status); a failed fetch is
-    passed over."""
+    """Every submodule on the tip of its pinned branch. A failed checkout of a
+    new one stops it (ui.Exit, with the step's status); one that cannot be
+    moved is left where it was, with the reason said, and the rest go on."""
     core_src = cfg.layout.core_src
     _say("==> Updating git submodules…")
     # A submodule this clone has never had is checked out as shell entry
     # does it -- a partial clone, not the shallow one `update --init` makes.
     run([cfg.sources, "enter", "--treeless", core_src, os.getcwd()])
     run(git("submodule", "update", "--init", "--recursive"))
-    # Each submodule to the tip of its .gitmodules-pinned branch, fetched
-    # fresh by name. Two things rule out the more obvious approaches:
-    # `update --init --recursive` alone leaves submodules in detached HEAD, so
-    # `git rev-parse --abbrev-ref HEAD` returns the literal string "HEAD", and
-    # pulling "origin HEAD" then follows the remote's *default* branch instead
-    # of the pinned one. `git submodule update --remote` avoids that but can
-    # still fail if a submodule's local remote-tracking refspec was narrowed
-    # to some other branch at clone time. Both surface as "Not possible to
-    # fast-forward" whenever a repo's default branch no longer matches what is
-    # pinned. Fetching the pinned branch by name every time sidesteps both.
-    # Never recursing into nested submodules: in a partial clone that check is
-    # a lazy fetch per commit (see python-devops-nix's python/sources.py).
-    for path in checked_out():
-        branch = pinned_branch(path)
-        if not branch:
-            continue
-        fetch = git(
-            "fetch",
-            *fetch_depth(path, core_src),
-            "--quiet",
-            "--no-recurse-submodules",
-            "origin",
-            branch,
-            cwd=path,
-        )
-        if attempt(fetch) == 0:
-            attempt(git("checkout", "--quiet", "FETCH_HEAD", cwd=path))
+    # Each submodule onto the tip of its .gitmodules-pinned branch, *as* that
+    # branch, not detached at it: python-devops-nix's lib.sources does this
+    # (`odoo-nix-sources pull`), as frappe-nix's `bench update` does, so the
+    # editor's branch picker shows the branch the submodule follows. Never
+    # recursing into nested submodules: in a partial clone that check is a lazy
+    # fetch per commit (python/sources.py has the reasoning, and the rest of
+    # what it refuses to overwrite). Said there is why one was left alone:
+    # local commits the remote branch lacks (ODOO_NIX_UPDATE_FORCE=1
+    # overwrites them), a file git names, a branch that cannot be fetched.
+    if attempt([cfg.sources, "pull", "--treeless", core_src, "--root", os.getcwd()]):
+        print(PULL_SKIPPED, file=sys.stderr, flush=True)
     if cfg.core_source:
         _say(
             f"    ({core_src} is a flake input, not a submodule: bump it with 'nix flake update')"
