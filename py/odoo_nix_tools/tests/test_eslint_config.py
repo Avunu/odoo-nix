@@ -28,7 +28,8 @@ class EslintConfig(unittest.TestCase):
         for name in series.known():
             with self.subTest(series=name):
                 self.assertEqual(
-                    ignores(render(name, [])), ["eslint.config.cjs", "prettier.config.cjs"]
+                    ignores(render(name, [])),
+                    ["eslint.config.cjs", "prettier.config.cjs"],
                 )
 
     def test_exclude_follows_the_generated_configs(self) -> None:
