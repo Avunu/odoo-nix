@@ -299,6 +299,9 @@ PYLINT_KEYS = {
     ),
 }
 NIX_SH_EDITORCONFIG = "\n[*.{nix,sh}]\nindent_style = space\nindent_size = 2\n"
+# The generated configs are CommonJS (`require`, `module`), which OCA's eslint config,
+# with browser globals only, reports as no-undef; the editor and `eslint .` lint them.
+ESLINT_IGNORED_CONFIGS = ("eslint.config.cjs", "prettier.config.cjs")
 
 
 def plain(value: Any) -> Any:
@@ -373,8 +376,9 @@ class Gen:
         return self.data.files["prettier.config.cjs"].lstrip("\n")
 
     def eslint_config(self) -> str:
-        """OCA's config with the series' ES-module globs (deviation esm-static) and,
-        with ``js-xml.exclude``, a first object that ignores those paths."""
+        """OCA's config with the series' ES-module globs (deviation esm-static) and a
+        first object that ignores the two generated configs (they are CommonJS, which
+        the browser-globals config would flag) plus the ``js-xml.exclude`` paths."""
         body = self.data.files["eslint.config.cjs"].lstrip("\n")
         oca = "files: " + json.dumps(list(self.data.raw["eslint_esm_globs"])) + ","
         if oca not in body:
@@ -385,17 +389,15 @@ class Gen:
             oca, "files: " + json.dumps(list(self.data.esm_globs)) + ","
         )
         exclude = list(self.ctx["cfg"]["js-xml"].get("exclude") or [])
-        if exclude:
-            start = "const config = [{"
-            if start not in body:
-                raise RuntimeError(
-                    f"series {self.data.series}: eslint.config.cjs has no `{start}`"
-                )
-            ignores = json.dumps([f"{p}**" for p in exclude])
-            body = body.replace(
-                start, f"const config = [{{\n    ignores: {ignores},\n}}, {{", 1
+        start = "const config = [{"
+        if start not in body:
+            raise RuntimeError(
+                f"series {self.data.series}: eslint.config.cjs has no `{start}`"
             )
-        return body
+        ignores = json.dumps(list(ESLINT_IGNORED_CONFIGS) + [f"{p}**" for p in exclude])
+        return body.replace(
+            start, f"const config = [{{\n    ignores: {ignores},\n}}, {{", 1
+        )
 
     # --- .ruff.toml -------------------------------------------------------------------
 
