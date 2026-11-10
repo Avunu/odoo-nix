@@ -13,8 +13,9 @@ name: odoo-deps
 #   update-branches           with dependabot.update-branches, bot PRs that are behind the
 #                             integration branch are brought up to date
 #   project-update            (projects, on the caller's schedule) `odoo project update`
-#                             moves each submodule to its branch's tip and relocks, in a PR
-#                             of its own on standards/project-update
+#                             moves each submodule to its branch's tip, relocks and syncs
+#                             the standards (`odoo-init --sync`), in a PR of its own on
+#                             standards/project-update
 #
 # With the CI App (ci.github-app) the pushes, PRs and merges use its token, so they start
 # CI by themselves; without one, GITHUB_TOKEN, whose events start no workflow, and CI is
@@ -541,7 +542,7 @@ jobs:
           if [ -z "$url" ]; then
             url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base "$INTEGRATION" --head "$branch" \
               --title "chore(deps): update submodules" \
-              --body "Each submodule moved to the tip of its .gitmodules branch, then relocked (\`odoo project update\`).")"
+              --body "Each submodule moved to the tip of its .gitmodules branch, then relocked and the standards synced (\`odoo project update\`).")"
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
 

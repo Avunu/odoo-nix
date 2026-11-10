@@ -1,5 +1,6 @@
-"""`odoo project update` -- pull submodules + relock, then (by default) run
-the same migrate engine `odoo db migrate --all` uses; `odoo project relock`
+"""`odoo project update` -- pull submodules, relock and sync odoo-nix's
+standards (`odoo-init --sync`), then (by default) run the same migrate engine
+`odoo db migrate --all` uses; `odoo project relock`
 -- the relock alone, odoo-nix's one consumer-facing relock (python-devops-nix
 docs/conventions.md, Relock), which `nix run .#relock` runs outside the shell
 (odoo_nix_cli.workspace.relock). Their workspace half is
@@ -69,13 +70,20 @@ def project_group():
     default=True,
     help="Also migrate every database matching dbfilter afterward (default: on).",
 )
+@click.option(
+    "--sync/--no-sync",
+    default=True,
+    help="Also run `odoo-init --sync` (the standards' managed files and locks) "
+    "once opted in (default: on).",
+)
 @click.pass_context
-def project_update(ctx, migrate):
-    """Pull submodules on their pinned branch, refresh OCA deps, uv lock --
-    then migrate every database, unless --no-migrate."""
+def project_update(ctx, migrate, sync):
+    """Pull submodules on their pinned branch, refresh OCA deps, uv lock, sync
+    odoo-nix's standards (odoo-init --sync) -- then migrate every database,
+    unless --no-migrate."""
     from ..workspace.update import update
 
-    rc = _in_workspace(update)
+    rc = _in_workspace(lambda cfg: update(cfg, sync=sync))
     if rc != 0:
         sys.exit(rc)
 

@@ -1186,6 +1186,8 @@ in
           lockDir = if addonsMode then cfg.addons.lockDir else ".";
           installSet = if addonsMode then "local" else "modules.txt";
           pyprojectTemplate = if addonsMode then addonsPyproject else null;
+          # `odoo project update` ends with `odoo-init --sync` once opted in.
+          standardsInit = if standards.optedIn then lib.getExe standardsPackages.odooInit else null;
         };
 
         # `nix run .#relock`: `odoo project relock` outside the shell, for a

@@ -49,7 +49,7 @@ An addon repository must already be in addons mode (a tracked `flake.nix`, and a
 | Command | What it does |
 | --- | --- |
 | `odoo-nix sync --check` | report drift, write nothing; runs no `nix`, `uv` or `npm`, so it works in a no-Nix CI job |
-| `odoo-init --sync` (`odoo-nix sync --write`) | write what drifted, retract what a module that turned off left, delete retired files, relock |
+| `odoo-init --sync` (`odoo-nix sync --write`) | write what drifted, retract what a module that turned off left, delete retired files, relock. `odoo project update` runs it last, after the submodules and the Python lock (`--no-sync` to skip) |
 | `odoo-nix profile show [--explain]` | the resolved configuration; `--explain` names the layer that set each value |
 | `odoo-nix config <key>` | one resolved value: `modules.ci`, `commits.subject-length`, `series`, `profile.name` |
 | `odoo-nix gate lint`, `odoo-nix gate test` | the CI gates, run the way CI runs them ([CI](ci.md)) |

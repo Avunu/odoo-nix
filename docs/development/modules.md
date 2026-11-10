@@ -67,8 +67,9 @@ The removal uses git plumbing rather than `git rm`, which refuses while `.gitmod
 ```bash
 odoo project update                # then migrates every database
 odoo project update --no-migrate
+odoo project update --no-sync      # skip odoo-init --sync
 ```
 
-It checks out any submodule this clone has never had, moves every submodule to the tip of the branch `.gitmodules` pins (fetched by name, so a repository whose default branch moved does not derail it), regenerates the managed blocks of `pyproject.toml`, runs `uv lock` and syncs the build dependencies (see [Python dependencies and locks](locks.md)). Then it runs `odoo db migrate` on every database matching `dbfilter`. Commit the new submodule pointers, `pyproject.toml` and `uv.lock` when you are happy with them.
+It checks out any submodule this clone has never had, moves every submodule to the tip of the branch `.gitmodules` pins (fetched by name, so a repository whose default branch moved does not derail it), regenerates the managed blocks of `pyproject.toml`, runs `uv lock` and syncs the build dependencies (see [Python dependencies and locks](locks.md)). In a project that has opted in to the [standards](../standards/README.md), it then runs `odoo-init --sync`, so everything that follows from new sources is settled in the one command: odoo-nix's managed files written, what a turned-off module left retracted, retired files deleted, and the standards' own locks (`tools/uv.lock`, `package-lock.json`) redone. `--no-sync` leaves that to you. A project that has not opted in has nothing to sync. A sync that cannot finish clean (drift it cannot fix, a configuration it refuses) ends the command with its exit code, before the databases are migrated. Then it runs `odoo db migrate` on every database matching `dbfilter`. Commit the new submodule pointers, `pyproject.toml`, `uv.lock` and what the sync staged when you are happy with them.
 
 With [`coreSource`](../scaffolding/write-the-flake.md#a-repository-of-modules), OCB is a flake input and is left alone: bump it with `nix flake update`.
