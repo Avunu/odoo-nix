@@ -128,7 +128,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/base"
           gh api "repos/$REPO/contents/flake.lock?ref=$INTEGRATION" --jq .content | base64 -d > "$RUNNER_TEMP/base/flake.lock"
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
         with:
           cli: odoo-nix
           engine-input: odoo-nix
@@ -248,7 +248,7 @@ jobs:
           persist-credentials: false
 
       - if: inputs.auto-merge
-        uses: Avunu/python-devops-nix/.github/actions/standards-install@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+        uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
         with:
           cli: odoo-nix
           engine-input: odoo-nix
@@ -299,7 +299,7 @@ jobs:
           ref: ${{ inputs.integration-branch }}
           persist-credentials: false
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
         with:
           cli: odoo-nix
           engine-input: odoo-nix
@@ -343,7 +343,7 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-deps-automerge@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-deps-automerge@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
         with:
           cli: odoo-nix
           integration: ${{ inputs.integration-branch }}
@@ -387,7 +387,7 @@ jobs:
           ref: ${{ inputs.integration-branch }}
           persist-credentials: false
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
         with:
           cli: odoo-nix
           engine-input: odoo-nix
@@ -424,7 +424,7 @@ jobs:
           permission-pull-requests: write
 
       # A GITHUB_TOKEN update raises no event: then CI is dispatched on each new head.
-      - uses: Avunu/python-devops-nix/.github/actions/standards-update-branches@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-update-branches@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
         with:
           cli: odoo-nix
           integration: ${{ inputs.integration-branch }}
@@ -558,7 +558,7 @@ jobs:
           gh workflow run pr-policy.yml --repo "$GITHUB_REPOSITORY" --ref standards/project-update
 
       - if: steps.update.outputs.changed == 'true' && inputs.auto-merge
-        uses: Avunu/python-devops-nix/.github/actions/standards-install@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+        uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
         with:
           cli: odoo-nix
           engine-input: odoo-nix

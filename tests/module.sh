@@ -9,10 +9,14 @@
 # to take away a module's code without --force: that refusal is checked, and
 # the rest runs with --force or with no module code at stake.
 #
-#   bash tests/module.sh <odoo> <templates/project/pyproject.toml>
+# `pull` is the exception: it is python-devops-nix's real command, which is what
+# `project update` moves submodules with.
+#
+#   bash tests/module.sh <odoo> <templates/project/pyproject.toml> <odoo-nix-sources>
 set -euo pipefail
 odoo=$1
 pyproject_template=$2
+real_sources=$3
 
 T=$PWD
 stubs=$T/stubs
@@ -28,6 +32,7 @@ cat > "$stubs/odoo-nix-sources" <<SH
 #!$BASH
 set -eu
 echo "\$*" >> "\$STUB_LOG/sources"
+[ "\$1" != pull ] || exec "$real_sources" "\$@"
 if [ "\$1" = enter ] && [ -n "\${STUB_ENTER_FAIL:-}" ]; then echo "odoo-nix: cannot check out" >&2; exit 5; fi
 [ "\$1" = clone ] || exit 0
 shift
@@ -341,7 +346,7 @@ check "--force discards them with the repo" gone modules/bare
 
 # ── project update ───────────────────────────────────────────────────────────
 # --no-migrate: the CLI has no Odoo here. OCB's remote is GitHub, which the
-# sandbox cannot reach: its fetch fails, and the update carries on.
+# sandbox cannot reach: its fetch fails, is said, and the update carries on.
 project update
 run module add "file://$T/remotes/multi.git"
 commit added
@@ -360,7 +365,9 @@ check "new submodules are checked out as shell entry does" hasF "enter --treeles
 check "it says it updates the submodules" hasF '==> Updating git submodules…' out
 check "a submodule moves to the tip of its pinned branch" eval \
   '[ "$(git -C modules/multi rev-parse HEAD)" = "$tip" ] && [ "$tip" != "$before" ]'
-check "...detached, not on a local branch" eval '[ "$(git -C modules/multi rev-parse --abbrev-ref HEAD)" = HEAD ]'
+check "...on its pinned branch, not detached" eval '[ "$(git -C modules/multi rev-parse --abbrev-ref HEAD)" = 18.0 ]'
+check "one that cannot be fetched is said" hasF "could not fetch '18.0'" err
+check "...and the update says not every submodule moved" hasF "Not every submodule is on its branch's tip" err
 check "the path sources are regenerated" hasF 'odoo = { path = "odoo" }' pyproject.toml
 check "...and said" hasF '==> Regenerating uv path-sources' out
 check "the lock is attempted, and its failure reported" hasF 'uv lock failed' err
