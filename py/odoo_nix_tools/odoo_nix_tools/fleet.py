@@ -57,6 +57,10 @@ TAGS_FLOW = "series"
 # The integration ruleset of the series branching: every series branch.
 SERIES_RULESET = "series branches (*.0)"
 SERIES_REFS = "refs/heads/*.0"
+# A ruleset's `*` matches any characters but `/`, so `*.0` also matches release-please's
+# release PR branch (`release-please--branches--18.0`, release.rp_branch), which the
+# pull-request and status-check rules would then forbid it to create (HTTP 422).
+SERIES_EXCLUDE = "refs/heads/release-please--*"
 # repo-policy.release-bypass naming a GitHub App by its numeric id.
 APP_BYPASS = re.compile(r"integration:(\d+)")
 
@@ -100,6 +104,7 @@ def repo_policy_values(
     out: dict[str, Any] = {
         "integration_label": integration,
         "integration_refs": [f"refs/heads/{integration}"],
+        "integration_exclude": [],
     }
     if shape == "addons" and _series_flow(cfg) and series:
         out.update(release_pattern=f"refs/heads/{series}", release_label=series)
@@ -109,6 +114,7 @@ def repo_policy_values(
         out.update(
             integration_label=SERIES_RULESET,
             integration_refs=[SERIES_REFS],
+            integration_exclude=[SERIES_EXCLUDE],
             tag_prefix="",
             tag_pattern="refs/tags/*",
         )

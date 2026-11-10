@@ -10,6 +10,7 @@ entry's app layer (``fleet_table``) instead.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import shutil
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from odoo_nix_tools import fleet
+from odoo_nix_tools import fleet, release
 from odoo_nix_tools.product import PRODUCT
 from standards_core.commands.repo import audit, targets
 from standards_core.common import github, repo_policy, repoconfig, schema
@@ -131,6 +132,7 @@ class RepoPolicyValues(unittest.TestCase):
         return {
             "integration_label": branch,
             "integration_refs": [f"refs/heads/{branch}"],
+            "integration_exclude": [],
         }
 
     def test_an_addon_repository_protects_its_series_only(self) -> None:
@@ -163,6 +165,7 @@ class RepoPolicyValues(unittest.TestCase):
             {
                 "integration_label": "series branches (*.0)",
                 "integration_refs": ["refs/heads/*.0"],
+                "integration_exclude": ["refs/heads/release-please--*"],
                 "tag_prefix": "",
                 "tag_pattern": "refs/tags/*",
             },
@@ -183,6 +186,15 @@ class RepoPolicyValues(unittest.TestCase):
         series = by_name["series branches (*.0)"]
         self.assertEqual(
             series["conditions"]["ref_name"]["include"], ["refs/heads/*.0"]
+        )
+        # release-please must be able to create its release PR branch, which `*.0`
+        # would otherwise match.
+        self.assertEqual(
+            series["conditions"]["ref_name"]["exclude"],
+            ["refs/heads/release-please--*"],
+        )
+        self.assertTrue(
+            fnmatch.fnmatchcase(release.rp_branch("18.0"), "release-please--*")
         )
         # Nothing pushes to a series branch outside a pull request: no bypass.
         self.assertEqual(series["bypass_actors"], [])

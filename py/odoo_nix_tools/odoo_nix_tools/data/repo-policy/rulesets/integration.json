@@ -2,7 +2,7 @@
 	"name": "{integration_label}",
 	"target": "branch",
 	"enforcement": "active",
-	"conditions": { "ref_name": { "include": "{integration_refs}", "exclude": [] } },
+	"conditions": { "ref_name": { "include": "{integration_refs}", "exclude": "{integration_exclude}" } },
 	"bypass_actors": "{integration_bypass}",
 	"rules": [
 		{ "type": "deletion" },
