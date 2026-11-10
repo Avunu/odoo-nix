@@ -9,6 +9,7 @@ options:
 
 commands:
   <command>
+    agent      the checks Claude Code's hooks run for an agent: session-start, pre-bash, stop
     check      the lint gate's checks no hook makes: manifests, icons, submodules
     ci         the steps the workflows run (auto-merge, relock, release, bump, drift)
     config     print a resolved configuration value (lists one item per line)

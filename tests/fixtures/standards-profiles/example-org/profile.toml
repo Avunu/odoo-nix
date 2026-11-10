@@ -32,6 +32,7 @@ enable = true
 
 [ide]
 enable = true
+agents = true
 
 [tests]
 enable = true

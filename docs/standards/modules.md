@@ -44,7 +44,7 @@ These belong to the repository's table alone; a profile that sets one is refused
 | `pylint-odoo` | on | pylint-odoo with OCA's `.pylintrc` and `.pylintrc-mandatory` | `optional-run` (`true`: the optional checks run as an advisory hook) |
 | `addon-manifest` | on | the manifest rules | `author` (`""`: none required), `licenses-allowed` (`[]`: `[org.license]` when set, else OCA's list), `website` (`""`: none checked; a template with `{repo}`, `{repo_name}`) |
 | `js-xml` | on | prettier and eslint for JavaScript and XML, locked in `package.json` and `package-lock.json` | `exclude` (`[]`: path prefixes both skip, such as `static/dist/`) |
-| `ide` | off | `.vscode/settings.json` and `.vscode/extensions.json`, merged ([Editors](../development/editors.md#the-ide-module)). Needs `python-lint` and `js-xml` | — |
+| `ide` | off | `.vscode/settings.json` and `.vscode/extensions.json`, merged ([Editors](../development/editors.md#the-ide-module)). Needs `python-lint` and `js-xml` | `agents` (`false`: `AGENTS.md`, `CLAUDE.md` and Claude Code's hooks, [Agents](agents.md)) |
 | `tests` | on | the test gate: Odoo's tests with coverage, checklog-odoo, the coverage floor | `initial-floor` (`0`: `fail_under`, written once), `goal` (`80`, recorded for reference: no report shows it yet, and it is never a gate), `checklog` (`true`) |
 | `workflow-lint` | on | actionlint and zizmor over `.github` | — |
 | `shell-lint` | on | shellcheck, when the repository has shell scripts | — |

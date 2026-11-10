@@ -1,0 +1,31 @@
+{#- Each hook runs `odoo-nix agent hook <event>` (commands/agent.py): the dev shell's odoo-nix when it is on PATH, else the lint shell's (CI's, without Odoo or PostgreSQL), which links the locked tools; without Nix, nothing. Inline, not a script, so no *.sh file changes which hooks the pre-commit config renders. -#}
+{%- set run = 'cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0; if command -v odoo-nix >/dev/null 2>&1; then odoo-nix agent hook %s; elif command -v nix >/dev/null 2>&1; then nix develop --no-pure-eval .#odoo-nix-lint -c odoo-nix agent hook %s; fi' -%}
+{{ {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{
+        "type": "command",
+        "command": run | format("session-start", "session-start"),
+        "timeout": 300,
+        "statusMessage": "Installing the git hooks..."
+      }]}
+    ],
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{
+        "type": "command",
+        "command": run | format("pre-bash", "pre-bash"),
+        "timeout": 1200,
+        "statusMessage": "Running the lint gate before a push..."
+      }]}
+    ],
+    "Stop": [
+      {"hooks": [{
+        "type": "command",
+        "command": run | format("stop", "stop"),
+        "timeout": 600,
+        "statusMessage": "Running the pre-commit hooks on the changed files..."
+      }]}
+    ]
+  }
+} | json -}}

@@ -1,0 +1,41 @@
+{
+  "$comment": "ide.agents (DESIGN.md \u00a73.1): what coding agents need to pass CI the first time. AGENTS.md carries the checks as a block at its end, so a repository's own guidance stays; CLAUDE.md imports it; .claude/ runs the checks (commands/agent.py). Off by default, so the frozen profiles are unchanged.",
+  "entries": [
+    {
+      "path": "AGENTS.md",
+      "template": "agents/AGENTS.md.j2",
+      "strategy": "sentinel",
+      "module": "ide",
+      "when": "cfg.ide['agents']",
+      "block": "agents",
+      "anchor": "eof",
+      "comment": "html",
+      "uses": [
+        "ide.agents"
+      ],
+      "overridable": true
+    },
+    {
+      "path": "CLAUDE.md",
+      "template": "agents/CLAUDE.md.j2",
+      "strategy": "whole",
+      "module": "ide",
+      "when": "cfg.ide['agents']",
+      "header": "none",
+      "uses": [
+        "ide.agents"
+      ]
+    },
+    {
+      "path": ".claude/settings.json",
+      "template": "agents/claude-settings.json.j2",
+      "strategy": "whole",
+      "module": "ide",
+      "when": "cfg.ide['agents']",
+      "header": "none",
+      "uses": [
+        "ide.agents"
+      ]
+    }
+  ]
+}
