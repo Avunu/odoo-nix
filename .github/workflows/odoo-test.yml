@@ -139,6 +139,52 @@ jobs:
           diagnostic-endpoint: ""
           use-flakehub: false
 
+      # The shell's ports are a base plus an offset hashed from the project's name (python-devops-nix
+      # docs/conventions.md, Ports), so every job of one project asks for the same ones. Jobs that
+      # run side by side on one self-hosted host (a Dependabot burst opens a pull request each) then
+      # meet on them: the second Odoo dies with "Port 10315 is in use by another program" before
+      # one test has run. So each job picks an offset of its own, which the shell reads from
+      # ODOO_NIX_PORT_OFFSET: a hash of the run, attempt and runner, as the place to start, then the
+      # first offset from there whose five ports nothing on the host holds. Two jobs choosing in the
+      # same moment can still agree, but only when their hashes do (1 in 900); a GitHub-hosted
+      # runner is alone on its machine and finds its start free.
+      - if: env.ODOO_NIX_PORT_OFFSET == ''
+        name: A port offset no other job on this host holds
+        env:
+          SEED: ${{ github.repository }}/${{ github.run_id }}/${{ github.run_attempt }}/${{ runner.name }}
+        run: |
+          set -euo pipefail
+          # modules/devenv.nix, odoo-nix.ports bases: http, gevent, db, smtp, mailUi.
+          bases=(10000 11000 12000 13000 14000)
+
+          # Whether something listens on the port, or a throwaway PostgreSQL cluster's socket
+          # (<tmp>/odoo-nix-pg-*/.s.PGSQL.<port>) carries it: that one is a file, not a listener.
+          in_use() {
+            (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && return 0
+            compgen -G "${TMPDIR:-/tmp}/odoo-nix-pg-*/.s.PGSQL.$1" >/dev/null && return 0
+            compgen -G "/tmp/odoo-nix-pg-*/.s.PGSQL.$1" >/dev/null && return 0
+            return 1
+          }
+
+          start=$(( 16#$(printf '%s' "$SEED" | sha256sum | cut -c1-4) % 900 ))
+          for ((i = 0; i < 900; i++)); do
+            offset=$(( (start + i) % 900 ))
+            free=1
+            for base in "${bases[@]}"; do
+              if in_use $(( base + offset )); then
+                free=0
+                break
+              fi
+            done
+            if [ "$free" = 1 ]; then
+              echo "ODOO_NIX_PORT_OFFSET=$offset" >> "$GITHUB_ENV"
+              echo "port offset $offset (http $(( bases[0] + offset ))), starting from $start"
+              exit 0
+            fi
+          done
+          echo "::error::every port offset from 0 to 899 has a port in use on this host"
+          exit 1
+
       - name: odoo-nix gate test
         env:
           ODOO_NIX_CI: "1"
