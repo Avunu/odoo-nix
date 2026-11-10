@@ -14,6 +14,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import socket
 import subprocess
 import sys
 import tomllib
@@ -126,6 +127,60 @@ def tags_for(modules: Sequence[str]) -> str:
     return ",".join(f"/{m}" for m in modules)
 
 
+#: Attempts at a run whose Odoo could not bind the ports picked for it.
+PORT_ATTEMPTS = 3
+#: How much of the start of a run's output is kept to recognise a bind failure.
+HEAD_BYTES = 1 << 20
+
+
+def free_ports(interface: str | None, count: int = 2) -> list[int]:
+    """`count` distinct TCP ports nothing listens on, for Odoo's HTTP and
+    gevent servers (`--http-port`, `--gevent-port`).
+
+    A test run must not take them from odoo.conf: a test Odoo serves HTTP
+    whatever `--no-http` says (test mode spawns the server, and queue_job's
+    `threaded_start` wrapper calls it too), so it would bind the dev server's
+    ports -- and a CI runner's concurrent jobs of one project share theirs. The
+    kernel picks them (bind to port 0 on the interface Odoo will listen on,
+    in the address family werkzeug uses for it), so they come from its ephemeral range and not from a
+    guess; every probe stays open until all are chosen, so they differ. Between
+    this returning and Odoo binding another process can still take one:
+    `bind_clash` recognises that, and the caller picks again."""
+    host = interface or "0.0.0.0"
+    # The family werkzeug's server picks (select_address_family), not what
+    # getaddrinfo lists first: "localhost" is IPv4 to Odoo, though it may
+    # resolve to ::1 here. Binding (host, 0) resolves the name as Odoo's bind does.
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    probes: list[socket.socket] = []
+    try:
+        for _ in range(count):
+            probe = socket.socket(family, socket.SOCK_STREAM)
+            probes.append(probe)
+            # As werkzeug's server binds, so a port left in TIME_WAIT counts as free.
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind((host, 0))
+        return [probe.getsockname()[1] for probe in probes]
+    finally:
+        for probe in probes:
+            probe.close()
+
+
+def port_args(http: int, gevent: int) -> list[str]:
+    """The flags that put Odoo's servers on these ports, over odoo.conf's."""
+    return ["--http-port", str(http), "--gevent-port", str(gevent)]
+
+
+def bind_clash(head: bytes) -> bool:
+    """Whether the start of a run's output says Odoo died binding a port: the
+    OSError of `socketserver.server_bind` (EADDRINUSE) before the first module
+    loaded, which is before any test could have run."""
+    clash = head.find(b"Address already in use")
+    if clash < 0:
+        return False
+    loading = head.find(b"odoo.modules.loading")
+    return loading < 0 or clash < loading
+
+
 def odoo_argv(
     raw: str,
     conf_path: Path,
@@ -135,9 +190,10 @@ def odoo_argv(
     fresh: bool,
     major: int,
     db_args: Sequence[str],
+    ports: Sequence[str] = (),
 ) -> list[str]:
     """The odoo-bin command line: `-i` into a fresh database, or `-u` on an
-    existing one."""
+    existing one. `ports` are the `port_args`, if the run is to have its own."""
     joined = ",".join(modules)
     argv = [raw, "-c", str(conf_path), "-d", database]
     if fresh:
@@ -150,7 +206,7 @@ def odoo_argv(
     argv.append("--logfile=")
     if fresh:
         argv.append("--workers=0")
-    return [*argv, *db_args]
+    return [*argv, *ports, *db_args]
 
 
 def coverage_env(root: Path, rcfile: Path, env: Mapping[str, str]) -> dict[str, str]:
@@ -178,9 +234,16 @@ def coverage_files(data_file: Path) -> list[Path]:
     )
 
 
-def run(argv: Sequence[str], env: Mapping[str, str], log: Path | None) -> int:
+def run(
+    argv: Sequence[str],
+    env: Mapping[str, str],
+    log: Path | None,
+    head: bytearray | None = None,
+) -> int:
     """Run `argv` to its end and return its exit code. With `log`, its output
-    (stdout and stderr, in order) is written there as well as to stdout."""
+    (stdout and stderr, in order) is written there as well as to stdout, and
+    the first HEAD_BYTES of it are also appended to `head` if given (without
+    `log` the output goes straight to the terminal, and `head` stays empty)."""
     if log is None:
         proc = subprocess.Popen(argv, env=dict(env))
         return _wait(proc)
@@ -202,6 +265,8 @@ def run(argv: Sequence[str], env: Mapping[str, str], log: Path | None) -> int:
             if not chunk:
                 break
             sink.write(chunk)
+            if head is not None and len(head) < HEAD_BYTES:
+                head += chunk[: HEAD_BYTES - len(head)]
             out.write(chunk)
             out.flush()
         proc.stdout.close()

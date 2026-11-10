@@ -40,6 +40,17 @@ with open(os.environ["FAKE_ODOO_RECORD"], "w") as f:
 if "-i" in sys.argv:
     with open(os.environ["FAKE_ODOO_DATABASES"], "a") as f:
         f.write(sys.argv[sys.argv.index("-d") + 1] + "\\n")
+clash = os.environ.get("FAKE_ODOO_CLASH")
+if clash:
+    # Dies binding its port, before any module loads: the first `FAKE_ODOO_CLASH_TIMES` runs.
+    count = int(open(clash).read() or 0) if os.path.exists(clash) else 0
+    if count < int(os.environ.get("FAKE_ODOO_CLASH_TIMES", "1")):
+        with open(clash, "w") as f:
+            f.write(str(count + 1))
+        with open(os.environ["FAKE_ODOO_RECORD"] + ".%d" % count, "w") as f:
+            json.dump(sys.argv[1:], f)
+        print("OSError: [Errno 98] Address already in use", file=sys.stderr, flush=True)
+        sys.exit(1)
 print("2026-11-03 10:00:00,000 1 INFO db odoo.modules.loading: out", flush=True)
 print("2026-11-03 10:00:00,001 1 WARNING db odoo.tests: err", file=sys.stderr, flush=True)
 if os.environ.get("FAKE_ODOO_COVERAGE") and os.environ.get("ODOO_NIX_COVERAGE_RCFILE"):
@@ -189,6 +200,18 @@ class Case(unittest.TestCase):
     def ran(self):
         return json.loads(self.record.read_text())
 
+    def ports(self, argv=None):
+        """The `--http-port N --gevent-port M` flags of a run's command line (the
+        last run's unless `argv`), checked: two different ports, not odoo.conf's."""
+        argv = self.ran()["argv"] if argv is None else argv
+        at = argv.index("--http-port")
+        flags = argv[at : at + 4]
+        self.assertEqual(flags[0::2], ["--http-port", "--gevent-port"], argv)
+        http, gevent = int(flags[1]), int(flags[3])
+        self.assertNotEqual(http, gevent)
+        self.assertNotIn(10428, (http, gevent))
+        return flags
+
 
 class UpdateTest(Case):
     """MODULES DATABASE: -u on an existing database, as before."""
@@ -210,6 +233,7 @@ class UpdateTest(Case):
                 "/a,/b",
                 "--stop-after-init",
                 "--logfile=",
+                *self.ports(),
             ],
         )
         self.assertEqual(self.ran()["env"]["ODOO_NIX_COVERAGE_RCFILE"], None)
@@ -231,6 +255,8 @@ class UpdateTest(Case):
         result = self.invoke("--db-host", "/run/pg", "test", "a", "mydb")
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(self.ran()["argv"][-2:], ["--db_host", "/run/pg"])
+        # ...after the run's own ports.
+        self.assertEqual(self.ran()["argv"][-6:-2], self.ports())
 
     def test_configured_database(self):
         result = self.invoke("test", "a", env={"ODOO_NIX_DB": "envdb"})
@@ -251,6 +277,125 @@ class UpdateTest(Case):
         self.assertEqual(result.exit_code, 1)
         self.assertIn("Browser tours cannot run here", result.output)
         self.assertFalse(self.record.exists())
+
+
+class PortsTest(Case):
+    """A test run binds ports of its own, never odoo.conf's (the dev server's, or
+    a CI runner's other job's)."""
+
+    def test_odoo_conf_ports_are_overridden(self):
+        self.conf.write_text("[options]\nhttp_port = 10428\ngevent_port = 11428\n")
+        result = self.invoke("test", "a", "mydb")
+        self.assertEqual(result.exit_code, 0, result.output)
+        flags = self.ports()
+        self.assertIn(f"HTTP on port {flags[1]}, gevent on {flags[3]}", result.output)
+
+    def test_ports_are_free_and_distinct(self):
+        import socket
+
+        for interface in ("127.0.0.1", "", "::1", "localhost"):
+            with self.subTest(interface=interface):
+                ports = testrun.free_ports(interface, 4)
+                self.assertEqual(len(set(ports)), 4, ports)
+                host = interface or "0.0.0.0"
+                # werkzeug's rule (select_address_family): IPv6 only for a literal
+                # with a colon; "localhost" is IPv4 to Odoo whatever getaddrinfo lists first.
+                family = socket.AF_INET6 if ":" in host else socket.AF_INET
+                for port in ports:
+                    with socket.socket(family, socket.SOCK_STREAM) as s:
+                        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        s.bind((host, port))
+
+    def test_never_a_port_that_is_taken(self):
+        import socket
+
+        # A dev server on the port: a pick never lands on one held open.
+        with socket.socket() as held:
+            held.bind(("127.0.0.1", 0))
+            held.listen()
+            taken = held.getsockname()[1]
+            for _ in range(200):
+                self.assertNotIn(taken, testrun.free_ports("127.0.0.1", 2))
+
+    def test_http_interface_of_odoo_conf_is_probed(self):
+        seen = []
+        original = testrun.free_ports
+        testrun.free_ports = lambda interface, count=2: (
+            seen.append(interface) or original(interface, count)
+        )
+        self.addCleanup(setattr, testrun, "free_ports", original)
+        self.odoo.config["http_interface"] = "127.0.0.1"
+        result = self.invoke("test", "a", "mydb")
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(seen, ["127.0.0.1"])
+
+    def test_fresh_runs_pick_their_own(self):
+        # Two runs side by side (a runner's concurrent jobs) do not share a port.
+        first = set(testrun.free_ports("127.0.0.1", 2))
+        second = set(testrun.free_ports("127.0.0.1", 2))
+        self.assertTrue(first and second)
+
+    def test_bind_clash(self):
+        early = b"queue_job.post_load: x\nOSError: [Errno 98] Address already in use\n"
+        self.assertTrue(testrun.bind_clash(early))
+        # After modules loaded it is a test's own business, not Odoo's start.
+        late = b"odoo.modules.loading: loading 1 modules\n" + early
+        self.assertFalse(testrun.bind_clash(late))
+        self.assertFalse(testrun.bind_clash(b"odoo.modules.loading: ok\n"))
+
+    def test_retried_on_another_port_when_taken_meanwhile(self):
+        log = self.root / "odoo.log"
+        clash = self.tmp / "clash"
+        result = self.invoke(
+            "test",
+            "a",
+            "--fresh-db",
+            "--log",
+            str(log),
+            env={"FAKE_ODOO_CLASH": str(clash)},
+        )
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("trying other ports", result.output)
+        first = json.loads(Path(f"{self.record}.0").read_text())
+        self.assertNotEqual(self.ports(first), self.ports())
+        # The failed attempt's database is dropped before the next one, then the last.
+        self.assertEqual(self.odoo.calls, [("drop", self.name())] * 2)
+        # The log is the last run's: checklog-odoo must not see the failed one.
+        self.assertNotIn("Address already in use", log.read_text())
+
+    def test_gives_up_after_the_attempts(self):
+        log = self.root / "odoo.log"
+        result = self.invoke(
+            "test",
+            "a",
+            "mydb",
+            "--log",
+            str(log),
+            env={
+                "FAKE_ODOO_CLASH": str(self.tmp / "clash"),
+                "FAKE_ODOO_CLASH_TIMES": "99",
+            },
+        )
+        self.assertEqual(result.exit_code, 1)
+        self.assertEqual(
+            result.output.count("trying other ports"), testrun.PORT_ATTEMPTS - 1
+        )
+        self.assertIn("Odoo exited 1", result.output)
+
+    def test_other_failures_are_not_retried(self):
+        result = self.invoke(
+            "test",
+            "a",
+            "mydb",
+            "--log",
+            str(self.tmp / "l"),
+            env={"FAKE_ODOO_EXIT": "1"},
+        )
+        self.assertEqual(result.exit_code, 1)
+        self.assertNotIn("trying other ports", result.output)
+
+    def name(self):
+        return f"odoo_nix_test_{os.getpid()}"
 
 
 class UsageTest(Case):
@@ -374,6 +519,7 @@ class FreshDbTest(Case):
                 "--stop-after-init",
                 "--logfile=",
                 "--workers=0",
+                *self.ports(),
             ],
         )
         self.assertEqual(self.odoo.calls, [("drop", self.name())])

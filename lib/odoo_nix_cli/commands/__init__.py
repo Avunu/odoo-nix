@@ -237,26 +237,53 @@ def test_cmd(ctx, modules, database, all_, fresh_db, keep_db, rcfile, log_path):
         env.update(testrun.coverage_env(root, Path(rcfile), os.environ))
         data_file = Path(env["COVERAGE_FILE"])
         data_file.parent.mkdir(parents=True, exist_ok=True)
-        # A fresh measurement: data a former run left would be combined in.
-        for stale in testrun.coverage_files(data_file):
-            stale.unlink()
 
     raw = odooenv.require_env("ODOO_NIX_RAW_ODOO")
-    argv = testrun.odoo_argv(
-        raw,
-        conf_path,
-        target,
-        names,
-        fresh=fresh_db,
-        major=_odoo_major(),
-        db_args=db_args,
-    )
+    interface = _config_value(odoo_config, "http_interface")
     how = "installing into a new database" if fresh_db else "updating"
-    click.echo(
-        f"==> Testing {','.join(names)} on '{target}' ({how}; tags: {testrun.tags_for(names)})…"
-    )
     try:
-        code = testrun.run(argv, env, Path(log_path) if log_path else None)
+        for attempt in range(1, testrun.PORT_ATTEMPTS + 1):
+            if data_file is not None:
+                # A fresh measurement: data a former run left would be combined in.
+                for stale in testrun.coverage_files(data_file):
+                    stale.unlink()
+            # The test Odoo serves HTTP (HttpCase, tours -- and test mode
+            # spawns the server whatever --no-http says), so it gets ports of
+            # its own: odoo.conf's belong to the dev server, or to a CI
+            # runner's other job.
+            http, gevent = testrun.free_ports(interface, 2)
+            argv = testrun.odoo_argv(
+                raw,
+                conf_path,
+                target,
+                names,
+                fresh=fresh_db,
+                major=_odoo_major(),
+                db_args=db_args,
+                ports=testrun.port_args(http, gevent),
+            )
+            click.echo(
+                f"==> Testing {','.join(names)} on '{target}' ({how}; tags: {testrun.tags_for(names)}; "
+                f"HTTP on port {http}, gevent on {gevent})…"
+            )
+            head = bytearray()
+            code = testrun.run(argv, env, Path(log_path) if log_path else None, head)
+            if (
+                code
+                and attempt < testrun.PORT_ATTEMPTS
+                and testrun.bind_clash(bytes(head))
+            ):
+                # Another process bound one of them between the pick and
+                # Odoo's bind: nothing ran, so try again with others.
+                click.echo(
+                    f"==> port {http} or {gevent} was taken before Odoo bound it; trying other ports",
+                    err=True,
+                )
+                if fresh_db:
+                    # odoo-bin made the (empty) database before it failed.
+                    _drop_test_database(target)
+                continue
+            break
     finally:
         if fresh_db and not keep_db:
             _drop_test_database(target)
@@ -304,6 +331,14 @@ def _check_tour_prerequisites() -> None:
             sys.exit(1)
     else:
         click.echo(f"==> tours enabled (browser: {browser})")
+
+
+def _config_value(odoo_config, key: str):
+    """A value of the loaded configuration, None when it has none."""
+    try:
+        return odoo_config.get(key)
+    except Exception:  # noqa: BLE001 -- a configuration that cannot say is no reason to refuse
+        return None
 
 
 def _odoo_major() -> int:
