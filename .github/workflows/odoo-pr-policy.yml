@@ -67,7 +67,7 @@ jobs:
         with:
           determinate: false
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
         with:
           cli: odoo-nix
           engine-input: odoo-nix
@@ -81,7 +81,7 @@ jobs:
           ref="$(jq -r '.nodes[.nodes.root.inputs["odoo-nix"]].locked | "github:\(.owner)/\(.repo)/\(.rev)"' flake.lock)"
           echo "$(nix build --no-link --print-out-paths "$ref#committed")/bin" >> "$GITHUB_PATH"
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-pr-policy@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-pr-policy@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
         with:
           cli: odoo-nix
           integration: ${{ inputs.integration-branch }}

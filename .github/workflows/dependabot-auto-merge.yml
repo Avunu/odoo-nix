@@ -44,7 +44,7 @@ jobs:
     permissions:
       contents: write # gh pr merge --auto
       pull-requests: write # gh pr merge --auto
-    uses: Avunu/python-devops-nix/.github/workflows/dependabot-auto-merge.yml@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+    uses: Avunu/python-devops-nix/.github/workflows/dependabot-auto-merge.yml@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
     # A Dependabot run sees only Dependabot secrets: the App's ID may be one too.
     secrets:
       APP_ID: ${{ vars.AVUNU_CI_APP_ID || secrets.AVUNU_CI_APP_ID }}
@@ -56,7 +56,7 @@ jobs:
       contents: write # update-branch without the App
       pull-requests: write # update-branch
       actions: write # without the App, dispatch the required checks on the new head
-    uses: Avunu/python-devops-nix/.github/workflows/dependabot-update-branches.yml@ef790559b046095880b2776ebe6a00f455a455eb # python-devops-nix v1.4.0
+    uses: Avunu/python-devops-nix/.github/workflows/dependabot-update-branches.yml@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
     with:
       dispatch: check.yml pr-policy.yml
     secrets:

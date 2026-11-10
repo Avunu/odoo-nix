@@ -799,7 +799,8 @@
 
           # `odoo module add`, `add-bundle` and `remove`, offline: the `odoo`
           # CLI with the workspace scripts and no Odoo, odoo-nix-sources stood
-          # in, git real, uv real and offline (tests/module.sh).
+          # in (but for `pull`, the real command), git real, uv real and offline
+          # (tests/module.sh).
           odoo-module-cli =
             let
               python = pkgs.${presets."18.0".python};
@@ -839,7 +840,8 @@
                 ];
               }
               ''
-                bash ${./tests/module.sh} ${cli}/bin/odoo ${./templates/project/pyproject.toml}
+                bash ${./tests/module.sh} ${cli}/bin/odoo ${./templates/project/pyproject.toml} \
+                  ${lib.getExe (shellTools pkgs).sources}
               '';
 
           # A project's `nix run .#relock` (lib/relock.nix) over a stale lock,
