@@ -820,8 +820,9 @@
                     customDir = "custom";
                   };
                   python = "${pkgs.python3}/bin/python";
-                  # The stand-in on PATH (tests/module.sh).
+                  # The stand-ins on PATH (tests/module.sh).
                   sourcesBin = "odoo-nix-sources";
+                  standardsInit = "odoo-init";
                   buildDeps = import ./lib/build-deps.nix { inherit pkgs base; };
                 };
               };

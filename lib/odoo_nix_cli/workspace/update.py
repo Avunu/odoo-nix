@@ -9,8 +9,10 @@ lock directory (nix/), the install set is every installable local addon, and
 the flake inputs the shell links in (externalSources) are linked first, so a
 relock works in a clone whose shell has never started.
 update first moves every submodule to the tip of the branch .gitmodules pins
-it to, then does the same. ``module add``, ``add-bundle`` and ``remove``
-re-lock through ``regenerate``, as update does.
+it to, then does the same, and ends with ``odoo-init --sync`` (odoo-nix's
+standards: the managed files and the standards' own locks), so everything that
+follows from new sources is settled in one command. ``module add``,
+``add-bundle`` and ``remove`` re-lock through ``regenerate``, as update does.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from odoo_nix_cli.workspace.config import WorkspaceConfig
 from odoo_nix_cli.workspace.lock import core_shadow, lock
 
 LOCK_FAILED = "⚠  uv lock failed — resolve in pyproject.toml and re-run."
+SYNC_FAILED = "⚠  odoo-init --sync did not finish clean (exit {rc}) — fix what it names and run `odoo-init --sync`."
 
 
 def _say(text: str) -> None:
@@ -223,10 +226,30 @@ def pull(cfg: WorkspaceConfig) -> None:
         )
 
 
-def update(cfg: WorkspaceConfig) -> int:
-    """``odoo project update``'s code half: pull, then regenerate. Its status;
-    a step that stops it has said why. A repository of addons has nothing to
-    pull (its sources are flake inputs), so it is refused there."""
+def sync_standards(cfg: WorkspaceConfig) -> int:
+    """``odoo-init --sync`` from the root: odoo-nix's managed files written,
+    what a turned-off module left retracted, retired files deleted, and the
+    standards' own locks (``tools/uv.lock``, ``package-lock.json``) redone.
+    Nothing runs, and 0 is the status, for a project that has not opted in
+    (``cfg.standards_init`` is None). Its status otherwise: 1 is drift sync
+    cannot fix, 2 a configuration it refuses, 3 the environment."""
+    if cfg.standards_init is None:
+        _say("==> Standards: not opted in, nothing to sync.")
+        return 0
+    _say("==> Syncing odoo-nix's standards (odoo-init --sync)…")
+    sys.stdout.flush()
+    rc = attempt([cfg.standards_init, "--sync"])
+    if rc != 0:
+        sys.stdout.flush()
+        print(SYNC_FAILED.format(rc=rc), file=sys.stderr, flush=True)
+    return rc
+
+
+def update(cfg: WorkspaceConfig, sync: bool = True) -> int:
+    """``odoo project update``'s code half: pull, regenerate, then sync the
+    standards (unless SYNC is off). Its status; a step that stops it has said
+    why. A repository of addons has nothing to pull (its sources are flake
+    inputs), so it is refused there."""
     if cfg.addons_mode:
         from odoo_nix_cli.workspace.config import ADDONS_MODE_REFUSAL
 
@@ -239,5 +262,9 @@ def update(cfg: WorkspaceConfig) -> int:
     rc = regenerate(cfg)
     if rc != 0:
         return rc
+    if sync:
+        rc = sync_standards(cfg)
+        if rc != 0:
+            return rc
     _say("✅ Code updated.")
     return 0

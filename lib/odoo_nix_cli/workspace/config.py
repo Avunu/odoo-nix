@@ -59,6 +59,9 @@ class WorkspaceConfig:
     # The rendered pyproject.toml a relock writes into lock_dir when there is
     # none yet (addons mode's first lock), else None.
     pyproject_template: str | None
+    # odoo-init, once the project has opted in to the standards, else None:
+    # `project update` ends with `odoo-init --sync`.
+    standards_init: str | None
 
     @property
     def addons_mode(self) -> bool:
@@ -81,9 +84,10 @@ KEYS = {
     "installSet": "install_set",
     "externalSources": "external_sources",
     "pyprojectTemplate": "pyproject_template",
+    "standardsInit": "standards_init",
 }
 #: Keys whose value may be null.
-NULLABLE = {"core_source", "node", "pyproject_template"}
+NULLABLE = {"core_source", "node", "pyproject_template", "standards_init"}
 INSTALL_SETS = ("modules.txt", "local")
 LAYOUT_KEYS = {
     "coreSrc": "core_src",

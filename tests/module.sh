@@ -54,6 +54,15 @@ case \$url in
 esac
 SH
 chmod +x "$stubs/odoo-nix-sources"
+
+# odoo-init, which `project update` ends with (--sync): logged, and exits with
+# $STUB_INIT_RC.
+cat > "$stubs/odoo-init" <<SH
+#!$BASH
+echo "\$*" >> "\$STUB_LOG/init"
+exit "\${STUB_INIT_RC:-0}"
+SH
+chmod +x "$stubs/odoo-init"
 export PATH="$stubs:$PATH"
 
 # Third-party remotes: one module at the root; two modules on 18.0 and on
@@ -356,11 +365,23 @@ check "the path sources are regenerated" hasF 'odoo = { path = "odoo" }' pyproje
 check "...and said" hasF '==> Regenerating uv path-sources' out
 check "the lock is attempted, and its failure reported" hasF 'uv lock failed' err
 check "it says the code is updated" hasF '✅ Code updated.' out
+check "it ends with odoo-init --sync" eval '[ "$(cat "$STUB_LOG/init")" = "--sync" ]'
+check "...and says so" hasF '==> Syncing odoo-nix' out
+: > "$STUB_LOG/init"
+run project update --no-migrate --no-sync
+expect_rc 0
+check "--no-sync leaves the standards alone" eval '[ ! -s "$STUB_LOG/init" ]'
+STUB_INIT_RC=3 run project update --no-migrate
+expect_rc 3
+check "a sync that does not finish clean ends it with its status" hasF 'odoo-init --sync did not finish clean (exit 3)' err
+check "...before it says the code is updated" refute hasF '✅ Code updated.' out
+: > "$STUB_LOG/init"
 STUB_ENTER_FAIL=1 run project update --no-migrate
 expect_rc 5
 check "a failed checkout stops it with its status, and says why" hasF 'odoo-nix: cannot check out' err
 check "...without a traceback" refute hasF 'Traceback' err
 check "...and nothing after it runs" refute hasF '==> Regenerating' out
+check "...the sync included" eval '[ ! -s "$STUB_LOG/init" ]'
 
 # ── project relock ───────────────────────────────────────────────────────────
 # uv is offline, so the lock itself fails: what is checked is the regenerated

@@ -58,6 +58,10 @@
   # externalSources, [ { name; src; } ]: linked under layout.externalDir before
   # a lock, as shell entry links them.
   externalSources ? [ ],
+  # odoo-init (modules/devenv.nix), once the project has opted in to the
+  # standards, else null: `project update` ends with `odoo-init --sync`, so the
+  # managed files and the standards' own locks are settled with the sources.
+  standardsInit ? null,
 }:
 
 {
@@ -83,6 +87,7 @@
         map (e: lib.nameValuePair e.name (toString e.src)) externalSources
       );
       pyprojectTemplate = if pyprojectTemplate == null then null else toString pyprojectTemplate;
+      inherit standardsInit;
     }
   );
 }

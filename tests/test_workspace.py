@@ -9,6 +9,7 @@ Run: python3 -I tests/test_workspace.py <dir holding odoo_nix_cli> <data dir> <o
 """
 
 import contextlib
+import dataclasses
 import io
 import json
 import os
@@ -45,6 +46,7 @@ GOOD = {
     "installSet": "modules.txt",
     "externalSources": {},
     "pyprojectTemplate": None,
+    "standardsInit": None,
 }
 
 
@@ -593,6 +595,83 @@ class AddonsModeTest(Workspace):
             self.assertEqual(update.update(self.cfg), 2)
         self.assertIn("`odoo project update` manages", err.getvalue())
         self.assertEqual(self.calls(), [])
+
+
+class UpdateSyncTest(Workspace):
+    """``project update``'s last stage, odoo-init --sync (the standards' managed
+    files and locks), with the pull stood in and odoo-init a stub that logs to
+    $STUB_LOG and exits with $RC_INIT."""
+
+    def setUp(self):
+        super().setUp()
+        init = Path(".tools", "odoo-init")
+        stub(init, "odoo-init", "RC_INIT")
+        self.cfg = dataclasses.replace(self.cfg, standards_init=str(init))
+        pull = unittest.mock.patch.object(update, "pull")
+        pull.start()
+        self.addCleanup(pull.stop)
+
+    def update(self, cfg=None, **rcs):
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            unittest.mock.patch.dict(os.environ, rcs),
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+        ):
+            rc = update.update(cfg or self.cfg, **self.kwargs)
+        return rc, out.getvalue(), err.getvalue()
+
+    kwargs: ClassVar[dict] = {}
+
+    def calls(self):
+        return [c.split()[0] for c in self.log.read_text().splitlines()]
+
+    def test_sync_ends_the_update(self):
+        rc, out, err = self.update()
+        self.assertEqual((rc, err), (0, ""))
+        # After the path sources and both locks, from the root, with --sync.
+        self.assertEqual(
+            self.calls(), ["oca_sources", "uv", "build-deps", "uv", "odoo-init"]
+        )
+        self.assertIn("odoo-init --sync", out)
+        self.assertEqual(self.log.read_text().splitlines()[-1], "odoo-init --sync")
+        self.assertLess(out.index("Re-locking"), out.index("Syncing odoo-nix"))
+        self.assertTrue(out.rstrip().endswith("✅ Code updated."))
+
+    def test_not_opted_in_has_nothing_to_sync(self):
+        cfg = dataclasses.replace(self.cfg, standards_init=None)
+        rc, out, _ = self.update(cfg)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("odoo-init", self.calls())
+        self.assertIn("not opted in", out)
+        self.assertIn("✅ Code updated.", out)
+
+    def test_no_sync_skips_it(self):
+        self.kwargs = {"sync": False}
+        rc, out, _ = self.update()
+        self.assertEqual(rc, 0)
+        self.assertNotIn("odoo-init", self.calls())
+        self.assertNotIn("Syncing", out)
+
+    def test_a_failed_lock_does_not_stop_the_sync(self):
+        # As before: a failed lock is said and the update carries on.
+        rc, _, err = self.update(RC_UV="1")
+        self.assertEqual(rc, 0)
+        self.assertIn(update.LOCK_FAILED, err)
+        self.assertEqual(self.calls()[-1], "odoo-init")
+
+    def test_a_failed_path_source_sync_stops_before_the_standards(self):
+        rc, _, _ = self.update(RC_SOURCES="3")
+        self.assertEqual(rc, 3)
+        self.assertNotIn("odoo-init", self.calls())
+
+    def test_a_sync_that_does_not_finish_clean_ends_it_with_its_status(self):
+        for code in (1, 2, 3):
+            with self.subTest(code=code):
+                rc, out, err = self.update(RC_INIT=str(code))
+                self.assertEqual(rc, code)
+                self.assertIn(f"exit {code}", err)
+                self.assertNotIn("✅ Code updated.", out)
 
 
 class OcaSourcesTest(unittest.TestCase):
