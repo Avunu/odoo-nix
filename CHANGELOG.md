@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.8.0](https://github.com/Avunu/odoo-nix/compare/v2.7.0...v2.8.0) (2026-11-10)
+
+
+### Features
+
+* **app-standards:** ide.agents renders AGENTS.md and Claude Code's hooks ([#173](https://github.com/Avunu/odoo-nix/issues/173)) ([7f258bc](https://github.com/Avunu/odoo-nix/commit/7f258bcf572eba73ec2e54357bc8cf5839133249))
+
+
+### Bug Fixes
+
+* **cli:** give `odoo test` free HTTP and gevent ports of its own ([#176](https://github.com/Avunu/odoo-nix/issues/176)) ([c6fc5a0](https://github.com/Avunu/odoo-nix/commit/c6fc5a0440c857d93fadf1ea51ca0c570735e889))
+* **standards:** ignore the generated eslint and prettier configs ([#175](https://github.com/Avunu/odoo-nix/issues/175)) ([9f83388](https://github.com/Avunu/odoo-nix/commit/9f83388881d517a9a7af404a1876c3679794af1c))
+
 ## [2.7.0](https://github.com/Avunu/odoo-nix/compare/v2.6.0...v2.7.0) (2026-11-10)
 
 
