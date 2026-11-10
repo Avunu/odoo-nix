@@ -1002,7 +1002,9 @@ stays: stage O3 verifies against the pinned pylint-odoo that a `README.md` satis
   addons).
 - `prettier.config.cjs`: header `// odoo-nix:managed …; do not edit.`, then the series body verbatim.
 - `eslint.config.cjs`: header, the series body with the ESM `files:` list replaced by
-  `effective.esm_globs`, and, when `exclude` is non-empty, a first config object `{ignores: ["<p>**", …]}`.
+  `effective.esm_globs`, and a first config object `{ignores: ["eslint.config.cjs", "prettier.config.cjs", "<p>**", …]}`.
+  The two generated configs are CommonJS (`require`, `module`) under OCA's browser-globals-only config, so `no-undef`
+  flags them whenever the editor or `eslint .` lints them (the hooks already skip them); `<p>` is each `exclude` path.
 - The `prettier`/`eslint` hooks get the `exclude` prefixes as `^(?:<p1>|<p2>)` (escaped).
 
 #### ide
