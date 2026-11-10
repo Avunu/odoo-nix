@@ -107,7 +107,7 @@ py/odoo_nix_tools/
         ├── ide/vscode.json        the settings/extensions data shared with modules/devenv.nix's seed
         ├── profiles/{minimal.toml, recommended@2.3.toml}
         ├── schema/{modules.schema.json, fleet-entry.schema.json, gate-report.schema.json}
-        ├── manifest.d/{00-dev-shell,10-editorconfig,20-python,30-js-xml,40-ide,50-tests,
+        ├── manifest.d/{00-dev-shell,10-editorconfig,20-python,30-js-xml,40-ide,45-agents,50-tests,
         │               60-hygiene,70-commits,80-github,90-addons}.json
         └── templates/             §3.5
 ```

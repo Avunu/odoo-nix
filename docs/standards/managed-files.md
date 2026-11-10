@@ -24,6 +24,7 @@ updated: 2026-11-04
 | `package-lock.json` | `js-xml` | lock: `npm install --package-lock-only --ignore-scripts --no-audit --no-fund` |
 | `prettier.config.cjs`, `eslint.config.cjs` | `js-xml` | whole |
 | `.vscode/settings.json`, `.vscode/extensions.json` | `ide` | JSONC merge ([Editors](../development/editors.md#the-ide-module)) |
+| `AGENTS.md` (a block at its end), `CLAUDE.md`, `.claude/settings.json` | `ide` with `agents = true` | sentinel block, whole ([Agents](agents.md)) |
 | `checklog-odoo.cfg` | `tests` | seed: written once, then yours |
 | `.pre-commit-config.yaml` | every module with a hook | whole, local regions `hooks` and `exclude` |
 | `.git-blame-ignore-revs` | `hygiene` | seed |

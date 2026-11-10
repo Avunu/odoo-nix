@@ -84,6 +84,7 @@ Every `odoo-nix` command, and `odoo-init --sync` and `--check`, exits with the t
 
 - [Profiles](profiles.md): `minimal`, `recommended@2.3`, org profiles and how the layers merge.
 - [Modules](modules.md): every module and its keys.
+- [Agents](agents.md): `AGENTS.md` and Claude Code's hooks, so an agent passes CI before it pushes.
 - [Managed files](managed-files.md): what each module writes, how it merges with yours, and where OCA's rules are changed.
 - [CI](ci.md): the gates, the callers and the reusable workflows.
 - [Versioning](versioning.md): odoo-nix's releases, profile snapshots, version skew and the addons' `<series>.x.y.z`.

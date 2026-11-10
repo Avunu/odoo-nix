@@ -34,6 +34,9 @@ WHOLE = {
     ".github/workflows/ci.yml",
     ".github/workflows/pr-policy.yml",
     ".github/workflows/deps.yml",
+    # ide.agents
+    "CLAUDE.md",
+    ".claude/settings.json",
 }
 MERGED = {"tools/pyproject.toml", "package.json"}
 LOCKS = {"tools/uv.lock", "package-lock.json"}
@@ -44,6 +47,7 @@ DEV_SHELL_BLOCKS = (
     (".gitignore", "# >>> odoo-nix: dev-shell (managed) >>>"),
 )
 README_BLOCK = ("README.md", "<!-- odoo-nix:begin addons-table -->")
+AGENTS_BLOCK = ("AGENTS.md", "<!-- odoo-nix:begin agents -->")
 IDE_LEAF = '"python.languageServer": "None"'
 IDE_EXTENSION = "charliermarsh.ruff"
 # A leaf the dev shell seeds (data/ide/vscode.json), which the project fixture has.
@@ -79,6 +83,13 @@ class Matrix(SyncCase):
                         self.assertIn(marker, before[path].decode(), path)
                     has_readme_block = README_BLOCK[1] in before["README.md"].decode()
                     self.assertEqual(has_readme_block, profile == "example-org")
+                    has_agents = (
+                        AGENTS_BLOCK[1] in before.get("AGENTS.md", b"").decode()
+                    )
+                    self.assertEqual(has_agents, profile == "example-org")
+                    self.assertEqual(
+                        ".claude/settings.json" in before, profile == "example-org"
+                    )
                     has_ide = (
                         IDE_LEAF in before.get(".vscode/settings.json", b"").decode()
                     )

@@ -175,11 +175,16 @@
       "ide": {
         "type": "object",
         "additionalProperties": false,
-        "description": "VS Code settings and extension recommendations (.vscode, merged).",
+        "description": "VS Code settings and extension recommendations (.vscode, merged), and the files coding agents read (AGENTS.md, CLAUDE.md, .claude/).",
         "properties": {
           "enable": {
             "type": "boolean",
             "default": false
+          },
+          "agents": {
+            "type": "boolean",
+            "default": false,
+            "description": "AGENTS.md's checks block, CLAUDE.md and Claude Code's hooks, which install the git hooks and run the pre-commit hooks and the lint gate for the agent."
           }
         }
       },
