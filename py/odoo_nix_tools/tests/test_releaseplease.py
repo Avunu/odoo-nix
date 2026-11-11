@@ -56,6 +56,38 @@ class Config(unittest.TestCase):
             cfg["group-pull-request-title-pattern"], "chore(release): release ${branch}"
         )
 
+    def test_release_please_reads_no_version_from_the_merged_title(self) -> None:
+        # release-please 17's generateMatchPattern (src/util/pull-request-title.ts): a
+        # merged release PR's title is matched with the packages' pattern first, and a
+        # `version` group it captures must parse as x.y.z.
+        def rp_pattern(pattern: str) -> re.Pattern[str]:
+            for old, new in (
+                ("[", r"\["),
+                ("]", r"\]"),
+                ("(", r"\("),
+                (")", r"\)"),
+                ("${scope}", r"(\((?P<branch>[\w./-]+)\))?"),
+                ("${component}", r" ?(?P<component>@?[\w./-]*)?"),
+                ("${version}", r"v?(?P<version>[0-9].*)"),
+                ("${branch}", r"(?P<branch>[\w./-]+)?"),
+            ):
+                pattern = pattern.replace(old, new, 1)
+            return re.compile(f"^{pattern}$")
+
+        title = "chore(release): release 18.0"
+        default = rp_pattern("chore${scope}: release${component} ${version}")
+        m = default.match(title)
+        assert m is not None
+        self.assertEqual(m["version"], "18.0")  # what release-please fails to parse
+
+        cfg = releaseplease.config(ADDONS, "18.0")
+        self.assertEqual(
+            cfg["pull-request-title-pattern"], cfg["group-pull-request-title-pattern"]
+        )
+        m = rp_pattern(cfg["pull-request-title-pattern"]).match(title)
+        assert m is not None
+        self.assertEqual(m.groupdict(), {"branch": "18.0"})
+
     def test_manifest_holds_x_y_z(self) -> None:
         self.assertEqual(
             releaseplease.manifest(ADDONS, "18.0"),

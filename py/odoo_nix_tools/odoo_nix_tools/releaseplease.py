@@ -57,6 +57,9 @@ NEVER_SUFFIXES = (".pyc", ".pyo")
 # A fixed timestamp for every zip member (the zip format's earliest), so a package's
 # bytes depend on its files only.
 ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
+# The release PR's title: it passes the commit rules (scope `release`).
+PR_TITLE_PATTERN = "chore(release): release ${branch}"
+
 CHANGELOG_SECTIONS = [
     {"type": "feat", "section": "Features"},
     {"type": "fix", "section": "Bug Fixes"},
@@ -104,7 +107,13 @@ def config(addons: Iterable[Mapping[str, Any]], series: str) -> dict[str, Any]:
         "include-v-in-tag": False,
         "tag-separator": release.TAG_SEPARATOR,
         "separate-pull-requests": False,
-        "group-pull-request-title-pattern": "chore(release): release ${branch}",
+        # Both patterns, the same: release-please reads a merged release PR's title with the
+        # packages' pattern before the group's, and its default one
+        # (`chore${scope}: release${component} ${version}`) takes the series in
+        # "chore(release): release 18.0" for a version it then cannot parse, so no release
+        # is tagged. This one has no version: each addon's comes from the PR's body.
+        "pull-request-title-pattern": PR_TITLE_PATTERN,
+        "group-pull-request-title-pattern": PR_TITLE_PATTERN,
         "pull-request-header": (
             f"Merging this releases the addons below on {series}: release-please tags"
             f" each `<addon>-{series}.x.y.z` and publishes its GitHub release, which"
