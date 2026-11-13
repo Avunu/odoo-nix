@@ -295,6 +295,17 @@ in
       watchdog = lib.hasInfix "import watchdog" (shell { }).processes.odoo.exec;
     };
   };
+  # watch.python also hints at the inotify queue limit, and drops the hint with it.
+  watch-inotify-queue-hint = {
+    expected = {
+      on = true;
+      off = false;
+    };
+    actual = {
+      on = lib.hasInfix "max_queued_events" (shell { }).processes.odoo.exec;
+      off = lib.hasInfix "max_queued_events" (shell { watch.python = false; }).processes.odoo.exec;
+    };
+  };
   # The tree: watch, devguard, mailpit and ports; `dev` only as the hidden
   # removed option that refuses dev.autoReload.
   tree =
