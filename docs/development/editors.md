@@ -23,6 +23,21 @@ What it covers:
 - **Odoo's framework code** (`odoo/odoo/*.py`, such as `models.py` or `http.py`) is not an addons root and is not watched. Restart `devenv up` for those.
 - **`settings.options.workers` must be 0**, the default. The watcher only runs on the threaded server, and the shell warns if you set workers or a `devMode` without `reload` while `watch.python` is on.
 
+### Inotify queue overflow
+
+Under a burst of file changes (`vite build --watch` rebuilding, `npm install`, a `git checkout` or a Python bytecode recompile) the log can fill with:
+
+```text
+WARNING ? watchdog.observers.inotify: Inotify queue overflowed; reconciling recursive watches below b'.../modules/<REPO>'
+```
+
+This is the kernel's per-instance event queue (`fs.inotify.max_queued_events`, 16384 by default) filling before the watcher reads it, not the watch-count limit (`max_user_watches`). `watchdog` recovers by rescanning, so nothing breaks; at worst one reload is spurious or missed.
+
+Odoo watches every `addons_path` root recursively, `node_modules` and `__pycache__` included, and has no way to exclude them. Two ways to cut the noise:
+
+- **Raise the queue limit.** On NixOS: `boot.kernel.sysctl."fs.inotify.max_queued_events" = 524288;`. Elsewhere: `sudo sysctl fs.inotify.max_queued_events=524288`, persisted in `/etc/sysctl.d/`. The dev server prints a one-line hint at start-up while the limit is under 65536.
+- **Watch less.** `devMode = "xml,qweb"` (or `watch.python = false`) drops the watcher; Python edits then need a restart of `devenv up`.
+
 ## Python analysis
 
 `ide.enable` (the dev-shell option, on by default) makes two things on shell entry. Odoo reads neither; they exist so a static analyser resolves the same names the interpreter does.

@@ -2017,6 +2017,15 @@ in
                     if ! ${pythonEnvs.devPythonEnv}/bin/python -c 'import watchdog' 2>/dev/null; then
                       export PYTHONPATH="${watchdogFallback}''${PYTHONPATH:+:$PYTHONPATH}"
                     fi
+                    # The watcher recurses over every addons root, node_modules
+                    # included. A burst of file events (a build, npm install, a
+                    # checkout) can outrun the kernel's per-instance queue; the
+                    # watcher then logs "Inotify queue overflowed" and rescans.
+                    # Harmless, but loud: say how to stop it, once, at start-up.
+                    if [ -r /proc/sys/fs/inotify/max_queued_events ] \
+                      && [ "$(cat /proc/sys/fs/inotify/max_queued_events)" -lt 65536 ]; then
+                      echo "odoo-nix: fs.inotify.max_queued_events is $(cat /proc/sys/fs/inotify/max_queued_events); a burst of file changes can overflow Odoo's reload watcher (harmless). Raise it to silence that: docs/development/editors.md#inotify-queue-overflow" >&2
+                    fi
                   ''}
                   exec ${devRawOdooBin} \
                     -c "$REPO_ROOT/odoo.conf" \
