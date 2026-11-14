@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.8.1](https://github.com/Avunu/odoo-nix/compare/v2.8.0...v2.8.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** bump the nix group with 6 updates ([#180](https://github.com/Avunu/odoo-nix/issues/180)) ([202a3b2](https://github.com/Avunu/odoo-nix/commit/202a3b2a45b9d8d7b2dc676c1c2cd703b683d0d0))
+* **deps:** bump the ocb group with 3 updates ([#179](https://github.com/Avunu/odoo-nix/issues/179)) ([3044b18](https://github.com/Avunu/odoo-nix/commit/3044b188e5f405e4cd16caacfb2c51166de489dd))
+* **standards:** let release-please tag a merged series release PR ([#177](https://github.com/Avunu/odoo-nix/issues/177)) ([f63d136](https://github.com/Avunu/odoo-nix/commit/f63d1367c2333495d701741b4d84de9195352801))
+
 ## [2.8.0](https://github.com/Avunu/odoo-nix/compare/v2.7.0...v2.8.0) (2026-11-10)
 
 
