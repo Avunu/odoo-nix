@@ -37,7 +37,7 @@ odoo-nix repo rollout --to v2.3.0 --repo Avunu/edi-addons      # or --all --flee
 odoo-nix repo rollout --profile-to latest --all --fleet fleet.json
 ```
 
-For each repository, in a temporary clone of its integration branch: `nix flake update odoo-nix` (or `standards-profile`), `nix run --no-pure-eval .#relock`, `nix run --no-pure-eval .#odoo-init -- --sync`, then a commit `chore(deps): odoo-nix v2.3.0`, a push of `standards/odoo-nix-v2.3.0`, a pull request and, unless `--no-auto-merge`, auto-merge. It runs with your own `gh` token (scope `workflow`): the bump rewrites caller workflows, which `GITHUB_TOKEN` cannot push. `--dry-run` prints the plan.
+For each repository, in a temporary clone of its integration branch: `nix flake update odoo-nix` (or `standards-profile`), `nix run --no-pure-eval .#relock`, `nix run --no-pure-eval .#odoo-init -- --sync`, then a commit `chore(deps): odoo-nix v2.3.0`, a push of `standards/odoo-nix-v2.3.0`, a pull request and, unless `--no-auto-merge`, auto-merge. It runs with your own `gh` token (scope `workflow`): the bump rewrites caller workflows, which `GITHUB_TOKEN` cannot push. `--dry-run` prints the plan. A checkout whose flake still names an old per-major branch is not reached: move it to `release` first ([Upgrading](../development/upgrading.md#which-odoo-nix-to-follow)).
 
 ## odoo-nix's pin of standards-core
 
