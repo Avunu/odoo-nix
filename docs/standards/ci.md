@@ -67,7 +67,7 @@ Every step runs, and a step whose module is off is skipped with the reason. `--r
 
 ## The reusable workflows
 
-All of them pin every action by SHA, pass inputs through `env:`, clear `$RUNNER_TEMP` on self-hosted runners, and run a fork's pull request on `ubuntu-latest` whatever `ci.runs-on` says. On a GitHub-hosted runner, `odoo-test.yml` also deletes the preinstalled toolchains it doesn't use and clones submodules at depth 1, because Nix clones each submodule's full history itself.
+All of them pin every action by SHA, pass inputs through `env:`, clear `$RUNNER_TEMP` on self-hosted runners, and run a fork's pull request on `ubuntu-latest` whatever `ci.runs-on` says. A job that can hold the CI App's private key runs on GitHub-hosted `ubuntu-latest` whatever `ci.runs-on` says, and runs none of the repository's addons or their dependencies: `odoo-release.yml`'s `release`; `odoo-release-please.yml`'s `release-please`, `sync` and `upload` (its `package` job builds the zip and the wheel with no secret and hands them over as an artifact); and `odoo-deps.yml`'s `relock-push`, `automerge` and `update-branches`. Two jobs still mint the App's token on `ci.runs-on` in the job that runs the repository's code: `odoo-test.yml`'s `test` (the token fetches private submodules before the tests run) and `odoo-deps.yml`'s `project-update` (before `odoo project update`). On a GitHub-hosted runner, `odoo-test.yml` also deletes the preinstalled toolchains it doesn't use and clones submodules at depth 1, because Nix clones each submodule's full history itself.
 
 | Workflow | Inputs | What it runs |
 | --- | --- | --- |

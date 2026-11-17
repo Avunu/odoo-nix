@@ -25,6 +25,13 @@ name: odoo-deps
 # (python-devops-nix's standards-install, `uv tool install`), never the PR's; the verdict
 # and the branch updates are python-devops-nix's standards-deps-automerge and
 # standards-update-branches. Nix runs only the relock and `odoo project update`.
+#
+# The runner. relock-push, automerge and update-branches can hold the CI App's private key, so
+# they always run on GitHub-hosted ubuntu-latest, whatever `runs-on` says, and run none of the
+# PR's code: relock-plan runs it with no secret and hands over a patch, which relock-push only
+# applies. relock-plan and project-update run on `runs-on`. project-update still mints the App's
+# token in the job that runs `odoo project update` (the project's dev shell and the submodules'
+# new code), on `runs-on`: not hardened yet.
 
 on:
   workflow_call:
@@ -39,8 +46,10 @@ on:
         default: develop
       runs-on:
         description: >-
-          The runner, as JSON: a label or a list of labels (`["self-hosted", "nixos"]`). A pull
-          request from a fork always runs on ubuntu-latest.
+          The runner of relock-plan and project-update, as JSON: a label or a list of labels
+          (`["self-hosted", "nixos"]`). A pull request from a fork always runs on ubuntu-latest,
+          and so do the jobs that can hold the CI App's key (relock-push, automerge,
+          update-branches).
         type: string
         default: '["ubuntu-latest"]'
       auto-merge:
@@ -162,27 +171,15 @@ jobs:
   relock-push:
     needs: relock-plan
     if: needs.relock-plan.outputs.empty == 'false'
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(inputs.runs-on) }}
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write # push the relock commit to the Dependabot branch without the App
       actions: write # without the App, dispatch ci.yml and pr-policy.yml on it
       pull-requests: write # enable auto-merge
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.head_ref }}
@@ -273,26 +270,14 @@ jobs:
       always() && github.event_name == 'pull_request' &&
       github.event.pull_request.user.login == 'dependabot[bot]' && inputs.auto-merge &&
       (needs.relock-plan.result == 'success' || needs.relock-plan.result == 'skipped')
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(inputs.runs-on) }}
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write # gh pr merge --auto without the App
       pull-requests: write # enable auto-merge, label or close the PR
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
-
       # The integration branch, never the PR: its configuration says which gates are required.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -356,7 +341,9 @@ jobs:
 
   update-branches:
     if: inputs.update-branches && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     # One run at a time; a burst of merges leaves one run pending, which sees them all.
     concurrency:
@@ -368,20 +355,6 @@ jobs:
       actions: write # without the App, dispatch ci.yml and pr-policy.yml on the new head
       checks: read # which ci / * checks ran on that head
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.integration-branch }}
