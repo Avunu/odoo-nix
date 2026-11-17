@@ -184,6 +184,30 @@ class Matrix(SyncCase):
         ci = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())
         self.assertNotIn("APP_PRIVATE_KEY", ci["jobs"]["test"].get("secrets", {}))
 
+    def test_submodule_app_is_never_the_ci_app(self) -> None:
+        # Refused before anything renders: the CI App's key would reach the jobs that run
+        # the repository's code (odoo-test.yml's test, project-update-plan).
+        for key in ("app-id", "private-key"):
+            with self.subTest(key=key):
+                root = self.profile_fixture("standards-project", "example-org")
+                same = {
+                    "app-id": "EXAMPLE_SUBMODULE_APP_ID",
+                    "private-key": "EXAMPLE_SUBMODULE_PRIVATE_KEY",
+                }
+                same[key] = {
+                    "app-id": "EXAMPLE_CI_APP_ID",
+                    "private-key": "EXAMPLE_CI_PRIVATE_KEY",
+                }[key]
+                with (root / "pyproject.toml").open("a") as f:
+                    f.write(
+                        "\n[tool.odoo-nix.ci.submodule-app]\n"
+                        + "".join(f'{k} = "{v}"\n' for k, v in same.items())
+                    )
+                code, out = self.write(root, ok=False)
+                self.assertEqual(code, 2, out)
+                self.assertIn(f"ci.submodule-app names the CI App's {key}", out)
+                self.assertFalse((root / ".github/workflows/ci.yml").exists())
+
     def test_project_update_schedule(self) -> None:
         root = self.synced("standards-project", "recommended")
         deps = yaml.safe_load((root / ".github/workflows/deps.yml").read_text())

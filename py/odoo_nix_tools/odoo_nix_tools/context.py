@@ -214,10 +214,14 @@ def template_globals(
     checkout: Checkout, resolved: Resolved, base_ctx: NS
 ) -> dict[str, Any]:
     """odoo-nix's template keys (DESIGN.md §2.4)."""
-    from odoo_nix_tools import precommit
+    from odoo_nix_tools import checks, precommit
 
     facts = base_ctx["discover"]
     cfg = resolved.cfg
+    # The callers' secrets are rendered from these names: never the CI App's key into the
+    # jobs that run the repository's code, whatever path reaches the render.
+    if problem := checks.submodule_app_problem(cfg):
+        raise ConfigError(problem)
     modules = resolved.modules
     data = series.effective(facts["series"], cfg, facts)
     return {

@@ -68,7 +68,7 @@ Read-only, no admin needed: for the checkout in the current directory, or `<owne
 - the Actions variable `ci.github-app.app-id` names (the App's client ID) and the Actions secret `ci.github-app.private-key` names, on the repository or shared from the organisation; a blank name is its own `missing` row;
 - `repo-policy.release-bypass` as `integration:<numeric id>`: the App's id from its settings page, not the client ID the variable holds.
 
-A project with `ci.project-update` set and no CI App gets a notice: its `standards/project-update-<run>` pull requests are opened with `GITHUB_TOKEN`, so their CI is dispatched rather than triggered.
+A project with `ci.project-update` set and no CI App gets a notice: its `standards/project-update-<run>` pull requests are opened with `GITHUB_TOKEN`, so their CI is dispatched rather than triggered. With `ci` on, a `ci.submodule-app` that names the CI App's variable or secret is a `missing` row, and so is a project whose `.gitmodules` names a private (or internal) repository of its owner while `ci.submodule-app` is unset or its variable or secret doesn't exist: its test gate and project update could not fetch that submodule.
 
 ## `repo rollout`
 

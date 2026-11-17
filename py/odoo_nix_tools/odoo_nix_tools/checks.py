@@ -2,7 +2,8 @@
 
 ``preflight`` refuses (exit 2) a configuration the managed files cannot serve: a series
 without data, ``releases`` with commit messages that carry no level, the wrong config
-file for the shape, an addon repository without its addons-mode files. ``notices`` are
+file for the shape, an addon repository without its addons-mode files, a
+``ci.submodule-app`` that names the CI App's variable or secret. ``notices`` are
 phase B's remarks. ``checks`` are whole-repo problems sync cannot fix (a missing README,
 a submodule off its series): drift under ``--check`` and at the end of ``--write``.
 
@@ -76,6 +77,30 @@ def _read(root: Path, rel: str) -> str | None:
 # --- preflight -----------------------------------------------------------------------
 
 
+def submodule_app_problem(cfg: Mapping[str, Any]) -> str | None:
+    """Why ``ci.submodule-app`` may not be used: it names ``ci.github-app``'s variable or
+    secret. The jobs that take it run the repository's code (odoo-test.yml's test,
+    odoo-deps.yml's project-update-plan), so the CI App's key passed there leaks, whatever
+    the workflow refuses after the token step has had it."""
+    ci = cfg.get("ci") or {}
+    main = ci.get("github-app") or {}
+    sub = ci.get("submodule-app") or {}
+    same = [
+        key
+        for key in ("app-id", "private-key")
+        if sub.get(key) and sub.get(key) == main.get(key)
+    ]
+    if not same:
+        return None
+    return (
+        f"ci.submodule-app names the CI App's {' and '.join(same)}"
+        f" ({', '.join(str(sub[k]) for k in same)}, as ci.github-app does): the test gate"
+        " and project-update-plan run the repository's code, so they take an App with"
+        " Contents read only, never the CI App; create one and name its variable and"
+        " secret there"
+    )
+
+
 def preflight(checkout: Checkout, resolved: Resolved) -> None:
     """Refuse (exit 2) what no managed file can serve (DESIGN.md §3.4). The shape's own
     files come first: an addon repository without its addons-mode files (``develop``
@@ -84,6 +109,8 @@ def preflight(checkout: Checkout, resolved: Resolved) -> None:
     ``[tool.odoo-nix]`` table ``--standards`` creates included."""
     cfg = resolved.cfg
     modules = resolved.modules
+    if problem := submodule_app_problem(cfg):
+        raise ConfigError(problem)
     facts = _facts(checkout, resolved)
     shape = facts["shape"]
     series.load(facts["series"])

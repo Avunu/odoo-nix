@@ -16,10 +16,19 @@ the patch is trusted:
   absolute path, ``.git`` component or control character, and not an empty patch.
 - **pyproject.toml** differs from the base's only inside odoo-nix's managed blocks (the
   ``# >>> odoo-nix: … >>>`` sentinels lib/oca_sources.py and odoo-nix-build-deps
-  rewrite), each present exactly as often as in the base. In ``module sources`` every
-  entry is a relative path source inside the repository; ``install set`` names no direct
-  URL; ``sdist build deps`` grants no build dependency but setuptools or one the base's
-  block already grants.
+  rewrite), each present exactly as often as in the base, and each line in them is one
+  the writer writes: in ``install set`` a quoted requirement with no ``@``, backslash or
+  quote of its own (so no line closes the array or opens a table); in ``module sources``
+  a relative path source inside the repository; in ``sdist build deps`` a name and a
+  list of names, granting nothing but setuptools or what the base's block grants. Then
+  both documents are parsed: with ``project.dependencies``, ``tool.uv.sources`` and
+  ``tool.uv.extra-build-dependencies`` taken out they are equal, and those three hold
+  only requirements without a URL, path sources inside the repository, and build
+  dependency lists (or the base's own values).
+- **Gitlinks** (``project-update --tips``): each moved submodule's new commit is the tip
+  of the branch the base's ``.gitmodules`` pairs it with, at the URL it names
+  (``git ls-remote``), which is all ``odoo project update`` moves it to; not a fork's
+  pull-request commit or an older one. A submodule with no branch never moves.
 - **uv.lock** sources are PyPI's registry (https://pypi.org/simple), a relative path inside
   the repository (a local or flake-input addon, OCB, the virtual root), or a source the
   base's lock already has. Every sdist and wheel URL is one the base's lock has for the
@@ -33,16 +42,18 @@ Each problem is printed as a GitHub error annotation. Exit 0 when there is none,
 
 from __future__ import annotations
 
+import os
 import posixpath
 import re
 import subprocess
 import tomllib
 import urllib.parse
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 
 PYPI = "https://pypi.org/simple"
@@ -76,6 +87,11 @@ _SOURCE_LINE = re.compile(
 # `"name" = ["dep", ...]`, as uv_build_deps.render writes a build-deps entry.
 _BUILD_DEP_LINE = re.compile(
     r'^[ \t]*"[A-Za-z0-9][A-Za-z0-9._-]*" = \[(?P<deps>[^\]]*)\][ \t]*$'
+)
+# `"name[extra]<spec>; marker",`, as lib/oca_sources.py writes an install root: one quoted
+# string, no `@` (a direct reference), no backslash (a TOML escape), no quote of its own.
+_INSTALL_LINE = re.compile(
+    r'^[ \t]*"[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[A-Za-z0-9._,-]+\])?[^"\\@\x00-\x1f]*",?[ \t]*$'
 )
 _SDIST_EXT = (".tar.gz", ".zip", ".tar.bz2", ".tgz", ".tar.xz", ".tar")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -147,22 +163,43 @@ def path_problem(path: str) -> str | None:
     return None
 
 
-def submodule_paths(gitmodules: str | None) -> set[str]:
-    """The paths ``.gitmodules`` (its text) registers."""
+@dataclass(frozen=True)
+class Submodule:
+    """One ``.gitmodules`` entry: where it is, what it fetches, and the branch it follows."""
+
+    path: str
+    url: str
+    branch: str
+
+
+def submodules(gitmodules: str | None) -> dict[str, Submodule]:
+    """The entries ``.gitmodules`` (its text) registers, by path."""
     if not gitmodules:
-        return set()
+        return {}
     done = subprocess.run(
-        ["git", "config", "--file", "-", "--get-regexp", r"^submodule\..*\.path$"],
+        ["git", "config", "--file", "-", "--null", "--list"],
         input=gitmodules.encode(),
         check=False,
         capture_output=True,
     )
-    paths = set()
-    for line in done.stdout.decode().splitlines():
-        _, _, value = line.partition(" ")
-        if value:
-            paths.add(value.strip().strip("/"))
-    return paths
+    entries: dict[str, dict[str, str]] = {}
+    for item in done.stdout.decode("utf-8", "replace").split("\0"):
+        key, _, value = item.partition("\n")
+        if not key.startswith("submodule."):
+            continue
+        name, _, attr = key.removeprefix("submodule.").rpartition(".")
+        entries.setdefault(name, {})[attr] = value
+    out = {}
+    for entry in entries.values():
+        path = entry.get("path", "").strip().strip("/")
+        if path:
+            out[path] = Submodule(path, entry.get("url", ""), entry.get("branch", ""))
+    return out
+
+
+def submodule_paths(gitmodules: str | None) -> set[str]:
+    """The paths ``.gitmodules`` (its text) registers."""
+    return set(submodules(gitmodules))
 
 
 def entry_problems(
@@ -286,8 +323,14 @@ def pyproject_problems(path: str, base: str, new: str, lock_dir: str) -> list[st
             )
     for line in n[1].get(INSTALL_SET, []):
         bare = line.strip()
-        if bare and not bare.startswith("#") and ("@" in bare or "://" in bare):
+        if not bare or bare.startswith("#"):
+            continue
+        if "@" in bare or "://" in bare:
             out.append(f"{path}: install set: {bare!r} names a direct URL")
+        elif not _INSTALL_LINE.match(line.rstrip("\n")):
+            out.append(
+                f"{path}: install set: {bare!r} is not one quoted requirement per line"
+            )
     if BUILD_DEPS in n[1]:
         granted = _deps(n[1][BUILD_DEPS])
         had = _deps(b[1].get(BUILD_DEPS, [])) or set()
@@ -297,6 +340,101 @@ def pyproject_problems(path: str, base: str, new: str, lock_dir: str) -> list[st
             )
         elif extra := sorted(granted - had - {"setuptools"}):
             out.append(f"{path}: sdist build deps: grants {', '.join(extra)}")
+    return out + _parsed_problems(path, base, new, lock_dir)
+
+
+# The tables the managed blocks write into: (path, what an entry may be).
+_MANAGED_KEYS = (
+    ("project", "dependencies"),
+    ("tool", "uv", "sources"),
+    ("tool", "uv", "extra-build-dependencies"),
+)
+
+
+def _without(doc: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    """``doc``'s value at ``keys`` taken out of it (None when there is none)."""
+    *parents, last = keys
+    table: Any = doc
+    for key in parents:
+        table = table.get(key) if isinstance(table, dict) else None
+    return table.pop(last, None) if isinstance(table, dict) else None
+
+
+def _parsed_problems(path: str, base: str, new: str, lock_dir: str) -> list[str]:
+    """Why ``new``, parsed, is more than ``base`` with its managed tables rewritten."""
+    try:
+        b, n = tomllib.loads(base), tomllib.loads(new)
+    except tomllib.TOMLDecodeError as e:
+        return [f"{path}: not TOML: {e}"]
+    deps_b, sources_b, build_b = (_without(b, k) for k in _MANAGED_KEYS)
+    deps_n, sources_n, build_n = (_without(n, k) for k in _MANAGED_KEYS)
+    out = []
+    if b != n:
+        out.append(
+            f"{path}: parsed, differs from the base outside project.dependencies,"
+            " tool.uv.sources and tool.uv.extra-build-dependencies"
+        )
+    old_deps = deps_b if isinstance(deps_b, list) else []
+    if deps_n is None:
+        deps_n = []
+    if not isinstance(deps_n, list):
+        out.append(f"{path}: project.dependencies is not a list")
+    else:
+        for dep in deps_n:
+            if dep in old_deps:
+                continue
+            if not isinstance(dep, str):
+                out.append(f"{path}: project.dependencies: {dep!r} is not a string")
+                continue
+            try:
+                req = Requirement(dep)
+            except InvalidRequirement:
+                out.append(f"{path}: project.dependencies: {dep!r} is no requirement")
+                continue
+            if req.url:
+                out.append(f"{path}: project.dependencies: {dep!r} names a direct URL")
+    old_sources = sources_b if isinstance(sources_b, dict) else {}
+    if sources_n is None:
+        sources_n = {}
+    if not isinstance(sources_n, dict):
+        out.append(f"{path}: tool.uv.sources is not a table")
+        sources_n = {}
+    for name, value in sources_n.items():
+        if old_sources.get(name) == value:
+            continue
+        if (
+            not isinstance(value, dict)
+            or not set(value) <= {"path", "editable"}
+            or not isinstance(value.get("path"), str)
+            or not isinstance(value.get("editable", True), bool)
+        ):
+            out.append(f"{path}: tool.uv.sources.{name}: not a path source")
+        elif _escapes(lock_dir, value["path"]):
+            out.append(
+                f"{path}: tool.uv.sources.{name}: {value['path']!r} is outside the"
+                " repository"
+            )
+    old_build = build_b if isinstance(build_b, dict) else {}
+    granted_before = {
+        d for v in old_build.values() if isinstance(v, list) for d in v
+    } | {"setuptools"}
+    if build_n is None:
+        build_n = {}
+    if not isinstance(build_n, dict):
+        out.append(f"{path}: tool.uv.extra-build-dependencies is not a table")
+        build_n = {}
+    for name, value in build_n.items():
+        if old_build.get(name) == value:
+            continue
+        if not isinstance(value, list) or not all(isinstance(d, str) for d in value):
+            out.append(
+                f"{path}: tool.uv.extra-build-dependencies.{name}: not a list of names"
+            )
+        elif extra := sorted(set(value) - granted_before):
+            out.append(
+                f"{path}: tool.uv.extra-build-dependencies.{name}: grants"
+                f" {', '.join(extra)}"
+            )
     return out
 
 
@@ -410,8 +548,114 @@ def uv_problems(path: str, base: str | None, new: str, lock_dir: str) -> list[st
     return out
 
 
-def verify(root: Path, base: str, kind: Kind) -> list[str]:
-    """Every problem of the patch staged in ``root``'s index, against ``base``."""
+def remote_url(url: str, superproject: str) -> str | None:
+    """The https URL ``git ls-remote`` reads a ``.gitmodules`` URL at: a relative one
+    resolved against ``superproject`` (as git does), GitHub's ssh forms as https. None for
+    any other scheme, so nothing but https is asked."""
+    if url.startswith(("./", "../")):
+        if not superproject:
+            return None
+        parts = urllib.parse.urlsplit(superproject.rstrip("/"))
+        joined = posixpath.normpath(posixpath.join(parts.path or "/", url))
+        url = urllib.parse.urlunsplit((parts.scheme, parts.netloc, joined, "", ""))
+    elif m := re.fullmatch(r"(?:ssh://)?git@github\.com[:/](.+)", url):
+        url = f"https://github.com/{m.group(1)}"
+    parts = urllib.parse.urlsplit(url)
+    if (
+        parts.scheme != "https"
+        or not parts.hostname
+        or parts.username
+        or parts.query
+        or parts.fragment
+        or _CONTROL.search(url)
+    ):
+        return None
+    return url
+
+
+def ls_remote(url: str, ref: str) -> str | None:
+    """The commit ``ref`` names at ``url`` (``git ls-remote``), or None when it names
+    none or the remote cannot be read. Credentials come from the environment (the
+    caller's GIT_CONFIG_* header); no prompt."""
+    try:
+        done = subprocess.run(
+            ["git", "ls-remote", "--", url, ref],
+            check=False,
+            capture_output=True,
+            timeout=120,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if done.returncode != 0:
+        return None
+    for line in done.stdout.decode("utf-8", "replace").splitlines():
+        sha, _, name = line.partition("\t")
+        if name == ref and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
+            return sha
+    return None
+
+
+def _valid_branch(branch: str) -> bool:
+    if not branch or branch == "." or branch.startswith("-"):
+        return False
+    done = subprocess.run(
+        ["git", "check-ref-format", f"refs/heads/{branch}"],
+        check=False,
+        capture_output=True,
+    )
+    return done.returncode == 0
+
+
+def tip_problems(
+    root: Path,
+    base: str,
+    entries: Sequence[tuple[str, str, str, str]],
+    superproject: str,
+    read_tip: Callable[[str, str], str | None] = ls_remote,
+) -> list[str]:
+    """Each moved gitlink whose new commit is not the tip of the branch the base's
+    .gitmodules pairs it with, at the URL it names: `odoo project update` moves a
+    submodule there and nowhere else (python-devops-nix ``sources pull``)."""
+    subs = submodules(_show(root, f"{base}:.gitmodules"))
+    out = []
+    for _, new, _, path in entries:
+        if new != GITLINK or path not in subs:
+            continue
+        sub = subs[path]
+        sha = _git(root, "rev-parse", "--verify", "-q", f":0:{path}").decode().strip()
+        if not _valid_branch(sub.branch):
+            out.append(
+                f"{path}: .gitmodules pairs it with no branch ({sub.branch!r}), so"
+                " `odoo project update` would not move it"
+            )
+            continue
+        url = remote_url(sub.url, superproject)
+        if url is None:
+            out.append(f"{path}: .gitmodules URL {sub.url!r} is not one this job reads")
+            continue
+        ref = f"refs/heads/{sub.branch}"
+        tip = read_tip(url, ref)
+        if tip is None:
+            out.append(f"{path}: could not read {ref} at {url}")
+        elif tip != sha:
+            out.append(
+                f"{path}: moves to {sha}, and the tip of {sub.branch} at {url} is {tip}"
+            )
+    return out
+
+
+def verify(
+    root: Path,
+    base: str,
+    kind: Kind,
+    *,
+    tips: bool = False,
+    superproject: str = "",
+    read_tip: Callable[[str, str], str | None] = ls_remote,
+) -> list[str]:
+    """Every problem of the patch staged in ``root``'s index, against ``base``; with
+    ``tips``, each moved gitlink is also checked against its branch's tip."""
     raw = _git(root, "diff", "--cached", "--no-renames", "--raw", "-z", base)
     entries = parse_raw(raw)
     submodules = (
@@ -432,4 +676,6 @@ def verify(root: Path, base: str, kind: Kind) -> list[str]:
                 _show(root, f":0:{path}") or "",
                 kind.lock_dir,
             )
+    if tips and kind.gitlinks:
+        out += tip_problems(root, base, entries, superproject, read_tip)
     return out

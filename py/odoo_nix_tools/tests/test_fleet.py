@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from odoo_nix_tools import fleet, release
+from odoo_nix_tools import checks, fleet, release
 from odoo_nix_tools.product import PRODUCT
 from standards_core.commands.repo import audit, targets
 from standards_core.common import github, repo_policy, repoconfig, schema
@@ -511,6 +511,105 @@ class Doctor(RepoCase):
         _, _, notices = self.rows(PRODUCT, PROJECT)
         self.assertEqual(len(notices), 1)
         self.assertIn("dispatches ci.yml and pr-policy.yml", notices[0])
+
+    def doc_rows(self, repo: str) -> tuple[int, dict[str, str]]:
+        code, out, err = self.cli(PRODUCT, "repo", "doctor", repo, "--format", "json")
+        self.assertIn(code, (0, 1), err)
+        doc = json.loads(out)
+        return code, {
+            r["setting"]: r["status"]
+            for r in doc["rows"]
+            if r["setting"].startswith("ci.submodule-app")
+        }
+
+    STUDIO = (
+        "\tbranch = 18.0\n=>\tbranch = 18.0\n"
+        '[submodule "modules/studio"]\n\tpath = modules/studio\n'
+        "\turl = https://github.com/example-org/studio.git\n"
+    )
+
+    def test_a_private_submodule_needs_the_submodule_app(self) -> None:
+        self.clone_of(
+            "standards-project",
+            PROJECT,
+            {
+                ".gitmodules": self.STUDIO,
+                "pyproject.toml": (
+                    'profile = "./.standards-profile"\n=>'
+                    'profile = "./.standards-profile"\n\n'
+                    '[tool.odoo-nix.ci.submodule-app]\napp-id = ""\nprivate-key = ""\n'
+                ),
+            },
+        )
+        self.gh.routes[("GET", "repos/example-org/studio")] = {"visibility": "private"}
+        code, rows = self.doc_rows(PROJECT)
+        self.assertEqual(code, 1)
+        self.assertEqual(set(rows.values()), {"missing"}, rows)
+        self.assertEqual(len(rows), 2, rows)
+        self.assertTrue(all("private submodules: studio" in r for r in rows), rows)
+
+    def test_a_private_submodule_with_the_submodule_app(self) -> None:
+        self.clone_of("standards-project", PROJECT, {".gitmodules": self.STUDIO})
+        self.gh.routes.update(
+            {
+                ("GET", "repos/example-org/studio"): {"visibility": "private"},
+                (
+                    "GET",
+                    f"repos/{PROJECT}/actions/variables/EXAMPLE_SUBMODULE_APP_ID",
+                ): {"name": "EXAMPLE_SUBMODULE_APP_ID"},
+                ("GET", f"repos/{PROJECT}/actions/organization-secrets"): {
+                    "secrets": [{"name": "EXAMPLE_SUBMODULE_PRIVATE_KEY"}]
+                },
+            }
+        )
+        _, rows = self.doc_rows(PROJECT)
+        self.assertEqual(set(rows.values()), {"ok"}, rows)
+        self.assertEqual(len(rows), 2, rows)
+
+    def test_a_public_submodule_of_the_owner_needs_nothing(self) -> None:
+        self.clone_of("standards-project", PROJECT, {".gitmodules": self.STUDIO})
+        self.gh.routes[("GET", "repos/example-org/studio")] = {"visibility": "public"}
+        _, rows = self.doc_rows(PROJECT)
+        self.assertEqual(rows, {})
+
+    def test_the_submodule_app_is_not_the_ci_app(self) -> None:
+        self.assertIn(
+            "names the CI App's private-key",
+            checks.submodule_app_problem(
+                {
+                    "ci": {
+                        "github-app": {"app-id": "A", "private-key": "K"},
+                        "submodule-app": {"app-id": "S", "private-key": "K"},
+                    }
+                }
+            )
+            or "",
+        )
+        self.assertIsNone(
+            checks.submodule_app_problem(
+                {
+                    "ci": {
+                        "github-app": {"app-id": "A", "private-key": "K"},
+                        "submodule-app": {"app-id": "", "private-key": ""},
+                    }
+                }
+            )
+        )
+        self.clone_of(
+            "standards-project",
+            PROJECT,
+            {
+                "pyproject.toml": (
+                    'profile = "./.standards-profile"\n=>'
+                    'profile = "./.standards-profile"\n\n'
+                    "[tool.odoo-nix.ci.submodule-app]\n"
+                    'app-id = "EXAMPLE_CI_APP_ID"\nprivate-key = "EXAMPLE_CI_PRIVATE_KEY"\n'
+                )
+            },
+        )
+        code, rows = self.doc_rows(PROJECT)
+        self.assertEqual(code, 1)
+        self.assertEqual(rows, {"ci.submodule-app is not the CI App": "missing"})
 
 
 class ApplyDryRun(RepoCase):

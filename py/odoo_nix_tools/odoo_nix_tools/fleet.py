@@ -26,7 +26,11 @@ targets) and A13 (a project's submodules on its series).
 CI App's client-ID variable and private-key secret (``ci.github-app``), and a
 ``repo-policy.release-bypass`` naming that App by its numeric id (the ``series`` flow
 needs the App's variable and secret only); and, for a project
-without an App, how its ``project-update`` pull requests get CI.
+without an App, how its ``project-update`` pull requests get CI. For every repository with
+``ci`` on: ``ci.submodule-app`` is not the CI App; and a project whose ``.gitmodules`` names
+a repository of its owner that is not public has a ``ci.submodule-app`` (an App with
+Contents read only, its variable and secret present), without which its test gate and
+project-update cannot fetch that submodule.
 """
 
 from __future__ import annotations
@@ -45,7 +49,7 @@ from standards_core.commands.repo.doctor import Row as DoctorRow
 from standards_core.common import github, repo_policy
 from standards_core.common.github import GitHubError
 
-from odoo_nix_tools import discover
+from odoo_nix_tools import checks, discover
 
 if TYPE_CHECKING:
     from standards_core.commands.repo.audit import Audit
@@ -305,6 +309,102 @@ def _bypass_row(cfg: Mapping[str, Any], settings: str) -> DoctorRow:
     )
 
 
+_OWNER_URL = re.compile(
+    r"^(?:https://|ssh://git@|git@)github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/]+?)(?:\.git)?/?$",
+    re.IGNORECASE,
+)
+
+
+def _private_submodules(r: str, facts: Mapping[str, Any]) -> list[str] | None:
+    """The repositories of ``r``'s owner its ``.gitmodules`` names that are not public
+    (or that the token cannot see), or None when GitHub cannot say."""
+    owner = r.split("/")[0].lower()
+    names: list[str] = []
+    for sub in facts.get("submodules") or []:
+        url = str(sub.get("url") or "")
+        m = _OWNER_URL.match(url)
+        if m and m.group("owner").lower() == owner:
+            names.append(m.group("name"))
+        elif re.fullmatch(r"\.\./[^/]+", url):
+            names.append(url[3:].removesuffix(".git"))
+    out = []
+    for name in sorted(set(names)):
+        try:
+            repo = github.get(f"repos/{r.split('/')[0]}/{name}") or {}
+        except GitHubError as e:
+            if e.status == 404:
+                out.append(name)
+                continue
+            return None
+        if (
+            not isinstance(repo, Mapping)
+            or repo.get("visibility", "private") != "public"
+        ):
+            out.append(name)
+    return out
+
+
+def _submodule_rows(r: str, rc: RepoConfig, settings: str) -> list[DoctorRow]:
+    """``ci.submodule-app`` is not the CI App; and a project with a non-public submodule
+    of its owner's has one, whose variable and secret exist."""
+    cfg = rc.cfg
+    rows = []
+    where_cfg = (
+        "[tool.odoo-nix.ci.submodule-app] (or the org profile's [ci.submodule-app]):"
+        " the Actions variable and secret of an App with Contents read only, installed"
+        " on the private submodules' repositories"
+    )
+    if problem := checks.submodule_app_problem(cfg):
+        rows.append(
+            DoctorRow("ci", "ci.submodule-app is not the CI App", MISSING, problem)
+        )
+        return rows
+    if cfg.get("shape") != "project":
+        return rows
+    private = _private_submodules(r, rc.facts)
+    if private is None:
+        return [
+            DoctorRow(
+                "ci",
+                "ci.submodule-app for the owner's private submodules",
+                DOCTOR_UNKNOWN,
+                where_cfg,
+            )
+        ]
+    if not private:
+        return rows
+    app = (cfg.get("ci") or {}).get("submodule-app") or {}
+    listed = ", ".join(private)
+    for key, kind, what in (
+        ("app-id", "variables", "client ID"),
+        ("private-key", "secrets", "private key"),
+    ):
+        name = app.get(key, "")
+        noun = kind.removesuffix("s")
+        if not name:
+            rows.append(
+                DoctorRow(
+                    "ci",
+                    f"ci.submodule-app.{key} names the Actions {noun} holding the"
+                    f" submodule App's {what} (private submodules: {listed})",
+                    MISSING,
+                    f"{where_cfg}; without it the test gate and project-update fail to"
+                    " fetch them",
+                )
+            )
+            continue
+        rows.append(
+            DoctorRow(
+                "ci",
+                f"ci.submodule-app.{key}: Actions {noun} {name} (the submodule App's"
+                f" {what}; private submodules: {listed})",
+                _named(r, kind, name),
+                f"{settings}/{kind}/actions (or the organisation's)",
+            )
+        )
+    return rows
+
+
 def doctor_rows(r: str, rc: RepoConfig) -> tuple[list[DoctorRow], list[str]]:
     """With ``releases`` on under ``develop+series`` and a release branch (an addon
     repository): the CI App's variable and secret exist (repository or organisation),
@@ -330,6 +430,8 @@ def doctor_rows(r: str, rc: RepoConfig) -> tuple[list[DoctorRow], list[str]]:
         # release-please opens its PR with the App's token, so CI runs on it, and
         # pushes the manifest versions to it; nothing bypasses a ruleset.
         rows += _app_rows(r, cfg, settings)
+    if modules.get("ci"):
+        rows += _submodule_rows(r, rc, settings)
     app = (cfg.get("ci") or {}).get("github-app") or {}
     update = (cfg.get("ci") or {}).get("project-update", "")
     if (

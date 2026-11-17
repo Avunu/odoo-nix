@@ -35,11 +35,13 @@ name: odoo-deps
 # only the paths, modes and lock content an honest relock or submodule move writes; flake.lock,
 # .gitmodules and .github/ never), and pushes without force. Whether the PR moves a rollout
 # input is computed again in each key job, not taken from relock-plan; and odoo-nix-tools comes
-# from Avunu/odoo-nix only, hash-locked (standards-install's `hardened`). relock-plan runs on
-# ubuntu-latest too, so no shared self-hosted runner can change what it hands over;
-# project-update-plan (the project's whole dev shell, many GiB) runs on `runs-on`, and the
-# patch it hands over is held to what verify-patch accepts. Its private submodules are fetched
-# with ci.submodule-app (Contents read only), never the CI App.
+# from Avunu/odoo-nix only, hash-locked (standards-install's `hardened`). The plan jobs run on
+# ubuntu-latest too, whatever `runs-on` says: verify-patch bounds the form of what they hand
+# over, not where it comes from, so no shared self-hosted runner, where an earlier job of any
+# repository can leave a wrapped git or nix behind, may make it. project-update also checks
+# each moved submodule against `git ls-remote` of its .gitmodules branch: the new commit must
+# be that branch's tip, never a fork's pull-request commit or an older one. Private
+# submodules are fetched with ci.submodule-app (Contents read only), never the CI App.
 
 on:
   workflow_call:
@@ -54,10 +56,10 @@ on:
         default: develop
       runs-on:
         description: >-
-          The runner of project-update-plan, as JSON: a label or a list of labels
-          (`["self-hosted", "nixos"]`). Every other job runs on ubuntu-latest: the jobs that
-          can hold the CI App's key (relock-push, automerge, update-branches,
-          project-update), and relock-plan, whose patch relock-push pushes.
+          Ignored: every job runs on ubuntu-latest. The jobs that can hold the CI App's key
+          (relock-push, automerge, update-branches, project-update) do, and so do the plan
+          jobs (relock-plan, project-update-plan), whose patches those jobs push. Kept so
+          that callers that pass it still load.
         type: string
         default: '["ubuntu-latest"]'
       auto-merge:
@@ -86,9 +88,9 @@ on:
         description: >-
           ci.submodule-app: the client ID (an Actions variable) of a GitHub App with Contents
           read and no other permission, installed on a project's private submodules'
-          repositories, which project-update-plan fetches with it; empty for none. Never the
-          CI App: project-update-plan runs the submodules' new code, and an App that can
-          write is refused.
+          repositories, which project-update-plan fetches with it and project-update reads
+          their branches' tips with; empty for none. Never the CI App: project-update-plan
+          runs the submodules' new code, and an App that can write is refused.
         type: string
         default: ""
     secrets:
@@ -604,7 +606,10 @@ jobs:
     if: >-
       inputs.shape == 'project' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # GitHub-hosted, whatever runs-on says: project-update pushes what this job hands over and
+    # can enable auto-merge on it, so no shared self-hosted runner, where an earlier job of any
+    # repository can leave state behind (a wrapped git or nix in the runner's HOME), makes it.
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: read # the checkout; this job runs the submodules' code and holds no write token
@@ -612,19 +617,10 @@ jobs:
       changed: ${{ steps.update.outputs.changed }}
       base: ${{ steps.update.outputs.base }}
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
+      # A project's flake takes more than a GitHub-hosted runner has free: the submodules' full
+      # history (OCB's alone is many GiB), then the shell (as odoo-test.yml's test).
+      - name: Free disk space on the GitHub-hosted runner
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -643,27 +639,37 @@ jobs:
           fi
           echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
 
-      # Contents read on the owner's repositories the submodules name (the private ones), and
-      # this one, no other.
+      # Contents read on the owner's repositories the submodules name that GITHUB_TOKEN cannot
+      # read (the private and internal ones), no other: the App is installed on those, and a
+      # token asked for a repository it is not installed on is refused (HTTP 422). None of
+      # them: no token, and the submodules are fetched with GITHUB_TOKEN.
       - if: steps.app.outputs.enabled == 'true'
         id: repos
-        name: The owner's repositories the submodules name
+        name: The owner's private repositories the submodules name
         env:
+          GH_TOKEN: ${{ github.token }}
           OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
-          repos="$REPO"
+          repos=()
           if [ -f .gitmodules ]; then
             while read -r _ url; do
-              if [[ "${url,,}" =~ ^(https://|git@)github\.com[:/]${OWNER,,}/([^/]+)$ ]]; then
-                repos="$repos,${BASH_REMATCH[2]%.git}"
+              name=""
+              if [[ "${url,,}" =~ ^(https://|ssh://git@|git@)github\.com[:/]${OWNER,,}/([^/]+)$ ]]; then
+                name="${BASH_REMATCH[2]%.git}"
+              elif [[ "$url" =~ ^\.\./([^/]+)$ ]]; then
+                name="${BASH_REMATCH[1]%.git}"
+              fi
+              if [ -n "$name" ]; then
+                if [ "$(gh api "repos/$OWNER/$name" --jq .visibility 2>/dev/null || true)" != public ]; then
+                  repos+=("$name")
+                fi
               fi
             done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
           fi
-          echo "repositories=$repos" >> "$GITHUB_OUTPUT"
+          echo "repositories=$(IFS=,; echo "${repos[*]}")" >> "$GITHUB_OUTPUT"
 
-      - if: steps.app.outputs.enabled == 'true'
+      - if: steps.repos.outputs.repositories != ''
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
@@ -674,7 +680,7 @@ jobs:
 
       # The key is in this job, which runs the submodules' code next: an App that can do more
       # than read contents (the CI App, passed here by mistake) stops it first.
-      - if: steps.app.outputs.enabled == 'true'
+      - if: steps.repos.outputs.repositories != ''
         name: Refuse a submodule App that can write
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -688,7 +694,6 @@ jobs:
           fi
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        if: runner.environment == 'github-hosted'
         with:
           determinate: false
 
@@ -700,7 +705,7 @@ jobs:
         env:
           ODOO_NIX_CI: "1"
           TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-          ENABLED: ${{ steps.app.outputs.enabled }}
+          ENABLED: ${{ steps.app-token.outputs.token != '' }}
         run: |
           set -euo pipefail
           echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -714,7 +719,7 @@ jobs:
           git submodule sync --recursive
           if ! git submodule update --init --recursive; then
             if [ "$ENABLED" != true ]; then
-              echo "::error::a submodule could not be fetched with GITHUB_TOKEN, which reads this repository and public ones only: for a private submodule, pass ci.submodule-app (an App with Contents read only, never the CI App)"
+              echo "::error::a submodule could not be fetched with GITHUB_TOKEN, which reads this repository and public ones only: for a private submodule, pass ci.submodule-app (an App with Contents read only, never the CI App, installed on that submodule's repository)"
             fi
             exit 1
           fi
@@ -810,6 +815,70 @@ jobs:
           git apply --cached "$PATCH"
           odoo-nix verify-patch project-update --base HEAD
           git --no-pager diff --cached --stat HEAD
+
+      # verify-patch bounds a gitlink to a submodule .gitmodules registers; this bounds where
+      # it moves: to the tip of the branch .gitmodules pairs it with, as `git ls-remote` of the
+      # URL it names reads it here, which is all `odoo project update` does. Not a fork's
+      # pull-request commit (GitHub serves those by SHA from the base repository) or an older
+      # one. A private submodule's tip is read with ci.submodule-app (Contents read, on the
+      # repositories GITHUB_TOKEN cannot read), never with the CI App; this job runs nothing
+      # of the project's, so that key reaches no code here.
+      - id: sub
+        name: Whether the caller passes a submodule App
+        env:
+          ENABLED: ${{ inputs.submodule-client-id != '' && secrets.SUBMODULE_PRIVATE_KEY != '' }}
+        run: echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+
+      # Contents read on the owner's repositories the submodules name that GITHUB_TOKEN cannot
+      # read (the private and internal ones), no other: the App is installed on those, and a
+      # token asked for a repository it is not installed on is refused (HTTP 422). None of
+      # them: no token, and the tips are read with GITHUB_TOKEN.
+      - if: steps.sub.outputs.enabled == 'true'
+        id: repos
+        name: The owner's private repositories the submodules name
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          repos=()
+          if [ -f .gitmodules ]; then
+            while read -r _ url; do
+              name=""
+              if [[ "${url,,}" =~ ^(https://|ssh://git@|git@)github\.com[:/]${OWNER,,}/([^/]+)$ ]]; then
+                name="${BASH_REMATCH[2]%.git}"
+              elif [[ "$url" =~ ^\.\./([^/]+)$ ]]; then
+                name="${BASH_REMATCH[1]%.git}"
+              fi
+              if [ -n "$name" ]; then
+                if [ "$(gh api "repos/$OWNER/$name" --jq .visibility 2>/dev/null || true)" != public ]; then
+                  repos+=("$name")
+                fi
+              fi
+            done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
+          fi
+          echo "repositories=$(IFS=,; echo "${repos[*]}")" >> "$GITHUB_OUTPUT"
+
+      - if: steps.repos.outputs.repositories != ''
+        id: sub-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.submodule-client-id }}
+          private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
+          repositories: ${{ steps.repos.outputs.repositories }}
+          permission-contents: read
+
+      - name: Each moved submodule is its branch's tip
+        env:
+          TOKEN: ${{ steps.sub-token.outputs.token || github.token }}
+        run: |
+          set -euo pipefail
+          GIT_CONFIG_COUNT=1
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+          echo "::add-mask::$GIT_CONFIG_VALUE_0"
+          odoo-nix verify-patch project-update --base HEAD --tips --superproject-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
 
       - id: app
         name: Whether the caller passes the CI App
