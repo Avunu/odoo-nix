@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.9.0](https://github.com/Avunu/odoo-nix/compare/v2.8.1...v2.9.0) (2026-11-17)
+
+
+### Features
+
+* **release:** ship from a single release branch ([#186](https://github.com/Avunu/odoo-nix/issues/186)) ([438107f](https://github.com/Avunu/odoo-nix/commit/438107f493128e5cf8692a66c8f45ac6c67a7114))
+
+
+### Bug Fixes
+
+* **deps:** bump Avunu/site-docs/.github/workflows/check-docs.yml ([#182](https://github.com/Avunu/odoo-nix/issues/182)) ([071c77e](https://github.com/Avunu/odoo-nix/commit/071c77e412a574eeedeea304d149f358f84e1802))
+* **deps:** bump Avunu/site-docs/.github/workflows/check-docs.yml ([#185](https://github.com/Avunu/odoo-nix/issues/185)) ([dec2560](https://github.com/Avunu/odoo-nix/commit/dec2560cba78bc5559fedd4d9969837f2f280360))
+
 ## [2.8.1](https://github.com/Avunu/odoo-nix/compare/v2.8.0...v2.8.1) (2026-11-14)
 
 
