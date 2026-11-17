@@ -15,7 +15,7 @@ name: odoo-release
 #    `workflow_run` of ci) retries.
 #
 # odoo-nix is the odoo-nix-tools of the odoo-nix the checkout's flake.lock pins
-# (standards-install, `uv tool install`).
+# (standards-install, `hardened`: from Avunu/odoo-nix only, every dependency by hash).
 #
 # The checkout is the integration branch's head, not github.sha: a run started by an
 # older merge would otherwise bump a stale tree. A push that still loses the race is not a
@@ -23,7 +23,8 @@ name: odoo-release
 # (concurrency `release`, never cancelled).
 #
 # The job holds the CI App's private key, so it runs on GitHub-hosted ubuntu-latest, never on a
-# shared self-hosted runner, and runs only odoo-nix's own tooling (no addon code, no dev shell).
+# shared self-hosted runner, and runs only odoo-nix's own tooling (no addon code, no dev shell),
+# installed hash-locked before the App's token is minted.
 
 on:
   workflow_call:
@@ -77,29 +78,29 @@ jobs:
             exit 1
           fi
 
-      # Contents write (the bump commit, the series branch) and Workflows write (a release
-      # that carries .github/workflows/ changes).
-      - id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ inputs.client-id }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          permission-contents: write
-          permission-workflows: write
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.integration-branch }}
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
+      # This job holds the CI App's key, so nothing it installs is resolved at run time:
+      # odoo-nix-tools from Avunu/odoo-nix alone, at the full revision the checkout's
+      # flake.lock pins, every dependency from that revision's py/odoo_nix_tools/uv.lock by hash
+      # and as a wheel, standards-core from Avunu/python-devops-nix at the revision that lock
+      # names, with a pinned uv and no uv cache (standards-install's `hardened`). Before the
+      # App's token is minted.
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@d6fbaf2abea704ec09bbb09e412609af8d4484ef # python-devops-nix#72 head, until it merges
         with:
           cli: odoo-nix
           engine-input: odoo-nix
           env-prefix: ODOO_NIX
           install-spec: >-
             odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+          hardened: "true"
+          source: Avunu/odoo-nix
+          project: py/odoo_nix_tools
+          git-sources: Avunu/python-devops-nix
 
       - name: The series branch is the checkout's series
         env:
@@ -111,6 +112,16 @@ jobs:
             echo "::error::release-branch is $RELEASE, but the checkout's series is $series: run odoo-init --sync"
             exit 1
           fi
+
+      # Contents write (the bump commit, the series branch) and Workflows write (a release
+      # that carries .github/workflows/ changes).
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.client-id }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
 
       # The bump commit is the App's bot's, from the integration head checked out above.
       - id: who
@@ -126,7 +137,7 @@ jobs:
 
       # The push authenticates with the App's token through a header given to the
       # action's git commands only (nothing is written to .git/config).
-      - uses: Avunu/python-devops-nix/.github/actions/standards-release-ff@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-release-ff@d6fbaf2abea704ec09bbb09e412609af8d4484ef # python-devops-nix#72 head, until it merges
         with:
           cli: odoo-nix
           release-branch: ${{ inputs.release-branch }}
