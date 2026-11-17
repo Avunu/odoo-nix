@@ -10,6 +10,9 @@ name: odoo-deps
 #   automerge                 every Dependabot PR gets the decision table's verdict:
 #                             auto-merge, needs-review, or closed (a PR that moves odoo-nix
 #                             or the standards profile, which move with the rollout)
+#   hold                      a Dependabot head no key job decided (a plan that failed, or
+#                             whose claim or patch was refused) gets the auto-merge an earlier
+#                             head's run enabled turned off, with GITHUB_TOKEN
 #   update-branches           with dependabot.update-branches, bot PRs that are behind the
 #                             integration branch are brought up to date
 #   project-update-plan,      (projects, on the caller's schedule) `odoo project update
@@ -190,6 +193,9 @@ jobs:
       contents: write # push the relock commit to the Dependabot branch without the App
       actions: write # without the App, dispatch ci.yml and pr-policy.yml on it
       pull-requests: write # enable auto-merge
+    # The commit it pushed, which `hold` reads as this run's head too.
+    outputs:
+      sha: ${{ steps.push.outputs.sha }}
     steps:
       # The commit relock-plan built its patch on (the event's head SHA), never the branch,
       # which may have moved since: the push below is no force push, so a branch that moved is
@@ -451,12 +457,14 @@ jobs:
       # The relock state the verdict reads, from this job's own `moved` and, for the rest, the
       # plan's claim checked here. A nix PR in an addon repository went through relock-plan; in
       # a project nothing relocks it here, so it has no relock state and its verdict leaves it
-      # to a person. Whether relock-plan ran is the job's result, never its outputs: a plan
+      # to a person. Whether relock-plan ran is the job's result, never its outputs (this job
+      # runs only when it succeeded or was skipped; a plan that failed is `hold`'s): a plan
       # that ran and says nothing is left for review. A plan that says a rollout input moved
       # when the PR's flake.lock moves none is left for review. `empty` (nothing to relock,
       # which auto-merges) is relock-plan's claim, so it is taken only for a PR whose files
       # are flake.lock and what relock-push writes, and the merge still waits for the
-      # required checks on the PR's head.
+      # required checks on the PR's head. Left for review, this step fails before the token,
+      # and `hold` turns off auto-merge an earlier head's run enabled.
       - id: relock
         name: The relock state
         env:
@@ -472,9 +480,6 @@ jobs:
           if [ "$PLAN" = skipped ]; then
             # relock-plan did not run (a project, or not a nix PR).
             relock=""
-          elif [ "$PLAN" != success ]; then
-            echo "::error::relock-plan's result is ${PLAN}: left for review"
-            exit 1
           elif [ -z "$STATE" ]; then
             echo "::error::relock-plan ran and reports no relock state: left for review"
             exit 1
@@ -523,6 +528,54 @@ jobs:
           relock: ${{ steps.relock.outputs.relock }}
           moved: ${{ steps.moved.outputs.moved }}
           token: ${{ steps.app-token.outputs.token || github.token }}
+
+  # A head no key job decided turns off auto-merge an earlier head's run enabled: GitHub keeps
+  # it on across Dependabot's pushes (a group refreshed in place), and checks
+  # --match-head-commit only when it is enabled, so the new head would merge once its checks
+  # pass, never relocked, checked or given its verdict. Runs when relock-plan failed (or was
+  # cancelled), when relock-push refused its patch or a rollout input, or when automerge did
+  # not finish (skipped after a failed plan, a plan's claim it refuses, or a failure of its
+  # own): then the plan, which runs the PR's code with no secret, cannot leave the earlier
+  # auto-merge armed by failing. With the job's own GITHUB_TOKEN, never the App's key; it
+  # checks nothing out and runs only gh (python-devops-nix's dependabot-auto-merge `hold`). A
+  # PR whose head moved past this run's (the event's, or relock-push's commit) is left to the
+  # run that head starts.
+  hold:
+    needs: [relock-plan, relock-push, automerge]
+    if: >-
+      always() && github.event_name == 'pull_request' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' && inputs.auto-merge &&
+      ((needs.relock-plan.result != 'success' && needs.relock-plan.result != 'skipped') ||
+      (needs.relock-push.result != 'success' && needs.relock-push.result != 'skipped') ||
+      needs.automerge.result != 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # gh pr merge --disable-auto
+      pull-requests: write # gh pr merge --disable-auto, the needs-review label
+    steps:
+      - name: Turn off auto-merge and label the PR for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSHED: ${{ needs.relock-push.outputs.sha }}
+        run: |
+          set -euo pipefail
+          head="$(gh pr view "$PR_URL" --json headRefOid --jq .headRefOid)"
+          if [ "$head" != "$HEAD_SHA" ] && [ "$head" != "$PUSHED" ]; then
+            echo "the head of $PR_URL moved to $head since this run: the run it starts decides"
+            exit 0
+          fi
+          if [ "$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')" = true ]; then
+            gh pr merge --disable-auto "$PR_URL"
+            echo "::notice::auto-merge turned off on $PR_URL: no key job decided its head $head"
+          else
+            echo "auto-merge is not enabled on $PR_URL"
+          fi
+          if ! gh pr edit "$PR_URL" --add-label needs-review; then
+            echo "::warning::could not label $PR_URL needs-review"
+          fi
 
   update-branches:
     if: inputs.update-branches && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -627,17 +680,52 @@ jobs:
           ref: ${{ inputs.integration-branch }}
           persist-credentials: false
 
+      # The key is in this job, which runs the submodules' code: a key with no client ID, or
+      # the CI App's client ID, stops it.
       - id: app
         name: Whether the caller passes a submodule App
         env:
-          ENABLED: ${{ inputs.submodule-client-id != '' && secrets.SUBMODULE_PRIVATE_KEY != '' }}
+          ENABLED: ${{ secrets.SUBMODULE_PRIVATE_KEY != '' }}
+          CLIENT_ID: ${{ inputs.submodule-client-id }}
           SAME: ${{ inputs.submodule-client-id != '' && inputs.submodule-client-id == inputs.client-id }}
         run: |
           if [ "$SAME" = true ]; then
             echo "::error::ci.submodule-app names the CI App (ci.github-app): this job runs the submodules' code, so it takes an App with Contents read only"
             exit 1
           fi
+          if [ "$ENABLED" = true ] && [ -z "$CLIENT_ID" ]; then
+            echo "::error::SUBMODULE_PRIVATE_KEY is passed with no submodule-client-id: this job runs the submodules' code, so the key's App is checked first, and that takes its client ID (ci.submodule-app names both)"
+            exit 1
+          fi
           echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+
+      # Whatever the names, the key may be another App's (the CI App's, its values copied under
+      # new names): the App it signs for is checked before anything else, whether or not a
+      # submodule needs a token. A token of its installation on the owner (Metadata read only)
+      # names the App, and an App that can do more than read contents stops the job. The job
+      # holds the key, so the token gives it nothing more.
+      - if: steps.app.outputs.enabled == 'true'
+        id: app-check
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.submodule-client-id }}
+          private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app] Metadata read, to name the App
+          permission-metadata: read
+
+      - if: steps.app.outputs.enabled == 'true'
+        name: Refuse a submodule App that can write
+        env:
+          GH_TOKEN: ${{ steps.app-check.outputs.token }}
+          SLUG: ${{ steps.app-check.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          granted="$(gh api "apps/$SLUG" --jq '.permissions | to_entries[] | select((.key != "contents" and .key != "metadata") or .value != "read") | "\(.key): \(.value)"')"
+          if [ -n "$granted" ]; then
+            echo "::error::ci.submodule-app's key is $SLUG's, which can do more than read contents ($(paste -sd, <<<"$granted")): this job runs the submodules' code, so it takes an App with Contents read only, never the CI App"
+            exit 1
+          fi
+          echo "ci.submodule-app is $SLUG: Contents read only"
 
       # Contents read on the owner's repositories the submodules name that GITHUB_TOKEN cannot
       # read (the private and internal ones), no other: the App is installed on those, and a
@@ -677,21 +765,6 @@ jobs:
           private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
           repositories: ${{ steps.repos.outputs.repositories }}
           permission-contents: read
-
-      # The key is in this job, which runs the submodules' code next: an App that can do more
-      # than read contents (the CI App, passed here by mistake) stops it first.
-      - if: steps.repos.outputs.repositories != ''
-        name: Refuse a submodule App that can write
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          SLUG: ${{ steps.app-token.outputs.app-slug }}
-        run: |
-          set -euo pipefail
-          granted="$(gh api "apps/$SLUG" --jq '.permissions | to_entries[] | select((.key != "contents" and .key != "metadata") or .value != "read") | "\(.key): \(.value)"')"
-          if [ -n "$granted" ]; then
-            echo "::error::ci.submodule-app names $SLUG, which can do more than read contents ($(paste -sd, <<<"$granted")): this job runs the submodules' code, so it takes an App with Contents read only, never the CI App"
-            exit 1
-          fi
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:

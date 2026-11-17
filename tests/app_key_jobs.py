@@ -11,9 +11,11 @@ runs its CLI, for the key jobs' patch checks.
   AVUNU_CI_PRIVATE_KEY) runs on ubuntu-latest, written so; the set of them is pinned here,
   and none of them runs the repository's code (no nix, npm, yarn, node, git submodule).
 - The jobs that run the repository's code and fetch private submodules (odoo-test's test,
-  odoo-deps' project-update-plan) take SUBMODULE_PRIVATE_KEY only, mint a contents:read
-  token with it for the owner's submodule repositories GITHUB_TOKEN cannot read (none:
-  no token), and refuse an App that can do more before any of that code runs.
+  odoo-deps' project-update-plan) take SUBMODULE_PRIVATE_KEY only. Whenever it is passed,
+  they first mint a metadata:read token of its installation on the owner and refuse an App
+  that can do more (and a key with no client ID), before any of that code runs and
+  whether or not a submodule needs a token; then a contents:read token for the owner's
+  submodule repositories GITHUB_TOKEN cannot read (none: no token) fetches them.
   odoo-test.yml declares no APP_PRIVATE_KEY, and the ci.yml template passes it none.
   project-update, which runs none of it, mints the same read token to read the private
   submodules' branch tips.
@@ -26,8 +28,10 @@ runs its CLI, for the key jobs' patch checks.
 - relock-plan runs on ubuntu-latest. relock-push builds on the event's head SHA, recomputes
   `moved`, refuses before it applies, checks the patch's paths and then its content
   (`odoo-nix verify-patch relock`) before the token, and pushes without force; automerge
-  recomputes `moved` with the same step, and reads whether relock-plan ran from its result;
-  neither reads relock-plan's `moved`.
+  recomputes `moved` with the same step, runs only when relock-plan succeeded or was
+  skipped, and reads which from its result; neither reads relock-plan's `moved`. `hold`
+  turns off auto-merge with GITHUB_TOKEN when any of the three did not succeed, on this
+  run's head only; its script is run here on its cases.
 - project-update-plan runs on ubuntu-latest. project-update checks out the base itself,
   stages the plan's patch in the index, runs `odoo-nix verify-patch project-update`, then
   `--tips` (each moved submodule is its .gitmodules branch's tip, `git ls-remote`) before
@@ -163,31 +167,80 @@ for path in sorted(WORKFLOWS.glob("*.yml")):
 assert main_holders == HARDENED, main_holders
 assert sub_holders == SUBMODULE | SUBMODULE_TIPS, sub_holders
 
-# The submodule App: contents:read, and an App that can write refused before any code runs.
+# The submodule App: refused before any code runs when it can do more than read contents,
+# whenever its key is passed; then a contents:read token for the private submodules only.
 for wf, name in SUBMODULE:
     job = load(wf)["jobs"][name]
     steps = job["steps"]
+    app = index(steps, lambda s: s.get("id") == "app")
+    assert (
+        steps[app]["env"]["ENABLED"] == "${{ secrets.SUBMODULE_PRIVATE_KEY != '' }}"
+    ), (
+        wf,
+        steps[app],
+    )
     t = token_at(steps)
+    assert steps[t]["id"] == "app-check", (wf, steps[t])
+    assert steps[t]["if"] == "steps.app.outputs.enabled == 'true'", (wf, steps[t])
     w = steps[t]["with"]
-    assert w["private-key"] == "${{ secrets.SUBMODULE_PRIVATE_KEY }}", (wf, w)
-    assert w["client-id"] == "${{ inputs.submodule-client-id }}", (wf, w)
-    perms = {k: v for k, v in w.items() if k.startswith("permission-")}
-    assert perms == {"permission-contents": "read"}, (wf, perms)
-    # Only the owner's repositories GITHUB_TOKEN cannot read: asking for one the App is
-    # not installed on is refused (HTTP 422), so a public one is never asked for.
-    repos = next(s for s in steps if s.get("id") == "repos")
-    assert w["repositories"] == "${{ steps.repos.outputs.repositories }}", (wf, w)
-    assert steps[t]["if"] == "steps.repos.outputs.repositories != ''", (wf, steps[t])
-    assert ".visibility" in repos["run"] and "!= public" in repos["run"], (wf, repos)
-    assert repos["env"]["GH_TOKEN"] == "${{ github.token }}", (wf, repos)
+    assert w == {
+        "client-id": "${{ inputs.submodule-client-id }}",
+        "private-key": "${{ secrets.SUBMODULE_PRIVATE_KEY }}",
+        "owner": "${{ github.repository_owner }}",
+        "permission-metadata": "read",
+    }, (wf, w)
     refuse = steps[t + 1]
     assert refuse["name"] == REFUSE_NAME, (wf, refuse)
-    assert refuse["if"] == "steps.repos.outputs.repositories != ''", (wf, refuse)
-    assert refuse["env"]["GH_TOKEN"] == "${{ steps.app-token.outputs.token }}", refuse
+    assert refuse["if"] == "steps.app.outputs.enabled == 'true'", (wf, refuse)
+    assert refuse["env"] == {
+        "GH_TOKEN": "${{ steps.app-check.outputs.token }}",
+        "SLUG": "${{ steps.app-check.outputs.app-slug }}",
+    }, refuse
     assert REFUSE_JQ in refuse["run"], refuse["run"]
     assert "exit 1" in refuse["run"], refuse["run"]
+    # The fetch token: only the owner's repositories GITHUB_TOKEN cannot read, since asking
+    # for one the App is not installed on is refused (HTTP 422), so a public one is never
+    # asked for.
+    fetch = index(steps, lambda s: s.get("id") == "app-token")
+    repos = index(steps, lambda s: s.get("id") == "repos")
+    assert t + 1 < repos < fetch, (wf, t, repos, fetch)
+    fw = steps[fetch]["with"]
+    assert fw["private-key"] == "${{ secrets.SUBMODULE_PRIVATE_KEY }}", (wf, fw)
+    assert fw["client-id"] == "${{ inputs.submodule-client-id }}", (wf, fw)
+    assert fw["repositories"] == "${{ steps.repos.outputs.repositories }}", (wf, fw)
+    perms = {k: v for k, v in fw.items() if k.startswith("permission-")}
+    assert perms == {"permission-contents": "read"}, (wf, perms)
+    assert steps[fetch]["if"] == "steps.repos.outputs.repositories != ''", steps[fetch]
+    assert ".visibility" in steps[repos]["run"] and "!= public" in steps[repos]["run"]
+    assert steps[repos]["env"]["GH_TOKEN"] == "${{ github.token }}", steps[repos]
+    # Every step that names the key comes after the `app` step and is one of the two mints.
+    for i, s in enumerate(steps):
+        if SUB_KEY in json.dumps(s) and i != app:
+            assert i in (t, fetch), (wf, i, s)
     first_code = index(steps, runs_code)
     assert t + 1 < first_code, (wf, name, "code runs before the refusal")
+    # The `app` step: a key with no client ID stops the job.
+    for enabled, client, ok in (
+        ("true", "Iv1.x", True),
+        ("true", "", False),
+        ("false", "", True),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "out")
+            env = {
+                **os.environ,
+                "ENABLED": enabled,
+                "CLIENT_ID": client,
+                "SAME": "false",
+                "GITHUB_OUTPUT": out,
+            }
+            code = subprocess.run(
+                ["bash", "-c", steps[app]["run"]],
+                check=False,
+                env=env,
+                capture_output=True,
+            ).returncode
+        assert (code == 0) == ok, (wf, enabled, client, code)
     # No main key, no write permission for GITHUB_TOKEN.
     assert set(job["permissions"]) == {"contents"}, job["permissions"]
     assert job["permissions"]["contents"] == "read", job["permissions"]
@@ -314,6 +367,12 @@ assert relock_step["env"]["MOVED"] == "${{ steps.moved.outputs.moved }}", relock
 assert relock_step["env"]["PLAN"] == "${{ needs.relock-plan.result }}", relock_step[
     "env"
 ]
+# automerge runs only on a plan that succeeded or was skipped; a failed one is `hold`'s.
+assert auto["needs"] == "relock-plan", auto["needs"]
+assert (
+    "(needs.relock-plan.result == 'success' || needs.relock-plan.result == 'skipped')"
+    in auto["if"]
+), auto["if"]
 
 
 def relock_state(
@@ -356,13 +415,81 @@ def relock_state(
 
 assert relock_state("skipped", "") == ""
 assert relock_state("success", "") is None, "a plan that ran and said nothing"
-assert relock_state("failure", "ok") is None
 assert relock_state("success", "ok", "false") == "patch"
 assert relock_state("success", "ok", "true") == "empty"
 assert relock_state("success", "ok", "true", files="flake.lock x.py") is None
 assert relock_state("success", "rollout-input-moved") is None
 assert relock_state("success", "ok", "false", moved="odoo-nix") == "rollout-input-moved"
 assert relock_state("skipped", "", moved="odoo-nix") == ""
+
+# 3a. hold: a head no key job decided gets auto-merge turned off, with GITHUB_TOKEN only.
+hold = deps["jobs"]["hold"]
+assert hold["needs"] == ["relock-plan", "relock-push", "automerge"], hold["needs"]
+assert hold["runs-on"] == "ubuntu-latest", hold["runs-on"]
+assert hold["permissions"] == {"contents": "write", "pull-requests": "write"}, hold[
+    "permissions"
+]
+assert "secrets." not in json.dumps(hold), "hold holds a secret"
+hold_if = " ".join(hold["if"].split())
+for want in (
+    "always()",
+    "github.event.pull_request.user.login == 'dependabot[bot]'",
+    "inputs.auto-merge",
+    "(needs.relock-plan.result != 'success' && needs.relock-plan.result != 'skipped')",
+    "(needs.relock-push.result != 'success' && needs.relock-push.result != 'skipped')",
+    "needs.automerge.result != 'success'",
+):
+    assert want in hold_if, (want, hold_if)
+assert [uses(s) for s in hold["steps"] if uses(s)] == [], "hold runs gh alone"
+(hold_step,) = hold["steps"]
+assert hold_step["env"]["GH_TOKEN"] == "${{ github.token }}", hold_step["env"]
+assert hold_step["env"]["PUSHED"] == "${{ needs.relock-push.outputs.sha }}"
+assert push["outputs"]["sha"] == "${{ steps.push.outputs.sha }}", push["outputs"]
+
+
+def hold_run(head, auto_merge, pushed="") -> list[str]:
+    """hold's step with a stand-in gh at PR head `head`; the gh calls that change the PR."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bindir = os.path.join(tmp, "bin")
+        os.makedirs(bindir)
+        log = os.path.join(tmp, "log")
+        Path(log).write_text("")
+        Path(bindir, "gh").write_text(
+            "#!/bin/sh\n"
+            'case "$*" in\n'
+            '  *headRefOid*) echo "$PR_HEAD" ;;\n'
+            '  *autoMergeRequest*) echo "$PR_AUTO" ;;\n'
+            '  *) echo "$*" >> "$LOG" ;;\n'
+            "esac\n"
+        )
+        os.chmod(os.path.join(bindir, "gh"), 0o755)
+        env = {
+            **os.environ,
+            "PATH": f"{bindir}:{os.environ['PATH']}",
+            "PR_URL": "https://github.com/o/r/pull/1",
+            "HEAD_SHA": "a" * 40,
+            "PUSHED": pushed,
+            "PR_HEAD": head,
+            "PR_AUTO": auto_merge,
+            "LOG": log,
+        }
+        subprocess.run(
+            ["bash", "-c", hold_step["run"]], env=env, check=True, capture_output=True
+        )
+        return Path(log).read_text().splitlines()
+
+
+PR = "https://github.com/o/r/pull/1"
+assert hold_run("a" * 40, "true") == [
+    f"pr merge --disable-auto {PR}",
+    f"pr edit {PR} --add-label needs-review",
+], "this run's head, auto-merge on"
+assert hold_run("a" * 40, "false") == [f"pr edit {PR} --add-label needs-review"]
+assert hold_run("b" * 40, "true", pushed="b" * 40) == [
+    f"pr merge --disable-auto {PR}",
+    f"pr edit {PR} --add-label needs-review",
+], "relock-push's commit"
+assert hold_run("c" * 40, "true") == [], "a head this run is not for"
 
 # 3b. project-update-plan and project-update.
 pplan, pupd = deps["jobs"]["project-update-plan"], deps["jobs"]["project-update"]

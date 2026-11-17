@@ -14,7 +14,8 @@ name: odoo-test
 # This job runs the pull request's code, its dependencies' and the tests, so any step in it
 # can read every secret it is given. It is never given the CI App's key (ci.github-app:
 # contents, pull requests and workflows write): the caller cannot pass APP_PRIVATE_KEY, and
-# an App whose token can do more than read contents is refused before anything runs.
+# a SUBMODULE_PRIVATE_KEY whose App can do more than read contents is refused before
+# anything runs, whether or not a submodule needs its token.
 
 on:
   workflow_call:
@@ -85,11 +86,47 @@ jobs:
         with:
           persist-credentials: false
 
+      # The key is in this job, which runs the pull request's code: a key with no client ID
+      # stops it.
       - id: app
         name: Whether the caller passes a submodule App
         env:
-          ENABLED: ${{ inputs.submodule-client-id != '' && secrets.SUBMODULE_PRIVATE_KEY != '' }}
-        run: echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+          ENABLED: ${{ secrets.SUBMODULE_PRIVATE_KEY != '' }}
+          CLIENT_ID: ${{ inputs.submodule-client-id }}
+        run: |
+          if [ "$ENABLED" = true ] && [ -z "$CLIENT_ID" ]; then
+            echo "::error::SUBMODULE_PRIVATE_KEY is passed with no submodule-client-id: this job runs the pull request's code, so the key's App is checked first, and that takes its client ID (ci.submodule-app names both)"
+            exit 1
+          fi
+          echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+
+      # Whatever the names, the key may be another App's (the CI App's, its values copied under
+      # new names): the App it signs for is checked before anything of the pull request's
+      # runs, whether or not a submodule needs a token. A token of its installation on the
+      # owner (Metadata read only) names the App, and an App that can do more than read
+      # contents stops the job. The job holds the key, so the token gives it nothing more.
+      - if: steps.app.outputs.enabled == 'true'
+        id: app-check
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.submodule-client-id }}
+          private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app] Metadata read, to name the App
+          permission-metadata: read
+
+      - if: steps.app.outputs.enabled == 'true'
+        name: Refuse a submodule App that can write
+        env:
+          GH_TOKEN: ${{ steps.app-check.outputs.token }}
+          SLUG: ${{ steps.app-check.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          granted="$(gh api "apps/$SLUG" --jq '.permissions | to_entries[] | select((.key != "contents" and .key != "metadata") or .value != "read") | "\(.key): \(.value)"')"
+          if [ -n "$granted" ]; then
+            echo "::error::ci.submodule-app's key is $SLUG's, which can do more than read contents ($(paste -sd, <<<"$granted")): this job runs the pull request's code, so it takes an App with Contents read only, never the CI App"
+            exit 1
+          fi
+          echo "ci.submodule-app is $SLUG: Contents read only"
 
       # Contents read on the owner's repositories the submodules name that GITHUB_TOKEN cannot
       # read (the private and internal ones), no other: the App is installed on those, and a
@@ -129,22 +166,6 @@ jobs:
           private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
           repositories: ${{ steps.repos.outputs.repositories }}
           permission-contents: read
-
-      # The key is in this job, which runs the pull request's code next: an App that can do
-      # more than read contents (the CI App, passed here by mistake) stops it before
-      # anything of the pull request's runs.
-      - if: steps.repos.outputs.repositories != ''
-        name: Refuse a submodule App that can write
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          SLUG: ${{ steps.app-token.outputs.app-slug }}
-        run: |
-          set -euo pipefail
-          granted="$(gh api "apps/$SLUG" --jq '.permissions | to_entries[] | select((.key != "contents" and .key != "metadata") or .value != "read") | "\(.key): \(.value)"')"
-          if [ -n "$granted" ]; then
-            echo "::error::ci.submodule-app names $SLUG, which can do more than read contents ($(paste -sd, <<<"$granted")): this job runs the pull request's code, so it takes an App with Contents read only, never the CI App"
-            exit 1
-          fi
 
       # Through a header given to this step's git commands only (nothing is written to
       # .git/config).
