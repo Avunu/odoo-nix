@@ -514,7 +514,7 @@ addons_repo
 run --addons --skip-lock
 expect_rc 0
 check "--addons: flake.nix in addons mode" has '^\s*addons\.enable = true;$' flake.nix
-check "--addons: flake.nix follows the release branch" has '^\s*odoo-nix\.url = "github:Avunu/odoo-nix/release-[0-9]+";$' flake.nix
+check "--addons: flake.nix follows the release branch" has '^\s*odoo-nix\.url = "github:Avunu/odoo-nix/release";$' flake.nix
 check "--addons: OCB on the series" hasF 'url = "github:OCA/OCB/18.0";' flake.nix
 check "--addons: named after the directory" has '^\s*name = "addons";$' flake.nix
 check "--addons: .odoo-series" eval '[ "$(cat .odoo-series)" = 18.0 ]'

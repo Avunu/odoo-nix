@@ -575,7 +575,7 @@
               ''
                 for shape in project addons; do
                   mkdir -p "$shape"
-                  sed -e 's/@PROJECT_NAME@/acme/g; s/@SERIES@/18.0/g; s/@MAJOR@/2/g' \
+                  sed -e 's/@PROJECT_NAME@/acme/g; s/@SERIES@/18.0/g' \
                     -e 's/@PYTHON@/python311/g; s/@DB_NAME@/acme/g; s/@REQUIRES_PYTHON@/>=3.11/g' \
                     ${./templates}/"$shape"/flake.nix > "$shape/flake.nix"
                   refute grep -q '@[A-Z_]*@' "$shape/flake.nix"

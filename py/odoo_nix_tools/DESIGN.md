@@ -306,7 +306,7 @@ PRODUCT = Product(
     engine=Engine(
         flake_input="odoo-nix",
         repo="Avunu/odoo-nix",
-        release_branch="release-{major}",
+        release_branch="release",
         url_key="dev-shell.odoo-nix-url",
         install_spec="odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools",
         caller_stem="odoo-*",
@@ -871,7 +871,7 @@ profile. Strategies are core §5. Every entry lives in `data/manifest.d/<nn>-<ar
 
 | Module | Shapes | rec / Avunu | Managed files (strategy, phase) | Parameters (default) | Series data used |
 |---|---|---|---|---|---|
-| **dev-shell** | P, A | on / on | `flake.nix` block `inputs` (sentinel, anchor `nix-attrset inputs`, `claims: nix-inputs`, phase a, **no** `seed_template`: preflight refuses a checkout without its shape's `flake.nix`, §3.4); `.envrc` (whole, `shell`, local region `envrc`, phase a); `.gitignore` block `dev-shell` (sentinel, anchor `eof`, `absorb`) | `odoo-nix-url` (`""` → `github:Avunu/odoo-nix/release-{major}`) | — |
+| **dev-shell** | P, A | on / on | `flake.nix` block `inputs` (sentinel, anchor `nix-attrset inputs`, `claims: nix-inputs`, phase a, **no** `seed_template`: preflight refuses a checkout without its shape's `flake.nix`, §3.4); `.envrc` (whole, `shell`, local region `envrc`, phase a); `.gitignore` block `dev-shell` (sentinel, anchor `eof`, `absorb`) | `odoo-nix-url` (`""` → `github:Avunu/odoo-nix/release`) | — |
 | **editorconfig** | P, A | on / on | `.editorconfig` (whole, `ini`, local region `editorconfig`) | — | `files[".editorconfig"]` + a `[*.{nix,sh}]` `indent_size = 2` section |
 | **python-lint** | P, A | on / on | `.ruff.toml` (whole, `toml`, local region `ruff`); its share of the tools project (below) | `extra-select` [], `ignore` [], `per-file-ignores` {}, `extend-exclude` [] | `ruff` (target-version, lint/format/isort/mccabe/per-file-ignores); `tools.ruff` |
 | *(tools project)* | P, A | — | `tools/pyproject.toml` (toml-merge `tools-pyproject`) and `tools/uv.lock` (`uv-lock`, `relock_when: ["tools/pyproject.toml"]`, no `floors`), both with `module: TOOLS_MODULES` = every module that puts a tool in it: `python-lint`, `pylint-odoo`, `addon-manifest`, `hygiene`, `tests`, `packaging`, `icons`, and the pre-commit modules that need `prek` (`js-xml`, `workflow-lint`, `shell-lint`, `nix-lint`, `commits`). With `python-lint` off and `tests` on, the lock and `tools/.venv/bin/coverage` still exist | — | `tools.*`, `data/tool-pins.json` |
@@ -917,7 +917,7 @@ neither overrides `releases`), so inert-with-notice is required rather than an e
   carried a hand-written `odoo-nix.url = "github:Avunu/odoo-nix"` outside any block, so its own first sync hit the
   claims rule (exit 2), and it had no `oca-*` inputs. The flake comes from `odoo-init` (`--addons` for addon
   repositories, §5.5), and preflight refuses a checkout without it (§3.4). odoo-init's templates
-  (`templates/{project,addons}/flake.nix`) change to `odoo-nix.url = "github:Avunu/odoo-nix/release-@MAJOR@"`, the
+  (`templates/{project,addons}/flake.nix`) change to `odoo-nix.url = "github:Avunu/odoo-nix/release"`, the
   URL the block renders, so a freshly scaffolded flake's definition is *equal* and moves into the block silently
   (core §5.6.4) instead of needing `--force`.
 - **`.envrc`** (`templates/envrc.j2`):
@@ -1828,7 +1828,7 @@ in
   `nix run github:<owner>/<repo>/<rev>#odoo-init -- --sync <argv>` (`sync.reexec_argv`, §2.5), not
   `.#odoo-init`: evaluating the project flake would need a project's submodules, and the engine app needs only
   the lock.
-- `templates/{project,addons}/flake.nix` write `odoo-nix.url = "github:Avunu/odoo-nix/release-@MAJOR@"` (the URL the
+- `templates/{project,addons}/flake.nix` write `odoo-nix.url = "github:Avunu/odoo-nix/release"` (the URL the
   inputs block renders, §3.1 dev-shell) and are lint-clean once rendered: the project template's unused `self` in
   `{ self, odoo-nix, ... }@inputs` goes (deadnix flags it; `self.submodules` lives in `inputs`, not in the outputs'
   arguments). A new check `templates-nix-lint` renders both templates with sample values and runs nixfmt, statix
@@ -1980,7 +1980,7 @@ custom/fixture_sale/     __manifest__.py (LGPL-3, "Fixture LLC"), models/*.py, s
                          views/*.xml, tests/test_*.py, README.md, static/description/icon.png (128×128)
 custom/fixture_legacy/   installable False (rendered into the NOT INSTALLABLE region)
 flake.lock               committed, with fixed nodes for every input the rendered inputs block and the hand-written
-                         ones define (odoo-nix at a fixed rev with `original` = the rendered release-2 URL, nixpkgs
+                         ones define (odoo-nix at a fixed rev with `original` = the rendered `release` URL, nixpkgs
                          follows); `lock_problems` is clean. The checks set ODOO_NIX_ALLOW_SKEW=1 (no caller SHA
                          or core rev can match a fixed fake rev)
 ```
@@ -2084,7 +2084,7 @@ fixture × profile (18.0 only).
    # integration-branch = "<origin/HEAD>" only when it differs from the default (project B: "master")
    # repo = "<owner>/<name>" only when there is no origin remote (project A: its `upstream`)
    ```
-2. Phase A: the `flake.nix` inputs block (`odoo-nix.url = "github:Avunu/odoo-nix/release-2"`, `standards-profile`
+2. Phase A: the `flake.nix` inputs block (`odoo-nix.url = "github:Avunu/odoo-nix/release"`, `standards-profile`
    with `flake = false`), `.envrc`, the `.gitignore` block; `nix flake lock`; second build with the locked profile;
    re-exec under the locked odoo-nix when `version.txt` differs.
 3. Phase B: every live managed file; `uv lock --project tools`; `npm install --package-lock-only
@@ -2640,3 +2640,7 @@ is not part of this stage's work: no tag, no version bump, `version.txt` and the
 | O9-23 | O9-14 on the final tree | rerun on a fresh clone of Avunu/web-addons (`b777cf0`) with the final staged tree committed in a scratch engine (`ODOO_NIX_URL_OVERRIDE=git+file://…`, `ODOO_NIX_ALLOW_SKEW=1`): opt-in (exit 2 with the inputs-block diff, then `--force` exit 3 on the unpublished profile, O9-21), hand-locked profile, `odoo-init --sync` (22 files, `mirror.yml` retired), `sync --write` idempotent, `config shape`, `profile show`, both files opening the table refused by `sync --check` (exit 2), `prek run -a` in `lib.standards.lintShell` (every hook starts; failures are adoption findings), the `committed` commit-msg stage, `gate lint`, `.vscode/` with the O9-16 seed. **Not run**: the consumer's `nix run --no-pure-eval .#relock` (so `sync --check` stopped at exit 1 on `nix/uv.lock predates web_theme_carbon/pyproject.toml`), `nix develop --no-pure-eval -c odoo-nix gate test`, and the `odools.toml` the shell writes: each evaluates the clone's own flake, which this session's permission policy refused ("Code from External") | **open, the user's**: in the scratch clone `o9/e2e-verify/web-addons`, with the two variables above, `nix run --no-pure-eval .#relock`, `odoo-nix sync --check` (expect 0), `nix develop --no-pure-eval -c odoo-nix gate test`, then look at `odools.toml` (one `[[config]]`, `odoo_path = "./.odoo-nix/odoo"`, `./.` in the addons paths). Core follow-up (proposed, not odoo-nix's): when the only findings are `check` items sync cannot fix, `report.py`'s summary still says "N file(s) drifted — run `odoo-init --sync`"; it should name the item's remedy or count check items apart from drifted files |
 
 **Release checklist (2.3, the user's; nothing here is done).** In this order: python-devops-nix#58 merges and v1.3.0 is tagged; `nix run .#bump-base -- v1.3.0` (then `standards-core-pins`, offline and in CI with `--reachable`, is green); repoint docs/standards/README.md's two python-devops-nix links from the pinned `2a96bf1` to the tag (or `main`) and check them; publish Avunu/odoo-standards-profile (its README's "Before the first release"); finish O9-23's end-to-end steps (relock, `sync --check` exit 0, `gate test`, `odools.toml`); then release-please's 2.3.0 PR.
+
+### Single release branch
+
+odoo-nix ships from one branch, `release`, which release.yml fast-forwards to every `v*` tag whatever its major (created by the first release that finds it missing). The default URL, odoo-init's templates and the standards fixtures name `github:Avunu/odoo-nix/release`; `Engine.release_branch` is the constant `"release"`, odoo-init's `@MAJOR@` placeholder and `odooNixMajor` are gone, and the release PR's `fixtures` job no longer rewrites the fixtures' URLs on a major. A checkout is held back from a release it is not ready for by its `flake.lock`, not by the branch name. The rows above that name `release-2`, `release-<N>` or `@MAJOR@` (O3-11, O5-1, O6-1, O6-22, O9-9, O9-13) record what was built then; the old `release-1` and `release-2` branches no longer move and will be deleted.

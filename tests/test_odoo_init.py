@@ -117,7 +117,6 @@ def run_state(argv=(), **kw):
         presets="",
         template=str(TEMPLATE),
         addons_template=str(ADDONS_TEMPLATE),
-        odoo_nix_major="2",
         oca_dataset="",
         oca_bundles="",
         oca_sources="",
@@ -283,7 +282,6 @@ class ConfigTest(unittest.TestCase):
         "presets": "/p",
         "template": "/t",
         "addonsTemplate": "/a",
-        "odooNixMajor": "2",
         "ocaDataset": "/d",
         "ocaBundles": "/b",
         "ocaSources": "/s",
@@ -412,7 +410,7 @@ class TemplateTest(InDir):
         self.assertIn("custom/.gitkeep", template.files(staging))
         # The URL the standards' inputs block renders (DESIGN.md §5.5), and no
         # unused `self` in the outputs' arguments (deadnix).
-        self.assertIn('odoo-nix.url = "github:Avunu/odoo-nix/release-2";', flake)
+        self.assertIn('odoo-nix.url = "github:Avunu/odoo-nix/release";', flake)
         self.assertNotRegex(flake, r"\{\s*self\s*,")
 
     def test_render_addons(self):
@@ -424,7 +422,7 @@ class TemplateTest(InDir):
             [".envrc", ".gitignore", "flake.nix", "nix/pyproject.toml"],
         )
         flake = (staging / "flake.nix").read_text()
-        self.assertIn('odoo-nix.url = "github:Avunu/odoo-nix/release-2";', flake)
+        self.assertIn('odoo-nix.url = "github:Avunu/odoo-nix/release";', flake)
         self.assertIn('url = "github:OCA/OCB/18.0";', flake)
         self.assertIn('name = "edi-addons";', flake)
         pyproject = (staging / "nix/pyproject.toml").read_text()
@@ -779,7 +777,6 @@ class PromptsTest(unittest.TestCase):
                 presets="",
                 template="",
                 addons_template="",
-                odoo_nix_major="2",
                 oca_dataset=f"{d}/m.json",
                 oca_bundles=f"{d}/b.json",
                 oca_sources="",

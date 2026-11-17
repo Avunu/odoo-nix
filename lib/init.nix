@@ -46,8 +46,6 @@ let
       presets = "${./odoo-presets.json}";
       template = "${../templates/project}";
       addonsTemplate = "${../templates/addons}";
-      # The templates' flake follows odoo-nix's release branch for this major.
-      odooNixMajor = lib.versions.major (lib.trim (builtins.readFile ../version.txt));
       ocaDataset = "${../data/oca-modules.json}";
       ocaBundles = "${../data/oca-bundles.json}";
       ocaSources = "${./oca_sources.py}";

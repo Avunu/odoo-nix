@@ -27,7 +27,6 @@ def tokens(st: Run) -> dict[str, str]:
         "@SERIES@": st.version,
         "@PYTHON@": st.p.python,
         "@REQUIRES_PYTHON@": st.p.requires_python,
-        "@MAJOR@": st.config.odoo_nix_major,
     }
 
 

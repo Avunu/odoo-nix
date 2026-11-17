@@ -3,14 +3,14 @@ title: Versioning
 description: How odoo-nix and odoo-nix-tools are released and pinned, the frozen profile snapshots, the version-skew checks, how a release reaches your repositories, and the addons' <series>.x.y.z releases (tagged per addon by release-please, with a zip and a wheel each).
 order: 5
 tags: [standards, versioning, releases, skew]
-updated: 2026-11-07
+updated: 2026-11-17
 ---
 
 ## odoo-nix's own releases
 
-odoo-nix and odoo-nix-tools are one release with one version: `version.txt`, `py/odoo_nix_tools/pyproject.toml` and `odoo_nix_tools.__version__` move together (the `standards-version` check holds them equal). release-please opens the release pull request on `main` from the conventional commits since the last tag: `fix:` makes a patch, `feat:` a minor, and a major is only a `Release-As: <N>.0.0` footer (pr-policy refuses `!` and `BREAKING CHANGE`). On the release pull request, a `fixtures` job re-renders the standards fixtures for the new version (odoo-nix-tools' dev lock, and on a major the fixtures' `release-<major>` URLs) and pushes them to the PR's branch, so every commit on `main`, the release's included, keeps its checks green. After the merge it tags `vX.Y.Z` and fast-forwards **`release-<major>`** (`release-2` for every 2.x) to the tag.
+odoo-nix and odoo-nix-tools are one release with one version: `version.txt`, `py/odoo_nix_tools/pyproject.toml` and `odoo_nix_tools.__version__` move together (the `standards-version` check holds them equal). release-please opens the release pull request on `main` from the conventional commits since the last tag: `fix:` makes a patch, `feat:` a minor, and a major is only a `Release-As: <N>.0.0` footer (pr-policy refuses `!` and `BREAKING CHANGE`). On the release pull request, a `fixtures` job re-renders the standards fixtures for the new version (odoo-nix-tools' dev lock) and pushes them to the PR's branch, so every commit on `main`, the release's included, keeps its checks green. After the merge it tags `vX.Y.Z` and fast-forwards **`release`** to the tag. `release` carries every release, a major one included: what keeps a checkout off a release it is not ready for is its `flake.lock`, which moves only when the checkout updates it.
 
-A checkout follows that branch: the `dev-shell` inputs block writes `odoo-nix.url = "github:Avunu/odoo-nix/release-2";` (`dev-shell.odoo-nix-url` overrides it), and `flake.lock` pins the commit. The caller workflows name the same commit and its version: `uses: Avunu/odoo-nix/.github/workflows/odoo-lint.yml@<sha> # v2.3.0`.
+A checkout follows that branch: the `dev-shell` inputs block writes `odoo-nix.url = "github:Avunu/odoo-nix/release";` (`dev-shell.odoo-nix-url` overrides it), and `flake.lock` pins the commit. The caller workflows name the same commit and its version: `uses: Avunu/odoo-nix/.github/workflows/odoo-lint.yml@<sha> # v2.3.0`.
 
 ## Profile snapshots
 
@@ -37,7 +37,7 @@ odoo-nix repo rollout --to v2.3.0 --repo Avunu/edi-addons      # or --all --flee
 odoo-nix repo rollout --profile-to latest --all --fleet fleet.json
 ```
 
-For each repository, in a temporary clone of its integration branch: `nix flake update odoo-nix` (or `standards-profile`), `nix run --no-pure-eval .#relock`, `nix run --no-pure-eval .#odoo-init -- --sync`, then a commit `chore(deps): odoo-nix v2.3.0`, a push of `standards/odoo-nix-v2.3.0`, a pull request and, unless `--no-auto-merge`, auto-merge. It runs with your own `gh` token (scope `workflow`): the bump rewrites caller workflows, which `GITHUB_TOKEN` cannot push. `--dry-run` prints the plan.
+For each repository, in a temporary clone of its integration branch: `nix flake update odoo-nix` (or `standards-profile`), `nix run --no-pure-eval .#relock`, `nix run --no-pure-eval .#odoo-init -- --sync`, then a commit `chore(deps): odoo-nix v2.3.0`, a push of `standards/odoo-nix-v2.3.0`, a pull request and, unless `--no-auto-merge`, auto-merge. It runs with your own `gh` token (scope `workflow`): the bump rewrites caller workflows, which `GITHUB_TOKEN` cannot push. `--dry-run` prints the plan. A checkout whose flake still names an old per-major branch is not reached: move it to `release` first ([Upgrading](../development/upgrading.md#which-odoo-nix-to-follow)).
 
 ## odoo-nix's pin of standards-core
 
