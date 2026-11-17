@@ -12,7 +12,7 @@
         "type": "github",
         "owner": "avunu",
         "repo": "odoo-nix",
-        "ref": "release-2"
+        "ref": "release"
       }
     },
     "root": {

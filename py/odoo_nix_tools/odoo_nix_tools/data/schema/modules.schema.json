@@ -41,7 +41,7 @@
           "odoo-nix-url": {
             "type": "string",
             "default": "",
-            "description": "The odoo-nix flake URL the inputs block writes; \"\" means github:Avunu/odoo-nix/release-<major>."
+            "description": "The odoo-nix flake URL the inputs block writes; \"\" means github:Avunu/odoo-nix/release."
           }
         }
       },

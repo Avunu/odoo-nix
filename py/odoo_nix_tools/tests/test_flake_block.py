@@ -22,7 +22,7 @@ from support import ORG_PROFILES, SHAPES, SyncCase, need_root
 
 PROJECT = "standards-project"
 ADDONS = "standards-addons"
-RENDERED = "github:Avunu/odoo-nix/release-2"
+RENDERED = "github:Avunu/odoo-nix/release"
 BEGIN = "# >>> odoo-nix: inputs (managed) >>>"
 END = "# <<< odoo-nix: inputs (managed) <<<"
 # shape → (fixture it goes into, the odoo-nix URL it writes by hand)
@@ -104,7 +104,7 @@ class FlakeShapes(SyncCase):
                     {k: v for k, v in specs_before.items() if k != "odoo-nix"},
                 )
                 self.assertEqual(
-                    specs_after["odoo-nix"], "github:avunu/odoo-nix/release-2"
+                    specs_after["odoo-nix"], "github:avunu/odoo-nix/release"
                 )
                 # The repository's lock is stale for odoo-nix alone (phase A's
                 # `nix flake lock` moves it); a lock of the synced flake is clean.

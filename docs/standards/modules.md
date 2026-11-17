@@ -3,7 +3,7 @@ title: Modules
 description: Every module of odoo-nix's standards, the keys each takes in [tool.odoo-nix] or a profile, their defaults, and the rules between modules.
 order: 2
 tags: [standards, modules, configuration, reference]
-updated: 2026-11-04
+updated: 2026-11-17
 ---
 
 A module is one switch, `<module>.enable`, and the keys that tune it. Set them in a profile or in your table, as a subtable or as dotted keys:
@@ -38,7 +38,7 @@ These belong to the repository's table alone; a profile that sets one is refused
 
 | Module | rec | What it manages | Keys (default) |
 | --- | --- | --- | --- |
-| `dev-shell` | on | the `flake.nix` inputs block, `.envrc`, the `.gitignore` block. Required: `enable = false` is exit 2 | `odoo-nix-url` (`""`: `github:Avunu/odoo-nix/release-<major>`; keep it a `github:` URL, since the CI workflows that install odoo-nix-tools read a `github` lock node only: [CI](ci.md#the-reusable-workflows)) |
+| `dev-shell` | on | the `flake.nix` inputs block, `.envrc`, the `.gitignore` block. Required: `enable = false` is exit 2 | `odoo-nix-url` (`""`: `github:Avunu/odoo-nix/release`; keep it a `github:` URL, since the CI workflows that install odoo-nix-tools read a `github` lock node only: [CI](ci.md#the-reusable-workflows)) |
 | `editorconfig` | on | `.editorconfig`: OCA's sections for the series, plus 2-space Nix and shell | — |
 | `python-lint` | on | ruff with OCA's per-series rules in `.ruff.toml`, the locked ruff in `tools/.venv` | `extra-select` (`[]`), `ignore` (`[]`), `per-file-ignores` (`{}`), `extend-exclude` (`[]`) |
 | `pylint-odoo` | on | pylint-odoo with OCA's `.pylintrc` and `.pylintrc-mandatory` | `optional-run` (`true`: the optional checks run as an advisory hook) |
