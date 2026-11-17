@@ -151,7 +151,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "standards-core", git = "https://github.com/Avunu/python-devops-nix?subdirectory=standards&rev=fbc892b633b947031426e1fa43d45dd9ae462c33" }]
+requires-dist = [{ name = "standards-core", git = "https://github.com/Avunu/python-devops-nix?subdirectory=standards&rev=e76d5d850b35e4d0abc58fae6617713764f3683a" }]
 
 [[package]]
 name = "packaging"
@@ -220,7 +220,7 @@ wheels = [
 [[package]]
 name = "standards-core"
 version = "1.5.0"
-source = { git = "https://github.com/Avunu/python-devops-nix?subdirectory=standards&rev=fbc892b633b947031426e1fa43d45dd9ae462c33#fbc892b633b947031426e1fa43d45dd9ae462c33" }
+source = { git = "https://github.com/Avunu/python-devops-nix?subdirectory=standards&rev=e76d5d850b35e4d0abc58fae6617713764f3683a#e76d5d850b35e4d0abc58fae6617713764f3683a" }
 dependencies = [
     { name = "jinja2" },
     { name = "packaging" },

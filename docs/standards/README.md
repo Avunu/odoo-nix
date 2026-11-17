@@ -9,7 +9,7 @@ updated: 2026-11-04
 
 odoo-nix ships a second command beside `odoo`: **`odoo-nix`**, from the **odoo-nix-tools** package. It keeps the repository's own files in line with a **profile**: OCA's per-series lint and format rules with tools locked by Nix, the test gate with coverage, the editor settings, Dependabot and the CI callers. You opt in once, with one table, and from then on `odoo-nix sync --check` tells you when anything has drifted.
 
-odoo-nix-tools is built on [standards-core](https://github.com/Avunu/python-devops-nix/tree/2a96bf1b0e5006cf738e8dd16a5604e8dba8333a/standards), the engine frappe-nix's standards tools share. The command names, the sync flags and the exit codes below are that engine's, the same in both products (python-devops-nix [docs/conventions.md, Standards](https://github.com/Avunu/python-devops-nix/blob/2a96bf1b0e5006cf738e8dd16a5604e8dba8333a/docs/conventions.md#standards)).
+odoo-nix-tools is built on [standards-core](https://github.com/Avunu/python-devops-nix/tree/e76d5d850b35e4d0abc58fae6617713764f3683a/standards), the engine frappe-nix's standards tools share. The command names, the sync flags and the exit codes below are that engine's, the same in both products (python-devops-nix [docs/conventions.md, Standards](https://github.com/Avunu/python-devops-nix/blob/e76d5d850b35e4d0abc58fae6617713764f3683a/docs/conventions.md#standards)).
 
 ## Two shapes, one table
 

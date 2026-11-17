@@ -56,7 +56,7 @@ jobs:
     permissions:
       contents: write # gh pr merge --auto
       pull-requests: write # gh pr merge --auto
-    uses: Avunu/python-devops-nix/.github/workflows/dependabot-auto-merge.yml@fbc892b633b947031426e1fa43d45dd9ae462c33 # python-devops-nix#72 head, until it merges
+    uses: Avunu/python-devops-nix/.github/workflows/dependabot-auto-merge.yml@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
     with:
       exclude-ecosystems: github_actions uv
       review-dependencies: >-
@@ -73,7 +73,7 @@ jobs:
       contents: write # update-branch without the App
       pull-requests: write # update-branch
       actions: write # without the App, dispatch the required checks on the new head
-    uses: Avunu/python-devops-nix/.github/workflows/dependabot-update-branches.yml@fbc892b633b947031426e1fa43d45dd9ae462c33 # python-devops-nix#72 head, until it merges
+    uses: Avunu/python-devops-nix/.github/workflows/dependabot-update-branches.yml@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
     with:
       dispatch: check.yml pr-policy.yml
     secrets:

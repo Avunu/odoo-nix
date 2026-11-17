@@ -102,7 +102,7 @@ jobs:
       # and as a wheel, standards-core from Avunu/python-devops-nix at the revision that lock
       # names, with a pinned uv and no uv cache (standards-install's `hardened`). Before the
       # App's token is minted.
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@fbc892b633b947031426e1fa43d45dd9ae462c33 # python-devops-nix#72 head, until it merges
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
         with:
           cli: odoo-nix
           engine-input: odoo-nix
@@ -205,7 +205,7 @@ jobs:
       # and as a wheel, standards-core from Avunu/python-devops-nix at the revision that lock
       # names, with a pinned uv and no uv cache (standards-install's `hardened`). Before the
       # App's token is minted.
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@fbc892b633b947031426e1fa43d45dd9ae462c33 # python-devops-nix#72 head, until it merges
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
         with:
           cli: odoo-nix
           engine-input: odoo-nix
