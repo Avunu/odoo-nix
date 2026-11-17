@@ -178,7 +178,7 @@ jobs:
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     timeout-minutes: 10
     permissions:
-      contents: write # move release (its ruleset refuses deletion and non-fast-forward updates)
+      contents: write # move release (refs/heads/release-* does not match it: protect it by adding refs/heads/release to the release-* ruleset)
     steps:
       - name: Fast-forward release to the new tag, and check it
         env:
