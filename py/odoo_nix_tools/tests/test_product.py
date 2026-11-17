@@ -80,7 +80,7 @@ class ProductBuilds(unittest.TestCase):
     def test_engine(self) -> None:
         e = PRODUCT.engine
         self.assertEqual(e.flake_input, "odoo-nix")
-        self.assertEqual(e.release_branch.format(major=2), "release-2")
+        self.assertEqual(e.release_branch, "release")
         self.assertEqual(e.caller_stem, "odoo-*")
         self.assertEqual(e.init_app, "odoo-init")
         self.assertEqual(e.version_file, "version.txt")

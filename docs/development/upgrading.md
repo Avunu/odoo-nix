@@ -3,7 +3,7 @@ title: Upgrading odoo-nix
 description: How odoo-nix is released and versioned, which branch or tag a project should follow, how to move a project to a newer odoo-nix, and how to move a 1.x project to 2.0.
 order: 10
 tags: [upgrade, versioning, release]
-updated: 2026-10-23
+updated: 2026-11-17
 ---
 
 ## Releases
@@ -14,14 +14,13 @@ Within a major release nothing a project sets is taken away. A renamed option, c
 
 ## Which odoo-nix to follow
 
-| `odoo-nix.url`                         | Follows                                         |
-| -------------------------------------- | ----------------------------------------------- |
-| `github:Avunu/odoo-nix/release-2`      | every 2.x release, and nothing that breaks it   |
-| `github:Avunu/odoo-nix/release-1`      | every 1.x release; it stays at the last one     |
-| `github:Avunu/odoo-nix/v2.0.0`         | that one release                                |
-| `github:Avunu/odoo-nix`                | `main`, unreleased changes included             |
+| `odoo-nix.url`                    | Follows                             |
+| --------------------------------- | ----------------------------------- |
+| `github:Avunu/odoo-nix/release`   | every release                       |
+| `github:Avunu/odoo-nix/v2.0.0`    | that one release                    |
+| `github:Avunu/odoo-nix`           | `main`, unreleased changes included |
 
-Each `vN.*` tag moves a `release-N` branch, which only ever fast-forwards: `release-2` is created by the first 2.x release, and `release-1` stays where the last 1.x release left it. A project that follows `release-1` never gets 2.0 by itself; it moves when you change the URL. The scaffolder writes plain `github:Avunu/odoo-nix`; change it to `release-2` if you want only releases.
+Every `v*` tag fast-forwards the `release` branch, whatever its major version; the scaffolder writes `github:Avunu/odoo-nix/release`. The branch name does not hold a project back from a major release: `flake.lock` does. A project gets a new odoo-nix only when its lock is updated, so update it in a pull request and let CI check it. The old `release-1` and `release-2` branches no longer move and will be deleted; point a flake that names one at `release`.
 
 ## Upgrade a project
 
@@ -55,7 +54,7 @@ Do it in this order:
 ### 1. Point the flake at 2.x
 
 ```nix
-odoo-nix.url = "github:Avunu/odoo-nix/release-2";
+odoo-nix.url = "github:Avunu/odoo-nix/release";
 ```
 
 Then `nix flake update odoo-nix`. A project on plain `github:Avunu/odoo-nix` gets 2.0 with its next update anyway.

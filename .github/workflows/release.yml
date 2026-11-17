@@ -8,23 +8,19 @@ name: release
 #                   minor; a major is only a `Release-As: <N>.0.0` footer
 #                   (pr-policy refuses `!` and BREAKING CHANGE).
 #   fixtures        the release PR moves odoo-nix-tools' version, which the dev lock
-#                   (py/odoo_nix_tools/uv.lock) records for its editable root, and a
-#                   major moves the standards fixtures' odoo-nix URL (flake.nix and
-#                   flake.lock's original) to release-<major>: this re-renders them,
-#                   and the fixture data the package ships, on the release PR's
-#                   branch, so every commit on main, the release's included, keeps
-#                   `uv lock --check`, gen_fixture_data.py --check and the fixtures'
-#                   syncs green (py/odoo_nix_tools/DESIGN.md §9 O9).
+#                   (py/odoo_nix_tools/uv.lock) records for its editable root: this
+#                   re-renders it, and the fixture data the package ships, on the
+#                   release PR's branch, so every commit on main, the release's
+#                   included, keeps `uv lock --check` and gen_fixture_data.py
+#                   --check green (py/odoo_nix_tools/DESIGN.md §9 O9).
 #   dispatch-ci     a GITHUB_TOKEN push raises no event, so this dispatches
 #                   check.yml (`lint`, `flake`) and pr-policy.yml (`pr-policy`) on
 #                   the release pull request's branch, each only while its check
 #                   (`flake` for check.yml) is absent on the head.
-#   fast-forward    moves release-<major> (release-1 for v1.* tags, release-2
-#                   for v2.*) to the new tag: a PATCH with force=false, so it
-#                   only ever fast-forwards, or a POST on a major's first
-#                   release, which leaves the previous major's branch where its
-#                   last release put it. It then fails unless the branch and
-#                   the tag are the same commit.
+#   fast-forward    moves `release` to the new tag, whatever its major: a PATCH
+#                   with force=false, so it only ever fast-forwards, or a POST
+#                   when the branch does not exist yet. It then fails unless the
+#                   branch and the tag are the same commit.
 #
 # The daily cron catches merges that raise no push (an auto-merge enabled with
 # GITHUB_TOKEN) and retries a dispatch that failed.
@@ -118,16 +114,6 @@ jobs:
         name: Re-render the standards fixtures for the release PR's version
         run: |
           set -euo pipefail
-          major="$(cut -d. -f1 version.txt)"
-          for flake in tests/fixtures/standards-*/flake.nix; do
-            sed -E -i "s#github:Avunu/odoo-nix/release-[0-9]+#github:Avunu/odoo-nix/release-$major#" "$flake"
-          done
-          for lock in tests/fixtures/standards-*/flake.lock; do
-            jq --indent 2 --arg ref "release-$major" \
-              'if .nodes["odoo-nix"].original.ref? then .nodes["odoo-nix"].original.ref = $ref else . end' \
-              "$lock" > "$lock.new"
-            mv "$lock.new" "$lock"
-          done
           nix shell --inputs-from . nixpkgs#uv nixpkgs#python3 -c bash -euo pipefail -c '
             python3 py/odoo_nix_tools/scripts/gen_fixture_data.py
             UV_PYTHON_DOWNLOADS=never uv lock --project py/odoo_nix_tools
@@ -192,9 +178,9 @@ jobs:
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     timeout-minutes: 10
     permissions:
-      contents: write # move release-<major> (the release-* ruleset lets only GitHub Actions)
+      contents: write # move release (its ruleset refuses deletion and non-fast-forward updates)
     steps:
-      - name: Fast-forward release-<major> to the new tag, and check it
+      - name: Fast-forward release to the new tag, and check it
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -202,13 +188,11 @@ jobs:
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          major="${TAG#v}"
-          major="${major%%.*}"
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::release-please's tag ${TAG@Q} is not vX.Y.Z"
             exit 1
           fi
-          branch="release-$major"
+          branch=release
           tagged=$(gh api "repos/$REPO/commits/$TAG" -q .sha)
           if [ "$tagged" != "$SHA" ]; then
             echo "::error::$TAG is $tagged, not release-please's $SHA"

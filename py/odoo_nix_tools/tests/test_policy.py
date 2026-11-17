@@ -218,9 +218,9 @@ class MajorFree(TempRepos):
 
     def test_other_base(self) -> None:
         self.commit("feat: one")
-        git(self.root, "branch", "release-1", "main")
+        git(self.root, "branch", "release", "main")
         self.fake_gh('[{"headRefName": "some-other-pr"}]')
-        code, out = self.check("feat: one", BASE_REF="release-1")
+        code, out = self.check("feat: one", BASE_REF="release")
         self.assertEqual(code, 1, out)
         self.assertIn("gh pr edit", out)
 

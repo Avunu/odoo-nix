@@ -118,7 +118,7 @@ PRODUCT = Product(
     engine=Engine(
         flake_input="odoo-nix",
         repo="Avunu/odoo-nix",
-        release_branch="release-{major}",
+        release_branch="release",
         url_key="dev-shell.odoo-nix-url",
         install_spec=(
             "odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}"

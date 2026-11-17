@@ -3,7 +3,7 @@ title: A repository of addons
 description: Develop a repository of Odoo addons on its own, OCA style, with OCB and every repository it depends on as flake inputs, a generated uv lock and a dev shell that installs all of its addons.
 order: 4
 tags: [flake, addons, oca, externalSources]
-updated: 2026-11-03
+updated: 2026-11-17
 ---
 
 A repository of addons is what OCA publishes: a flat set of addon folders at the root, one branch per Odoo series, mounted by the projects that deploy them. Addons mode gives such a repository a development shell of its own. OCB and the repositories its addons depend on are flake inputs, the uv project is generated into `nix/`, and `odoo db provision` installs every addon in the repository.
@@ -31,7 +31,7 @@ The shell also links `odoo.conf`, `odools.toml` and `.venv` at the root, as in a
 ```nix
 {
   inputs = {
-    odoo-nix.url = "github:Avunu/odoo-nix/release-2";
+    odoo-nix.url = "github:Avunu/odoo-nix/release";
     nixpkgs.follows = "odoo-nix/nixpkgs";
     ocb = { url = "github:OCA/OCB/18.0"; flake = false; };
     oca-edi = { url = "github:OCA/edi/18.0"; flake = false; };
