@@ -16,7 +16,7 @@ A checkout follows that branch: the `dev-shell` inputs block writes `odoo-nix.ur
 
 A built-in profile never changes once a release ships it (see [Profiles](profiles.md#the-built-in-profiles)): `minimal` is frozen for 2.x, and `recommended@2.3` is the first `recommended` snapshot. A minor that changes `recommended` adds `recommended@2.<minor>.toml`, so a checkout that names a snapshot keeps its rules across odoo-nix upgrades, and one that names plain `recommended` moves to the newest on its next sync.
 
-An org profile states the odoo-nix it needs with `requires-odoo-nix = ">=2.3,<3"`; a checkout whose odoo-nix-tools falls outside the range is exit 3.
+An org profile states the odoo-nix it needs with `requires-odoo-nix = ">=3.0,<4"`; a checkout whose odoo-nix-tools falls outside the range is exit 3. A major release is outside every range written before it, so the profile widens its upper bound (a release of the profile) before its checkouts take that release; a lower bound the old major still meets, such as `">=2.8,<4"`, lets checkouts on either major share it while they move.
 
 ## Version skew
 
