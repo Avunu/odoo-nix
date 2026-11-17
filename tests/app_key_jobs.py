@@ -1,24 +1,39 @@
 """The jobs of the reusable workflows that can hold the CI App's key (checks.app-key-jobs).
 
-    python app_key_jobs.py WORKFLOWS_DIR
+    python app_key_jobs.py GITHUB_DIR TEMPLATES_DIR ODOO_NIX_TOOLS_DIR
 
-Static, over the workflow files, and offline: git, bash and jq on PATH, and
-standards_core importable (its relock.input_node is what the jq program must agree with).
+Static, over .github (its workflows and dependabot.yml) and the caller templates, and offline: git, bash and jq on
+PATH, and standards_core importable (its relock.input_node is what the jq program must agree
+with). ODOO_NIX_TOOLS_DIR (py/odoo_nix_tools) is put on sys.path, and a stand-in `odoo-nix`
+runs its CLI, for the key jobs' patch checks.
 
-- Every job that mints the App's token or reads its key runs on ubuntu-latest, written so,
-  except the two the docs name as not hardened yet (odoo-test's test, odoo-deps'
-  project-update); no other job joins them unnoticed.
-- In the hardened jobs, odoo-nix-tools comes from standards-install's `hardened` mode
+- Every job that mints the CI App's token or reads its key (APP_PRIVATE_KEY,
+  AVUNU_CI_PRIVATE_KEY) runs on ubuntu-latest, written so; the set of them is pinned here,
+  and none of them runs the repository's code (no nix, npm, yarn, node, git submodule).
+- The jobs that run the repository's code and fetch private submodules (odoo-test's test,
+  odoo-deps' project-update-plan) take SUBMODULE_PRIVATE_KEY only, mint a contents:read
+  token with it, and refuse an App that can do more before any of that code runs.
+  odoo-test.yml declares no APP_PRIVATE_KEY, and the ci.yml template passes it none.
+- A job that calls a reusable workflow passes APP_PRIVATE_KEY, AVUNU_CI_PRIVATE_KEY or
+  `secrets: inherit` only if it is allowlisted here.
+- In the key jobs, odoo-nix-tools comes from standards-install's `hardened` mode
   (Avunu/odoo-nix only, py/odoo_nix_tools, standards-core from Avunu/python-devops-nix),
   before the token is minted; no `uv tool`, `uvx` or pip install of their own, no setup-uv
   with a cache, and no cache action at all.
-- relock-push builds on the event's head SHA, recomputes `moved`, refuses before it applies,
-  checks the patch before the token, and pushes without force; automerge recomputes
-  `moved` with the same step; neither reads relock-plan's `moved`.
-- The patch check script is run here on accepted and refused patches (flake.lock among the
-  refused), and the jq `moved` program against standards_core's input_node.
-- package (the addon's build) uses no cache; repackage runs on ubuntu-latest; upload
-  checks the dispatch's repackage tag before it mints the token.
+- relock-plan runs on ubuntu-latest. relock-push builds on the event's head SHA, recomputes
+  `moved`, refuses before it applies, checks the patch's paths and then its content
+  (`odoo-nix verify-patch relock`) before the token, and pushes without force; automerge
+  recomputes `moved` with the same step, and reads whether relock-plan ran from its result;
+  neither reads relock-plan's `moved`.
+- project-update checks out the base itself, stages the plan's patch in the index, runs
+  `odoo-nix verify-patch project-update` before the token, and pushes a new branch without
+  force.
+- The patch checks are run here on accepted and refused patches (flake.lock, .gitmodules,
+  workflows and lock content among the refused), the automerge relock-state step on its
+  cases, and the jq `moved` program against standards_core's input_node.
+- package (the addon's build) runs on ubuntu-latest with no cache; repackage runs on
+  ubuntu-latest; upload checks the dispatch's repackage tag before it mints the token.
+- Dependabot holds the github-actions and uv (py/odoo_nix_tools) bumps for review.
 """
 
 from __future__ import annotations
@@ -34,21 +49,37 @@ from pathlib import Path
 import yaml
 from standards_core.ci.relock import input_node
 
-WORKFLOWS = Path(sys.argv[1])
-APP_KEY = ("APP_PRIVATE_KEY", "create-github-app-token")
+GITHUB = Path(sys.argv[1])
+WORKFLOWS = GITHUB / "workflows"
+TEMPLATES = Path(sys.argv[2])
+TOOLS = Path(sys.argv[3]).resolve()
+MAIN_KEYS = ("secrets.APP_PRIVATE_KEY", "secrets.AVUNU_CI_PRIVATE_KEY")
+SUB_KEY = "secrets.SUBMODULE_PRIVATE_KEY"
 CACHES = ("actions/cache", "magic-nix-cache-action", "cache-nix-action")
-UNHARDENED = {("odoo-test.yml", "test"), ("odoo-deps.yml", "project-update")}
 HARDENED = {
     "odoo-release.yml": {"release"},
     "odoo-release-please.yml": {"release-please", "sync", "upload"},
-    "odoo-deps.yml": {"relock-push", "automerge", "update-branches"},
+    "odoo-deps.yml": {"relock-push", "automerge", "update-branches", "project-update"},
 }
 # The jobs that install odoo-nix-tools (upload runs gh alone).
 INSTALLERS = {
     "odoo-release.yml": {"release"},
     "odoo-release-please.yml": {"release-please", "sync"},
-    "odoo-deps.yml": {"relock-push", "automerge", "update-branches"},
+    "odoo-deps.yml": {"relock-push", "automerge", "update-branches", "project-update"},
 }
+# Run the repository's code; fetch private submodules with the read-only App only.
+SUBMODULE = {("odoo-test.yml", "test"), ("odoo-deps.yml", "project-update-plan")}
+# Callers of a reusable workflow that may pass the CI App's key: python-devops-nix's
+# Dependabot workflows, whose jobs that hold it run on hosted runners and run no PR code.
+PASS_KEY = {
+    ("dependabot-auto-merge.yml", "auto-merge"),
+    ("dependabot-auto-merge.yml", "update-branches"),
+}
+REFUSE_NAME = "Refuse a submodule App that can write"
+REFUSE_JQ = (
+    '.permissions | to_entries[] | select((.key != "contents" and .key != "metadata")'
+    ' or .value != "read")'
+)
 
 
 def load(name: str) -> dict:
@@ -67,29 +98,94 @@ def token_at(steps: list[dict]) -> int:
     return index(steps, lambda s: "create-github-app-token" in s.get("uses", ""))
 
 
-# 1. Who holds the key, and where it runs.
-holders: dict[str, set[str]] = {}
+def runs_code(step: dict) -> bool:
+    """Whether a step runs the repository's code: Nix, npm and the like, or a submodule
+    checkout's hooks."""
+    for line in step.get("run", "").splitlines():
+        line = line.strip()
+        if line.startswith(("#", "echo ")):
+            continue
+        if re.search(
+            r"(^|\$\(|&&|\|\||;|\|)\s*(\S+=\S+\s+)*(nix|npm|yarn|node)\s", line
+        ):
+            return True
+        if "git submodule update" in line:
+            return True
+    return False
+
+
+# 1. Who holds which key, and where it runs.
+main_holders: dict[str, set[str]] = {}
+sub_holders: set[tuple[str, str]] = set()
 for path in sorted(WORKFLOWS.glob("*.yml")):
     doc = yaml.safe_load(path.read_text())
     for name, job in doc["jobs"].items():
-        if "uses" in job or not any(k in json.dumps(job) for k in APP_KEY):
+        text = json.dumps(job)
+        if "uses" in job:
+            passes = (
+                any(k in text for k in MAIN_KEYS) or job.get("secrets") == "inherit"
+            )
+            assert not passes or (path.name, name) in PASS_KEY, (
+                path.name,
+                name,
+                "passes the CI App's key to a reusable workflow",
+            )
             continue
-        holders.setdefault(path.name, set()).add(name)
-        if (path.name, name) in UNHARDENED:
-            continue
-        assert job["runs-on"] == "ubuntu-latest", (path.name, name, job["runs-on"])
-hardened = {
-    wf: names - {n for w, n in UNHARDENED if w == wf} for wf, names in holders.items()
-}
-assert {wf: n for wf, n in hardened.items() if n} == HARDENED, hardened
-for wf, name in UNHARDENED:
-    assert name in holders.get(wf, set()), (
-        wf,
-        name,
-        "hardened? take it off UNHARDENED",
-    )
+        main = any(k in text for k in MAIN_KEYS)
+        sub = SUB_KEY in text
+        assert not (main and sub), (path.name, name, "both keys")
+        for s in job.get("steps", []):
+            if "create-github-app-token" in s.get("uses", ""):
+                key = s["with"]["private-key"]
+                assert key in ("${{ " + k + " }}" for k in (*MAIN_KEYS, SUB_KEY)), (
+                    path.name,
+                    name,
+                    key,
+                )
+        if main:
+            main_holders.setdefault(path.name, set()).add(name)
+            assert job["runs-on"] == "ubuntu-latest", (path.name, name, job["runs-on"])
+            for s in job["steps"]:
+                assert not runs_code(s), (path.name, name, s)
+        if sub:
+            sub_holders.add((path.name, name))
+assert main_holders == HARDENED, main_holders
+assert sub_holders == SUBMODULE, sub_holders
 
-# 2. What the hardened jobs install, and before what.
+# The submodule App: contents:read, and an App that can write refused before any code runs.
+for wf, name in SUBMODULE:
+    job = load(wf)["jobs"][name]
+    steps = job["steps"]
+    t = token_at(steps)
+    w = steps[t]["with"]
+    assert w["private-key"] == "${{ secrets.SUBMODULE_PRIVATE_KEY }}", (wf, w)
+    assert w["client-id"] == "${{ inputs.submodule-client-id }}", (wf, w)
+    perms = {k: v for k, v in w.items() if k.startswith("permission-")}
+    assert perms == {"permission-contents": "read"}, (wf, perms)
+    refuse = steps[t + 1]
+    assert refuse["name"] == REFUSE_NAME, (wf, refuse)
+    assert refuse["if"] == "steps.app.outputs.enabled == 'true'", (wf, refuse)
+    assert refuse["env"]["GH_TOKEN"] == "${{ steps.app-token.outputs.token }}", refuse
+    assert REFUSE_JQ in refuse["run"], refuse["run"]
+    assert "exit 1" in refuse["run"], refuse["run"]
+    first_code = index(steps, runs_code)
+    assert t + 1 < first_code, (wf, name, "code runs before the refusal")
+    # No main key, no write permission for GITHUB_TOKEN.
+    assert set(job["permissions"]) == {"contents"}, job["permissions"]
+    assert job["permissions"]["contents"] == "read", job["permissions"]
+
+test_wf = load("odoo-test.yml")
+call = test_wf[True]["workflow_call"]
+assert set(call["secrets"]) == {"SUBMODULE_PRIVATE_KEY"}, call["secrets"]
+assert "client-id" not in call["inputs"], call["inputs"]
+ci_template = (TEMPLATES / "ci.yml.j2").read_text()
+assert "app_secrets" not in ci_template and "app_with" not in ci_template, "ci.yml.j2"
+assert "APP_PRIVATE_KEY" not in ci_template, "ci.yml.j2"
+assert "secret_block(main=false, submodule=true)" in ci_template, "ci.yml.j2"
+uses_template = (TEMPLATES / "_uses.j2").read_text()
+assert "SUBMODULE_PRIVATE_KEY:" in uses_template, "_uses.j2"
+
+# 2. What the key jobs install, and before what.
 for wf, names in HARDENED.items():
     doc = load(wf)
     for name in names:
@@ -128,13 +224,14 @@ for wf, names in HARDENED.items():
                     "node",
                 ), (wf, name, line)
 
-# 3. relock-push and automerge.
+# 3. relock-plan, relock-push and automerge.
 deps = load("odoo-deps.yml")
 plan, push, auto = (
     deps["jobs"][n] for n in ("relock-plan", "relock-push", "automerge")
 )
+assert plan["runs-on"] == "ubuntu-latest", plan["runs-on"]
 assert plan["permissions"] == {"contents": "read"}, plan["permissions"]
-assert not any(k in json.dumps(plan) for k in APP_KEY), "relock-plan holds the key"
+assert "secrets." not in json.dumps(plan), "relock-plan holds a secret"
 assert "moved" not in plan["outputs"], plan["outputs"]
 steps = push["steps"]
 assert steps[0]["uses"].startswith("actions/checkout@"), steps[0]
@@ -146,11 +243,23 @@ check = index(
     steps, lambda s: s.get("name", "").startswith("Check and apply the relock patch")
 )
 download = index(steps, lambda s: uses(s) == "actions/download-artifact")
-assert ids.index("moved") < refuse < download < check < token_at(steps), (
-    ids,
-    refuse,
-    check,
+install = index(
+    steps,
+    lambda s: uses(s) == "Avunu/python-devops-nix/.github/actions/standards-install",
 )
+verify = index(steps, lambda s: "odoo-nix verify-patch relock" in s.get("run", ""))
+assert (
+    ids.index("moved") < refuse < download < check < install < verify < token_at(steps)
+), (ids, refuse, check, install, verify)
+# The install and the base checkout are no longer behind `inputs.auto-merge`.
+assert "if" not in steps[install], steps[install]
+assert "if" not in steps[install - 1], steps[install - 1]
+assert steps[verify]["run"].strip() == "odoo-nix verify-patch relock --base HEAD", (
+    steps[verify]
+)
+assert "if" not in steps[verify] and "working-directory" not in steps[verify], steps[
+    verify
+]
 assert [uses(s) for s in steps if uses(s)] == [
     "actions/checkout",
     "actions/download-artifact",
@@ -162,6 +271,9 @@ pushes = [s["run"] for s in steps if "git push" in s.get("run", "")]
 assert len(pushes) == 1, pushes
 assert '"HEAD:refs/heads/$HEAD_REF"' in pushes[0], pushes[0]
 assert not re.search(r"--force|\s-f\s|\+HEAD", pushes[0]), pushes[0]
+merge = next(s for s in steps if "enable-automerge" in s.get("run", ""))
+assert '--head-sha "$HEAD_SHA"' in merge["run"], merge
+assert merge["env"]["HEAD_SHA"] == "${{ steps.push.outputs.sha }}", merge["env"]
 allow = steps[check]["env"]["ALLOW"]
 script = steps[check]["run"]
 moved_runs = set()
@@ -181,6 +293,94 @@ relock_step = next(s for s in auto["steps"] if s.get("id") == "relock")
 assert relock_step["env"]["MOVED"] == "${{ steps.moved.outputs.moved }}", relock_step[
     "env"
 ]
+assert relock_step["env"]["PLAN"] == "${{ needs.relock-plan.result }}", relock_step[
+    "env"
+]
+
+
+def relock_state(
+    plan_result, state, empty="", moved="", files="flake.lock"
+) -> str | None:
+    """automerge's relock step, run with a stand-in gh; its `relock` output, or None when
+    it fails (the PR is left for review)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bindir = os.path.join(tmp, "bin")
+        os.makedirs(bindir)
+        gh = os.path.join(bindir, "gh")
+        Path(gh).write_text("#!/bin/sh\nprintf '%s\\n' $FILES\n")
+        os.chmod(gh, 0o755)
+        out = os.path.join(tmp, "out")
+        Path(out).write_text("")
+        env = {
+            **os.environ,
+            "PATH": f"{bindir}:{os.environ['PATH']}",
+            "PLAN": plan_result,
+            "STATE": state,
+            "EMPTY": empty,
+            "MOVED": moved,
+            "FILES": files,
+            "REPO": "o/r",
+            "NUMBER": "1",
+            "GITHUB_OUTPUT": out,
+        }
+        done = subprocess.run(
+            ["bash", "-c", relock_step["run"]],
+            env=env,
+            capture_output=True,
+            check=False,
+        )
+        if done.returncode != 0:
+            return None
+        found = re.search(r"^relock=(.*)$", Path(out).read_text(), re.MULTILINE)
+        assert found, Path(out).read_text()
+        return found.group(1)
+
+
+assert relock_state("skipped", "") == ""
+assert relock_state("success", "") is None, "a plan that ran and said nothing"
+assert relock_state("failure", "ok") is None
+assert relock_state("success", "ok", "false") == "patch"
+assert relock_state("success", "ok", "true") == "empty"
+assert relock_state("success", "ok", "true", files="flake.lock x.py") is None
+assert relock_state("success", "rollout-input-moved") is None
+assert relock_state("success", "ok", "false", moved="odoo-nix") == "rollout-input-moved"
+assert relock_state("skipped", "", moved="odoo-nix") == ""
+
+# 3b. project-update-plan and project-update.
+pplan, pupd = deps["jobs"]["project-update-plan"], deps["jobs"]["project-update"]
+assert pplan["permissions"] == {"contents": "read"}, pplan["permissions"]
+assert not any(k in json.dumps(pplan) for k in MAIN_KEYS), "project-update-plan's key"
+assert "odoo project update --no-sync" in json.dumps(pplan), "plan without --no-sync"
+assert pupd["needs"] == "project-update-plan", pupd["needs"]
+assert pupd["runs-on"] == "ubuntu-latest", pupd["runs-on"]
+ps = pupd["steps"]
+assert ps[0]["uses"].startswith("actions/checkout@"), ps[0]
+assert ps[0]["with"] == {
+    "ref": "${{ inputs.integration-branch }}",
+    "persist-credentials": False,
+}, ps[0]
+same = index(ps, lambda s: s.get("name") == "The plan ran on this commit")
+pinstall = index(
+    ps, lambda s: uses(s) == "Avunu/python-devops-nix/.github/actions/standards-install"
+)
+pdownload = index(ps, lambda s: uses(s) == "actions/download-artifact")
+pcheck = index(
+    ps,
+    lambda s: s.get("name", "").startswith("Check and stage the project-update patch"),
+)
+assert same < pinstall < pcheck < token_at(ps), (same, pinstall, pcheck)
+assert pdownload < pcheck, (pdownload, pcheck)
+pscript = ps[pcheck]["run"]
+assert "git apply --cached" in pscript and "git apply --index" not in pscript, pscript
+assert "odoo-nix verify-patch project-update --base HEAD" in pscript, pscript
+assert ps[token_at(ps)]["with"]["repositories"] == "${{ github.event.repository.name }}"
+ppushes = [s["run"] for s in ps if "git push" in s.get("run", "")]
+assert len(ppushes) == 1, ppushes
+assert '"HEAD:refs/heads/$branch"' in ppushes[0], ppushes[0]
+assert 'branch="standards/project-update-$RUN"' in ppushes[0], ppushes[0]
+assert not re.search(r"--force|\s-f\s|\+HEAD", ppushes[0]), ppushes[0]
+pmerge = next(s for s in ps if "enable-automerge" in s.get("run", ""))
+assert pmerge["env"]["HEAD_SHA"] == "${{ steps.pr.outputs.sha }}", pmerge["env"]
 
 # 4. The jq program against standards_core's input_node.
 program = re.search(
@@ -328,9 +528,198 @@ assert check_patch(rename, ("-M",)) != 0, "rename"
 dotdot = "diff --git a/../x b/../x\nnew file mode 100644\n--- /dev/null\n+++ b/../x\n@@ -0,0 +1 @@\n+x\n"
 assert check_patch(None, text=dotdot) != 0, ".."
 
+
+# 5b. The key jobs' content check (`odoo-nix verify-patch`), end to end: the workflow's own
+# script, then the step that runs it, with a stand-in `odoo-nix` that runs this tree's CLI.
+BIN = tempfile.mkdtemp()
+Path(BIN, "odoo-nix").write_text(
+    f"#!{sys.executable} -I\n"
+    "import sys\n"
+    f"sys.path.insert(0, {str(TOOLS)!r})\n"
+    "from odoo_nix_tools.cli import main\n"
+    "sys.exit(main(sys.argv[1:]))\n"
+)
+os.chmod(os.path.join(BIN, "odoo-nix"), 0o755)
+WITH_TOOLS = {**os.environ, "PATH": f"{BIN}:{os.environ['PATH']}"}
+
+FILES = "https://files.pythonhosted.org/packages/aa/bb"
+PYPROJECT = (
+    b"[project]\ndependencies = [\n"
+    b"    # >>> odoo-nix: install set (managed from modules.txt) >>>\n"
+    b'    "odoo",\n'
+    b"    # <<< odoo-nix: install set <<<\n]\n"
+)
+UVLOCK = (
+    b"version = 1\n\n[[package]]\n"
+    b'name = "babel"\nversion = "2.17.0"\nsource = { registry = "https://pypi.org/simple" }\n'
+    + f'sdist = {{ url = "{FILES}/babel-2.17.0.tar.gz", hash = "sha256:11" }}\n'.encode()
+)
+
+
+def relock_push(change) -> int:
+    """relock-push's patch check, then its verify-patch step, on `change(repo)`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        src, dst = os.path.join(tmp, "src"), os.path.join(tmp, "dst")
+        os.makedirs(src)
+        g(src, "init", "-q")
+        for path, data in {
+            **BASE,
+            "nix/pyproject.toml": PYPROJECT,
+            "nix/uv.lock": UVLOCK,
+        }.items():
+            write(src, path, data)
+        g(src, "add", "-A")
+        g(src, "commit", "-qm", "base")
+        g(tmp, "clone", "-q", src, dst)
+        change(src)
+        g(src, "add", "-A")
+        patch = os.path.join(tmp, "x.patch")
+        Path(patch).write_text(g(src, "diff", "--cached", "--binary"))
+        env = {**WITH_TOOLS, "PATCH": patch, "ALLOW": allow, "RUNNER_TEMP": tmp}
+        for run in (script, steps[verify]["run"]):
+            code = subprocess.run(
+                ["bash", "-c", run], check=False, cwd=dst, env=env
+            ).returncode
+            if code:
+                return code
+        return 0
+
+
+def edit(path, old: bytes, new: bytes):
+    def change(r):
+        full = Path(r, path)
+        data = full.read_bytes()
+        assert old in data, (path, old)
+        full.write_bytes(data.replace(old, new, 1))
+
+    return change
+
+
+def new_package(name, url, source='{ registry = "https://pypi.org/simple" }'):
+    return edit(
+        "nix/uv.lock",
+        b"version = 1\n",
+        f'version = 1\n\n[[package]]\nname = "{name}"\nversion = "1.0"\nsource = {source}\n'
+        f'sdist = {{ url = "{url}", hash = "sha256:22" }}\n'.encode(),
+    )
+
+
+assert relock_push(new_package("idna", f"{FILES}/idna-1.0.tar.gz")) == 0, (
+    "an honest relock"
+)
+assert (
+    relock_push(
+        edit("nix/pyproject.toml", b'    "odoo",\n', b'    "odoo",\n    "idna",\n')
+    )
+    == 0
+), "the install set"
+content_refused = {
+    "outside the managed blocks": edit(
+        "nix/pyproject.toml", b"[project]", b"[project]\nx = 1"
+    ),
+    "a direct URL in the install set": edit(
+        "nix/pyproject.toml",
+        b'    "odoo",\n',
+        b'    "odoo",\n    "x @ https://e.example/x.whl",\n',
+    ),
+    "a git source": new_package(
+        "x", f"{FILES}/x-1.0.tar.gz", '{ git = "https://e.example/x" }'
+    ),
+    "another index": new_package(
+        "x", f"{FILES}/x-1.0.tar.gz", '{ registry = "https://e.example/simple" }'
+    ),
+    "a file off PyPI": new_package("x", "https://e.example/x-1.0.tar.gz"),
+    "another package's file": new_package("x", f"{FILES}/evil-1.0.tar.gz"),
+    "a base file's hash": edit("nix/uv.lock", b"sha256:11", b"sha256:99"),
+    "a deleted lock": lambda r: os.remove(os.path.join(r, "nix/uv.lock")),
+}
+for why, change in content_refused.items():
+    assert relock_push(change) != 0, why
+
+
+def project_update(change) -> int:
+    """project-update's check-and-stage step on the patch `change(repo)` stages."""
+    with tempfile.TemporaryDirectory() as tmp:
+        src, dst = os.path.join(tmp, "src"), os.path.join(tmp, "dst")
+        os.makedirs(src)
+        g(src, "init", "-q")
+        write(src, "pyproject.toml", PYPROJECT)
+        write(src, "uv.lock", UVLOCK)
+        write(
+            src,
+            ".gitmodules",
+            b'[submodule "web"]\n\tpath = modules/web\n\turl = https://github.com/OCA/web\n',
+        )
+        write(src, ".github/workflows/ci.yml", b"name: ci\n")
+        g(src, "add", "-A")
+        g(src, "update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},modules/web")
+        g(src, "commit", "-qm", "base")
+        g(tmp, "clone", "-q", src, dst)
+        change(src)
+        patch = os.path.join(tmp, "x.patch")
+        Path(patch).write_text(g(src, "diff", "--cached", "--binary", "HEAD"))
+        env = {**WITH_TOOLS, "PATCH": patch, "RUNNER_TEMP": tmp}
+        return subprocess.run(
+            ["bash", "-c", pscript], check=False, cwd=dst, env=env
+        ).returncode
+
+
+def gitlink(path, sha):
+    return lambda r: g(
+        r, "update-index", "--add", "--cacheinfo", f"160000,{sha},{path}"
+    )
+
+
+def staged(*changes):
+    def change(r):
+        for c in changes:
+            c(r)
+        g(r, "add", "--", "pyproject.toml", "uv.lock", ".gitmodules", ".github")
+
+    return change
+
+
+def project_edit(path, old, new):
+    return edit(path, old, new)
+
+
+assert project_update(staged(gitlink("modules/web", "2" * 40))) == 0, (
+    "a submodule moved"
+)
+assert (
+    project_update(
+        staged(
+            gitlink("modules/web", "2" * 40),
+            project_edit(
+                "pyproject.toml", b'    "odoo",\n', b'    "odoo",\n    "idna",\n'
+            ),
+        )
+    )
+    == 0
+), "a submodule moved and relocked"
+project_refused = {
+    "nothing": staged(),
+    "a new submodule": staged(gitlink("modules/evil", "3" * 40)),
+    ".gitmodules": staged(
+        gitlink("modules/web", "2" * 40),
+        project_edit(
+            ".gitmodules", b"https://github.com/OCA/web", b"https://e.example/web"
+        ),
+    ),
+    "a workflow": staged(project_edit(".github/workflows/ci.yml", b"ci", b"x")),
+    "outside the managed blocks": staged(
+        project_edit("pyproject.toml", b"[project]", b"[project]\nx = 1")
+    ),
+    "a submodule removed": lambda r: g(r, "rm", "-q", "--cached", "modules/web"),
+}
+for why, change in project_refused.items():
+    assert project_update(change) != 0, why
+
 # 6. The release flow's package, repackage and upload.
 rp = load("odoo-release-please.yml")["jobs"]
 assert rp["repackage"]["runs-on"] == "ubuntu-latest", rp["repackage"]["runs-on"]
+assert rp["package"]["runs-on"] == "ubuntu-latest", rp["package"]["runs-on"]
+assert "secrets." not in json.dumps(rp["package"]), "package holds a secret"
 for s in rp["package"]["steps"]:
     assert not any(c in uses(s) for c in CACHES), ("package", uses(s))
     assert not (
@@ -346,4 +735,24 @@ assert up[only]["env"] == {
 assert '[ "$TAG" != "$REPACKAGE" ]' in up[only]["run"], up[only]
 assert only < token_at(up), "the tag check before the token"
 
-print("app-key jobs:", json.dumps({k: sorted(v) for k, v in sorted(holders.items())}))
+# 7. Dependabot: what the key jobs run is reviewed by a person, never auto-merged.
+dependabot = yaml.safe_load((GITHUB / "dependabot.yml").read_text())
+ecosystems = {(u["package-ecosystem"], u["directory"]) for u in dependabot["updates"]}
+assert ("uv", "/py/odoo_nix_tools") in ecosystems, ecosystems
+assert {e for e, _ in ecosystems if e == "uv"} == {"uv"}, "one uv entry, the tools'"
+am = load("dependabot-auto-merge.yml")["jobs"]["auto-merge"]
+held = am["with"]["exclude-ecosystems"].split()
+assert {"github_actions", "uv"} <= set(held), held
+review = am["with"]["review-dependencies"].split()
+assert {
+    "actions/create-github-app-token",
+    "actions/checkout",
+    "astral-sh/setup-uv",
+} <= set(review), review
+
+print(
+    "app-key jobs:",
+    json.dumps({k: sorted(v) for k, v in sorted(main_holders.items())}),
+    "submodule App:",
+    json.dumps(sorted(sub_holders)),
+)

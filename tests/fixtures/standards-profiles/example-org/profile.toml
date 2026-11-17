@@ -69,6 +69,11 @@ enable = true
 app-id = "EXAMPLE_CI_APP_ID"
 private-key = "EXAMPLE_CI_PRIVATE_KEY"
 
+# Contents read only: the test gate and project-update-plan fetch private submodules with it.
+[ci.submodule-app]
+app-id = "EXAMPLE_SUBMODULE_APP_ID"
+private-key = "EXAMPLE_SUBMODULE_PRIVATE_KEY"
+
 [repo-policy]
 enable = true
 release-bypass = "integration:123"

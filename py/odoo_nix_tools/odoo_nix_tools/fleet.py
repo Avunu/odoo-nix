@@ -341,7 +341,8 @@ def doctor_rows(r: str, rc: RepoConfig) -> tuple[list[DoctorRow], list[str]]:
         notices.append(
             "no ci.github-app: project-update opens its pull request with GITHUB_TOKEN,"
             " whose events start no workflow, so the job then dispatches ci.yml and"
-            " pr-policy.yml on standards/project-update (their checks land on the pull"
-            " request's head); private submodules need the App"
+            " pr-policy.yml on standards/project-update-<run> (their checks land on the"
+            " pull request's head); private submodules need ci.submodule-app (Contents"
+            " read only)"
         )
     return rows, notices
