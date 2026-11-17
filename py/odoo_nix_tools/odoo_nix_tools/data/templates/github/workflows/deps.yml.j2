@@ -8,7 +8,8 @@
 # decision table.
 {% else %}
 # Dependabot's are merged or left by the decision table; `odoo project update` moves the
-# submodules to their branches' tips in a pull request of its own.
+# submodules to their branches' tips in a pull request of its own (private ones fetched
+# with ci.submodule-app, never the CI App).
 {% endif %}
 name: deps
 on:
@@ -45,4 +46,4 @@ jobs:
       update-branches: true
 {% endif %}
       merge-method: {{ cfg["repo-policy"]["merge-methods"][0] }}
-{{ w.app_with() }}{{ w.app_secrets() -}}
+{{ w.app_with() }}{% if shape == "project" %}{{ w.submodule_with() }}{% endif %}{{ w.secret_block(main=true, submodule=shape == "project") -}}

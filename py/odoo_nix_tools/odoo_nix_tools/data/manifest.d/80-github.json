@@ -32,7 +32,7 @@
       "uses": [
         "ci.runs-on",
         "ci.test-timeout-minutes",
-        "ci.github-app",
+        "ci.submodule-app",
         "ci.schedules"
       ]
     },
@@ -63,6 +63,7 @@
       "uses": [
         "ci.runs-on",
         "ci.github-app",
+        "ci.submodule-app",
         "ci.project-update",
         "dependabot.auto-merge",
         "dependabot.auto-merge-policy",

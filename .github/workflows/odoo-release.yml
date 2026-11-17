@@ -15,12 +15,16 @@ name: odoo-release
 #    `workflow_run` of ci) retries.
 #
 # odoo-nix is the odoo-nix-tools of the odoo-nix the checkout's flake.lock pins
-# (standards-install, `uv tool install`).
+# (standards-install, `hardened`: from Avunu/odoo-nix only, every dependency by hash).
 #
 # The checkout is the integration branch's head, not github.sha: a run started by an
 # older merge would otherwise bump a stale tree. A push that still loses the race is not a
 # failure: the run of the new head bumps (core CR6). The caller runs one release at a time
 # (concurrency `release`, never cancelled).
+#
+# The job holds the CI App's private key, so it runs on GitHub-hosted ubuntu-latest, never on a
+# shared self-hosted runner, and runs only odoo-nix's own tooling (no addon code, no dev shell),
+# installed hash-locked before the App's token is minted.
 
 on:
   workflow_call:
@@ -35,7 +39,8 @@ on:
         required: true
       runs-on:
         description: >-
-          The runner, as JSON: a label or a list of labels (`["self-hosted", "nixos"]`).
+          Ignored, and kept for the callers that pass it: the release job holds the CI App's
+          key, so it always runs on GitHub-hosted ubuntu-latest.
         type: string
         default: '["ubuntu-latest"]'
       client-id:
@@ -57,31 +62,54 @@ jobs:
     name: release
     # A failed ci run has nothing to release; the fix's own merge starts the next run.
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read # the checkout; every write uses the App's token
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
-
       - name: The release flow needs the CI App
         env:
           ENABLED: ${{ inputs.client-id != '' && secrets.APP_PRIVATE_KEY != '' }}
         run: |
           if [ "$ENABLED" != true ]; then
             echo "::error::the develop+series release pushes the bump commit and moves the series branch with the CI App's token: set ci.github-app (\`odoo-nix repo doctor\` lists what the flow needs)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.integration-branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # This job holds the CI App's key, so nothing it installs is resolved at run time:
+      # odoo-nix-tools from Avunu/odoo-nix alone, at the full revision the checkout's
+      # flake.lock pins, every dependency from that revision's py/odoo_nix_tools/uv.lock by hash
+      # and as a wheel, standards-core from Avunu/python-devops-nix at the revision that lock
+      # names, with a pinned uv and no uv cache (standards-install's `hardened`). Before the
+      # App's token is minted.
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+          hardened: "true"
+          source: Avunu/odoo-nix
+          project: py/odoo_nix_tools
+          git-sources: Avunu/python-devops-nix
+
+      - name: The series branch is the checkout's series
+        env:
+          RELEASE: ${{ inputs.release-branch }}
+        run: |
+          set -euo pipefail
+          series="$(odoo-nix config series)"
+          if [ "$series" != "$RELEASE" ]; then
+            echo "::error::release-branch is $RELEASE, but the checkout's series is $series: run odoo-init --sync"
             exit 1
           fi
 
@@ -94,31 +122,6 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           permission-contents: write
           permission-workflows: write
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.integration-branch }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
-        with:
-          cli: odoo-nix
-          engine-input: odoo-nix
-          env-prefix: ODOO_NIX
-          install-spec: >-
-            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
-
-      - name: The series branch is the checkout's series
-        env:
-          RELEASE: ${{ inputs.release-branch }}
-        run: |
-          set -euo pipefail
-          series="$(odoo-nix config series)"
-          if [ "$series" != "$RELEASE" ]; then
-            echo "::error::release-branch is $RELEASE, but the checkout's series is $series: run odoo-init --sync"
-            exit 1
-          fi
 
       # The bump commit is the App's bot's, from the integration head checked out above.
       - id: who
@@ -134,7 +137,7 @@ jobs:
 
       # The push authenticates with the App's token through a header given to the
       # action's git commands only (nothing is written to .git/config).
-      - uses: Avunu/python-devops-nix/.github/actions/standards-release-ff@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-release-ff@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
         with:
           cli: odoo-nix
           release-branch: ${{ inputs.release-branch }}

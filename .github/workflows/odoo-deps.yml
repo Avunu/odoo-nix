@@ -10,21 +10,41 @@ name: odoo-deps
 #   automerge                 every Dependabot PR gets the decision table's verdict:
 #                             auto-merge, needs-review, or closed (a PR that moves odoo-nix
 #                             or the standards profile, which move with the rollout)
+#   hold                      a Dependabot head no key job decided (a plan that failed, or
+#                             whose claim or patch was refused) gets the auto-merge an earlier
+#                             head's run enabled turned off, with GITHUB_TOKEN
 #   update-branches           with dependabot.update-branches, bot PRs that are behind the
 #                             integration branch are brought up to date
-#   project-update            (projects, on the caller's schedule) `odoo project update`
-#                             moves each submodule to its branch's tip, relocks and syncs
-#                             the standards (`odoo-init --sync`), in a PR of its own on
-#                             standards/project-update
+#   project-update-plan,      (projects, on the caller's schedule) `odoo project update
+#   project-update            --no-sync` moves each submodule to its branch's tip and
+#                             relocks; the plan runs it with no write token and hands over
+#                             a patch, which project-update checks and pushes, in a PR of
+#                             its own (standards/project-update-<run>)
 #
 # With the CI App (ci.github-app) the pushes, PRs and merges use its token, so they start
 # CI by themselves; without one, GITHUB_TOKEN, whose events start no workflow, and CI is
 # dispatched on the new head.
 #
 # odoo-nix is the odoo-nix-tools of the odoo-nix the integration branch's flake.lock pins
-# (python-devops-nix's standards-install, `uv tool install`), never the PR's; the verdict
-# and the branch updates are python-devops-nix's standards-deps-automerge and
-# standards-update-branches. Nix runs only the relock and `odoo project update`.
+# (python-devops-nix's standards-install), never the PR's; the verdict and the branch updates
+# are python-devops-nix's standards-deps-automerge and standards-update-branches. Nix runs
+# only the relock and `odoo project update`, in the plan jobs.
+#
+# The runner. relock-push, automerge, update-branches and project-update can hold the CI App's
+# private key, so they always run on GitHub-hosted ubuntu-latest, whatever `runs-on` says, and
+# run none of the repository's code and no dependency the lock does not pin by hash. The plan
+# jobs run that code with no write token and hand over a patch, which the job that holds the
+# key checks out the base for, checks entry by entry and line by line (`odoo-nix verify-patch`:
+# only the paths, modes and lock content an honest relock or submodule move writes; flake.lock,
+# .gitmodules and .github/ never), and pushes without force. Whether the PR moves a rollout
+# input is computed again in each key job, not taken from relock-plan; and odoo-nix-tools comes
+# from Avunu/odoo-nix only, hash-locked (standards-install's `hardened`). The plan jobs run on
+# ubuntu-latest too, whatever `runs-on` says: verify-patch bounds the form of what they hand
+# over, not where it comes from, so no shared self-hosted runner, where an earlier job of any
+# repository can leave a wrapped git or nix behind, may make it. project-update also checks
+# each moved submodule against `git ls-remote` of its .gitmodules branch: the new commit must
+# be that branch's tip, never a fork's pull-request commit or an older one. Private
+# submodules are fetched with ci.submodule-app (Contents read only), never the CI App.
 
 on:
   workflow_call:
@@ -39,8 +59,10 @@ on:
         default: develop
       runs-on:
         description: >-
-          The runner, as JSON: a label or a list of labels (`["self-hosted", "nixos"]`). A pull
-          request from a fork always runs on ubuntu-latest.
+          Ignored: every job runs on ubuntu-latest. The jobs that can hold the CI App's key
+          (relock-push, automerge, update-branches, project-update) do, and so do the plan
+          jobs (relock-plan, project-update-plan), whose patches those jobs push. Kept so
+          that callers that pass it still load.
         type: string
         default: '["ubuntu-latest"]'
       auto-merge:
@@ -65,11 +87,23 @@ on:
           sees too); empty for none
         type: string
         default: ""
+      submodule-client-id:
+        description: >-
+          ci.submodule-app: the client ID (an Actions variable) of a GitHub App with Contents
+          read and no other permission, installed on a project's private submodules'
+          repositories, which project-update-plan fetches with it and project-update reads
+          their branches' tips with; empty for none. Never the CI App: project-update-plan
+          runs the submodules' new code, and an App that can write is refused.
+        type: string
+        default: ""
     secrets:
       APP_PRIVATE_KEY:
         description: >-
           ci.github-app: the CI App's private key (PEM). A Dependabot run sees only Dependabot
           secrets: store it there too.
+        required: false
+      SUBMODULE_PRIVATE_KEY:
+        description: "ci.submodule-app: that App's private key (PEM)"
         required: false
 
 permissions: {}
@@ -83,29 +117,19 @@ jobs:
       inputs.shape == 'addons' && github.event_name == 'pull_request' &&
       github.event.pull_request.user.login == 'dependabot[bot]' &&
       startsWith(github.head_ref, 'dependabot/nix/')
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(inputs.runs-on) }}
+    # GitHub-hosted, whatever runs-on says: relock-push pushes what this job hands over, so
+    # no shared self-hosted runner, where an earlier job of any repository can leave state
+    # behind, makes it. The relock evaluates the flake and runs uv; it builds no shell.
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: read # the checkout; this job runs the PR's code and holds no write token
+    # What the jobs that hold the key read of this one: `state` only to check it against their
+    # own `moved`, `empty` only as the claim it is (automerge bounds it).
     outputs:
       state: ${{ steps.inputs.outputs.state }}
-      moved: ${{ steps.inputs.outputs.moved }}
       empty: ${{ steps.patch.outputs.empty }}
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -113,7 +137,6 @@ jobs:
           persist-credentials: false
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        if: runner.environment == 'github-hosted'
         with:
           determinate: false
 
@@ -128,7 +151,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/base"
           gh api "repos/$REPO/contents/flake.lock?ref=$INTEGRATION" --jq .content | base64 -d > "$RUNNER_TEMP/base/flake.lock"
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
         with:
           cli: odoo-nix
           engine-input: odoo-nix
@@ -162,45 +185,154 @@ jobs:
   relock-push:
     needs: relock-plan
     if: needs.relock-plan.outputs.empty == 'false'
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(inputs.runs-on) }}
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write # push the relock commit to the Dependabot branch without the App
       actions: write # without the App, dispatch ci.yml and pr-policy.yml on it
       pull-requests: write # enable auto-merge
+    # The commit it pushed, which `hold` reads as this run's head too.
+    outputs:
+      sha: ${{ steps.push.outputs.sha }}
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
-
+      # The commit relock-plan built its patch on (the event's head SHA), never the branch,
+      # which may have moved since: the push below is no force push, so a branch that moved is
+      # rejected rather than overwritten.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+
+      # Recomputed here from the PR head's flake.lock and its merge-base's (the integration
+      # branch where the PR left it), through the API, never taken from relock-plan, which ran
+      # the PR's code (standards_core.ci.relock.moved_inputs, in jq).
+      - id: moved
+        name: Does the PR move odoo-nix or the standards profile?
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          merge_base="$(gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq .merge_base_commit.sha)"
+          for at in "$merge_base" "$HEAD_SHA"; do
+            gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/flake.lock?ref=$at" > "$RUNNER_TEMP/$at.lock"
+          done
+          moved="$(jq -rn --slurpfile base "$RUNNER_TEMP/$merge_base.lock" --slurpfile head "$RUNNER_TEMP/$HEAD_SHA.lock" '
+            def node($lock; $name): $lock.nodes[$lock.root // "root"].inputs[$name] as $ref
+              | if $ref == null then null elif ($ref | type) == "array" then ["follows"] + $ref else $lock.nodes[$ref].locked end;
+            [("odoo-nix", "standards-profile") as $name | select(node($base[0]; $name) != node($head[0]; $name)) | $name] | join(",")')"
+          echo "moved=$moved"
+          echo "moved=$moved" >> "$GITHUB_OUTPUT"
+
+      # A PR that moves a rollout input is closed by automerge, never relocked: relock-plan
+      # should have made no patch for it.
+      - if: steps.moved.outputs.moved != ''
+        name: Refuse to relock a PR that moves a rollout input
+        env:
+          MOVED: ${{ steps.moved.outputs.moved }}
+        run: |
+          echo "::error::the PR moves ${MOVED}, which move only through odoo-nix repo rollout; relock-plan should not have made a patch"
+          exit 1
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: relock-patch
           path: ${{ runner.temp }}/relock
 
-      - name: Apply the relock patch (nothing else runs)
+      # relock-plan ran the PR's code, so its patch is data to check, before any token exists:
+      # only what `nix run .#relock` writes in an addons repository (nix/uv.lock, and the
+      # managed blocks of nix/pyproject.toml), each an added, modified or deleted regular file
+      # (mode 100644); verify-patch below then refuses a deletion and checks the content. flake.lock is Dependabot's, and the jobs that hold the App's key install
+      # odoo-nix-tools from the revision the integration branch's locks, so a relock never
+      # changes it. A rename, copy, mode change, symlink, `..` or absolute path, or anything
+      # under .github/ (a workflow moves only through odoo-nix repo rollout) is refused.
+      - name: Check and apply the relock patch (nothing else runs)
+        env:
+          PATCH: ${{ runner.temp }}/relock/relock.patch
+          ALLOW: '^nix/(uv\.lock|pyproject\.toml)$'
         run: |
           set -euo pipefail
-          git apply --index "$RUNNER_TEMP/relock/relock.patch"
-          if git diff --cached --name-only | grep -E '(^|/)\.github/workflows/'; then
-            echo "::error::the relock would change a workflow: run odoo-nix repo rollout"
+          # The patch text first: no rename, copy or mode change, and no mode but 100644.
+          if grep -qE '^((rename|copy) (from|to)|(dis)?similarity index|(old|new) mode) ' "$PATCH" \
+            || grep -E '^(new file|deleted file) mode ' "$PATCH" | grep -vE ' mode 100644$' > /dev/null \
+            || grep -E '^index [0-9a-f]+\.\.[0-9a-f]+ ' "$PATCH" | grep -vE ' 100644$' > /dev/null; then
+            echo "::error::the patch renames, copies or changes the mode of a file, or has a mode other than 100644"
             exit 1
           fi
+          git apply --index "$PATCH"
+          # Then what the index holds against HEAD, entry by entry.
+          git diff --cached --no-renames --raw -z HEAD > "$RUNNER_TEMP/index.raw"
+          bad=0
+          while IFS= read -r -d '' meta && IFS= read -r -d '' path; do
+            read -r old new _ _ status <<< "${meta#:}"
+            why=""
+            case "$status" in
+              A) [ "$new" = 100644 ] || why="mode $new" ;;
+              M) { [ "$old" = 100644 ] && [ "$new" = 100644 ]; } || why="mode $old to $new" ;;
+              D) [ "$old" = 100644 ] || why="mode $old" ;;
+              *) why="change type $status" ;;
+            esac
+            if [[ "/$path/" == *//* || "/$path/" == */./* || "/$path/" == */../* || "/$path/" == */.github/* ]]; then
+              why="${why:+$why; }path"
+            elif ! [[ "$path" =~ $ALLOW ]]; then
+              why="${why:+$why; }not a path this job pushes"
+            fi
+            if [ "$status" != D ] && [ -L "$path" ]; then
+              why="${why:+$why; }symlink"
+            fi
+            if [ -n "$why" ]; then
+              echo "::error::refusing ${path@Q}: $why"
+              bad=1
+            fi
+          done < "$RUNNER_TEMP/index.raw"
+          if [ "$bad" != 0 ]; then
+            exit 1
+          fi
+          if [ ! -s "$RUNNER_TEMP/index.raw" ]; then
+            echo "::error::the patch changes nothing"
+            exit 1
+          fi
+          git --no-pager diff --cached --stat HEAD
+
+      # The integration branch: its flake.lock names the odoo-nix-tools to install, and its
+      # configuration the gates auto-merge waits for.
+      - name: Base checkout, for the tools and the gates the integration branch requires
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.integration-branch }}
+          path: .base
+          persist-credentials: false
+
+      # This job can hold the CI App's key, so nothing it installs is resolved at run time:
+      # odoo-nix-tools from Avunu/odoo-nix alone, at the full revision the integration branch's
+      # flake.lock pins (never the PR's), every dependency from that revision's
+      # py/odoo_nix_tools/uv.lock by hash and as a wheel, standards-core from
+      # Avunu/python-devops-nix at the revision that lock names, with a pinned uv and no uv
+      # cache (standards-install's `hardened`). Before the App's token is minted.
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+          hardened: "true"
+          source: Avunu/odoo-nix
+          project: py/odoo_nix_tools
+          git-sources: Avunu/python-devops-nix
+          working-directory: .base
+
+      # The paths alone don't bound what the relock pushes and auto-merges: nix/pyproject.toml
+      # may differ from the PR head's only inside odoo-nix's managed blocks, and every source
+      # nix/uv.lock names is PyPI, a relative path in the repository, or one the head's lock
+      # already has, with every new file on files.pythonhosted.org and named for its package
+      # and version (odoo_nix_tools.lockpatch). Before the App's token is minted.
+      - name: Check what the relock patch locks
+        run: odoo-nix verify-patch relock --base HEAD
 
       - id: app
         name: Whether the caller passes the CI App
@@ -217,7 +349,10 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      - name: Commit and push to the PR branch
+      # Onto the commit checked out above, and no force: if the branch moved since the event,
+      # the push is rejected, and the run of the new head relocks it.
+      - id: push
+        name: Commit and push to the PR branch
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           HEAD_REF: ${{ github.head_ref }}
@@ -225,7 +360,8 @@ jobs:
           set -euo pipefail
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -m "chore(deps): relock after the flake bump [dependabot skip]"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:$HEAD_REF"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$HEAD_REF"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - if: steps.app.outputs.enabled != 'true'
         name: CI on the new head (a GITHUB_TOKEN push raises no event)
@@ -239,24 +375,8 @@ jobs:
             gh workflow run pr-policy.yml --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF"
           fi
 
-      - if: inputs.auto-merge
-        name: Base checkout, for the gates the integration branch requires
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.integration-branch }}
-          path: .base
-          persist-credentials: false
-
-      - if: inputs.auto-merge
-        uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
-        with:
-          cli: odoo-nix
-          engine-input: odoo-nix
-          env-prefix: ODOO_NIX
-          install-spec: >-
-            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
-          working-directory: .base
-
+      # Only the commit this job pushed (--head-sha): a PR that moved since merges on the run
+      # its new head starts.
       - if: inputs.auto-merge
         name: Auto-merge, where required checks protect the integration branch
         working-directory: .base
@@ -265,7 +385,8 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           INTEGRATION: ${{ inputs.integration-branch }}
           METHOD: ${{ inputs.merge-method }}
-        run: odoo-nix ci enable-automerge --pr-url "$PR_URL" --integration "$INTEGRATION" --merge-method "$METHOD"
+          HEAD_SHA: ${{ steps.push.outputs.sha }}
+        run: odoo-nix ci enable-automerge --pr-url "$PR_URL" --integration "$INTEGRATION" --merge-method "$METHOD" --head-sha "$HEAD_SHA"
 
   automerge:
     needs: relock-plan
@@ -273,59 +394,113 @@ jobs:
       always() && github.event_name == 'pull_request' &&
       github.event.pull_request.user.login == 'dependabot[bot]' && inputs.auto-merge &&
       (needs.relock-plan.result == 'success' || needs.relock-plan.result == 'skipped')
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(inputs.runs-on) }}
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write # gh pr merge --auto without the App
       pull-requests: write # enable auto-merge, label or close the PR
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
-
       # The integration branch, never the PR: its configuration says which gates are required.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.integration-branch }}
           persist-credentials: false
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
+      # This job can hold the CI App's key, so nothing it installs is resolved at run time:
+      # odoo-nix-tools from Avunu/odoo-nix alone, at the full revision the integration branch's
+      # flake.lock pins (never the PR's), every dependency from that revision's
+      # py/odoo_nix_tools/uv.lock by hash and as a wheel, standards-core from
+      # Avunu/python-devops-nix at the revision that lock names, with a pinned uv and no uv
+      # cache (standards-install's `hardened`). Before the App's token is minted.
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
         with:
           cli: odoo-nix
           engine-input: odoo-nix
           env-prefix: ODOO_NIX
           install-spec: >-
             odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+          hardened: "true"
+          source: Avunu/odoo-nix
+          project: py/odoo_nix_tools
+          git-sources: Avunu/python-devops-nix
 
       # `$engine` in the decision table: the odoo-nix repository flake.lock locks.
       - id: engine
         name: The odoo-nix repository the integration branch pins
         run: echo "repo=$(jq -r '.nodes[.nodes.root.inputs["odoo-nix"]].locked | "\(.owner)/\(.repo)"' flake.lock)" >> "$GITHUB_OUTPUT"
 
-      # A nix PR in an addon repository went through relock-plan; in a project nothing
-      # relocks it here, so it has no relock state and its verdict leaves it to a person.
-      - id: relock
-        name: The relock plan's state
+      # Recomputed here from the PR head's flake.lock and its merge-base's (the integration
+      # branch where the PR left it), through the API, never taken from relock-plan, which ran
+      # the PR's code (standards_core.ci.relock.moved_inputs, in jq).
+      - id: moved
+        name: Does the PR move odoo-nix or the standards profile?
         env:
-          STATE: ${{ needs.relock-plan.outputs.state }}
-          EMPTY: ${{ needs.relock-plan.outputs.empty }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          case "$STATE" in
-            "") relock="" ;;
-            rollout-input-moved) relock="rollout-input-moved" ;;
-            *) if [ "$EMPTY" = true ]; then relock="empty"; else relock="patch"; fi ;;
-          esac
+          merge_base="$(gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq .merge_base_commit.sha)"
+          for at in "$merge_base" "$HEAD_SHA"; do
+            gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/flake.lock?ref=$at" > "$RUNNER_TEMP/$at.lock"
+          done
+          moved="$(jq -rn --slurpfile base "$RUNNER_TEMP/$merge_base.lock" --slurpfile head "$RUNNER_TEMP/$HEAD_SHA.lock" '
+            def node($lock; $name): $lock.nodes[$lock.root // "root"].inputs[$name] as $ref
+              | if $ref == null then null elif ($ref | type) == "array" then ["follows"] + $ref else $lock.nodes[$ref].locked end;
+            [("odoo-nix", "standards-profile") as $name | select(node($base[0]; $name) != node($head[0]; $name)) | $name] | join(",")')"
+          echo "moved=$moved"
+          echo "moved=$moved" >> "$GITHUB_OUTPUT"
+
+      # The relock state the verdict reads, from this job's own `moved` and, for the rest, the
+      # plan's claim checked here. A nix PR in an addon repository went through relock-plan; in
+      # a project nothing relocks it here, so it has no relock state and its verdict leaves it
+      # to a person. Whether relock-plan ran is the job's result, never its outputs (this job
+      # runs only when it succeeded or was skipped; a plan that failed is `hold`'s): a plan
+      # that ran and says nothing is left for review. A plan that says a rollout input moved
+      # when the PR's flake.lock moves none is left for review. `empty` (nothing to relock,
+      # which auto-merges) is relock-plan's claim, so it is taken only for a PR whose files
+      # are flake.lock and what relock-push writes, and the merge still waits for the
+      # required checks on the PR's head. Left for review, this step fails before the token,
+      # and `hold` turns off auto-merge an earlier head's run enabled.
+      - id: relock
+        name: The relock state
+        env:
+          PLAN: ${{ needs.relock-plan.result }}
+          STATE: ${{ needs.relock-plan.outputs.state }}
+          EMPTY: ${{ needs.relock-plan.outputs.empty }}
+          MOVED: ${{ steps.moved.outputs.moved }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ "$PLAN" = skipped ]; then
+            # relock-plan did not run (a project, or not a nix PR).
+            relock=""
+          elif [ -z "$STATE" ]; then
+            echo "::error::relock-plan ran and reports no relock state: left for review"
+            exit 1
+          elif [ -n "$MOVED" ]; then
+            relock="rollout-input-moved"
+          elif [ "$STATE" = rollout-input-moved ]; then
+            echo "::error::relock-plan says the PR moves a rollout input, and the PR's flake.lock moves none: left for review"
+            exit 1
+          elif [ "$EMPTY" = true ]; then
+            files="$(gh api --paginate "repos/$REPO/pulls/$NUMBER/files" --jq '.[] | .filename, (.previous_filename // empty)')"
+            other="$(grep -vxE 'flake\.lock|nix/uv\.lock|nix/pyproject\.toml' <<<"$files" || true)"
+            if [ -n "$other" ]; then
+              echo "::error::relock-plan says there is nothing to relock, and the PR changes more than flake.lock and the relock's files: left for review"
+              printf '%s\n' "$other"
+              exit 1
+            fi
+            relock="empty"
+          else
+            relock="patch"
+          fi
+          echo "relock=$relock"
           echo "relock=$relock" >> "$GITHUB_OUTPUT"
 
       - id: app
@@ -343,7 +518,7 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-deps-automerge@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-deps-automerge@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
         with:
           cli: odoo-nix
           integration: ${{ inputs.integration-branch }}
@@ -351,12 +526,62 @@ jobs:
           policy: ${{ inputs.auto-merge-policy }}
           engine-repo: ${{ steps.engine.outputs.repo }}
           relock: ${{ steps.relock.outputs.relock }}
-          moved: ${{ needs.relock-plan.outputs.moved }}
+          moved: ${{ steps.moved.outputs.moved }}
           token: ${{ steps.app-token.outputs.token || github.token }}
+
+  # A head no key job decided turns off auto-merge an earlier head's run enabled: GitHub keeps
+  # it on across Dependabot's pushes (a group refreshed in place), and checks
+  # --match-head-commit only when it is enabled, so the new head would merge once its checks
+  # pass, never relocked, checked or given its verdict. Runs when relock-plan failed (or was
+  # cancelled), when relock-push refused its patch or a rollout input, or when automerge did
+  # not finish (skipped after a failed plan, a plan's claim it refuses, or a failure of its
+  # own): then the plan, which runs the PR's code with no secret, cannot leave the earlier
+  # auto-merge armed by failing. With the job's own GITHUB_TOKEN, never the App's key; it
+  # checks nothing out and runs only gh (python-devops-nix's dependabot-auto-merge `hold`). A
+  # PR whose head moved past this run's (the event's, or relock-push's commit) is left to the
+  # run that head starts.
+  hold:
+    needs: [relock-plan, relock-push, automerge]
+    if: >-
+      always() && github.event_name == 'pull_request' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' && inputs.auto-merge &&
+      ((needs.relock-plan.result != 'success' && needs.relock-plan.result != 'skipped') ||
+      (needs.relock-push.result != 'success' && needs.relock-push.result != 'skipped') ||
+      needs.automerge.result != 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # gh pr merge --disable-auto
+      pull-requests: write # gh pr merge --disable-auto, the needs-review label
+    steps:
+      - name: Turn off auto-merge and label the PR for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSHED: ${{ needs.relock-push.outputs.sha }}
+        run: |
+          set -euo pipefail
+          head="$(gh pr view "$PR_URL" --json headRefOid --jq .headRefOid)"
+          if [ "$head" != "$HEAD_SHA" ] && [ "$head" != "$PUSHED" ]; then
+            echo "the head of $PR_URL moved to $head since this run: the run it starts decides"
+            exit 0
+          fi
+          if [ "$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')" = true ]; then
+            gh pr merge --disable-auto "$PR_URL"
+            echo "::notice::auto-merge turned off on $PR_URL: no key job decided its head $head"
+          else
+            echo "auto-merge is not enabled on $PR_URL"
+          fi
+          if ! gh pr edit "$PR_URL" --add-label needs-review; then
+            echo "::warning::could not label $PR_URL needs-review"
+          fi
 
   update-branches:
     if: inputs.update-branches && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     # One run at a time; a burst of merges leaves one run pending, which sees them all.
     concurrency:
@@ -368,32 +593,28 @@ jobs:
       actions: write # without the App, dispatch ci.yml and pr-policy.yml on the new head
       checks: read # which ci / * checks ran on that head
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.integration-branch }}
           persist-credentials: false
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
+      # This job can hold the CI App's key, so nothing it installs is resolved at run time:
+      # odoo-nix-tools from Avunu/odoo-nix alone, at the full revision the integration branch's
+      # flake.lock pins (never the PR's), every dependency from that revision's
+      # py/odoo_nix_tools/uv.lock by hash and as a wheel, standards-core from
+      # Avunu/python-devops-nix at the revision that lock names, with a pinned uv and no uv
+      # cache (standards-install's `hardened`). Before the App's token is minted.
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
         with:
           cli: odoo-nix
           engine-input: odoo-nix
           env-prefix: ODOO_NIX
           install-spec: >-
             odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+          hardened: "true"
+          source: Avunu/odoo-nix
+          project: py/odoo_nix_tools
+          git-sources: Avunu/python-devops-nix
 
       - id: app
         name: Whether the caller passes the CI App
@@ -424,42 +645,313 @@ jobs:
           permission-pull-requests: write
 
       # A GITHUB_TOKEN update raises no event: then CI is dispatched on each new head.
-      - uses: Avunu/python-devops-nix/.github/actions/standards-update-branches@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
+      - uses: Avunu/python-devops-nix/.github/actions/standards-update-branches@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
         with:
           cli: odoo-nix
           integration: ${{ inputs.integration-branch }}
           token: ${{ steps.app-token-workflows.outputs.token || steps.app-token.outputs.token || github.token }}
           dispatch-ci: ${{ steps.app-token-workflows.outputs.token == '' && steps.app-token.outputs.token == '' }}
 
-  project-update:
+  # Runs the project's dev shell and the submodules' new code (`odoo project update`), so it
+  # holds no write token and never the CI App's key: it hands over a patch. Private submodules
+  # are fetched with ci.submodule-app, an App with Contents read only, or with GITHUB_TOKEN.
+  project-update-plan:
     if: >-
       inputs.shape == 'project' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # GitHub-hosted, whatever runs-on says: project-update pushes what this job hands over and
+    # can enable auto-merge on it, so no shared self-hosted runner, where an earlier job of any
+    # repository can leave state behind (a wrapped git or nix in the runner's HOME), makes it.
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      contents: write # push standards/project-update without the App
-      pull-requests: write # open its PR, enable auto-merge
-      actions: write # without the App, dispatch ci.yml and pr-policy.yml on it
+      contents: read # the checkout; this job runs the submodules' code and holds no write token
+    outputs:
+      changed: ${{ steps.update.outputs.changed }}
+      base: ${{ steps.update.outputs.base }}
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
+      # A project's flake takes more than a GitHub-hosted runner has free: the submodules' full
+      # history (OCB's alone is many GiB), then the shell (as odoo-test.yml's test).
+      - name: Free disk space on the GitHub-hosted runner
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.integration-branch }}
           persist-credentials: false
+
+      # The key is in this job, which runs the submodules' code: a key with no client ID, or
+      # the CI App's client ID, stops it.
+      - id: app
+        name: Whether the caller passes a submodule App
+        env:
+          ENABLED: ${{ secrets.SUBMODULE_PRIVATE_KEY != '' }}
+          CLIENT_ID: ${{ inputs.submodule-client-id }}
+          SAME: ${{ inputs.submodule-client-id != '' && inputs.submodule-client-id == inputs.client-id }}
+        run: |
+          if [ "$SAME" = true ]; then
+            echo "::error::ci.submodule-app names the CI App (ci.github-app): this job runs the submodules' code, so it takes an App with Contents read only"
+            exit 1
+          fi
+          if [ "$ENABLED" = true ] && [ -z "$CLIENT_ID" ]; then
+            echo "::error::SUBMODULE_PRIVATE_KEY is passed with no submodule-client-id: this job runs the submodules' code, so the key's App is checked first, and that takes its client ID (ci.submodule-app names both)"
+            exit 1
+          fi
+          echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+
+      # Whatever the names, the key may be another App's (the CI App's, its values copied under
+      # new names): the App it signs for is checked before anything else, whether or not a
+      # submodule needs a token. A token of its installation on the owner (Metadata read only)
+      # names the App, and an App that can do more than read contents stops the job. The job
+      # holds the key, so the token gives it nothing more.
+      - if: steps.app.outputs.enabled == 'true'
+        id: app-check
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.submodule-client-id }}
+          private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app] Metadata read, to name the App
+          permission-metadata: read
+
+      - if: steps.app.outputs.enabled == 'true'
+        name: Refuse a submodule App that can write
+        env:
+          GH_TOKEN: ${{ steps.app-check.outputs.token }}
+          SLUG: ${{ steps.app-check.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          granted="$(gh api "apps/$SLUG" --jq '.permissions | to_entries[] | select((.key != "contents" and .key != "metadata") or .value != "read") | "\(.key): \(.value)"')"
+          if [ -n "$granted" ]; then
+            echo "::error::ci.submodule-app's key is $SLUG's, which can do more than read contents ($(paste -sd, <<<"$granted")): this job runs the submodules' code, so it takes an App with Contents read only, never the CI App"
+            exit 1
+          fi
+          echo "ci.submodule-app is $SLUG: Contents read only"
+
+      # Contents read on the owner's repositories the submodules name that GITHUB_TOKEN cannot
+      # read (the private and internal ones), no other: the App is installed on those, and a
+      # token asked for a repository it is not installed on is refused (HTTP 422). None of
+      # them: no token, and the submodules are fetched with GITHUB_TOKEN.
+      - if: steps.app.outputs.enabled == 'true'
+        id: repos
+        name: The owner's private repositories the submodules name
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          repos=()
+          if [ -f .gitmodules ]; then
+            while read -r _ url; do
+              name=""
+              if [[ "${url,,}" =~ ^(https://|ssh://git@|git@)github\.com[:/]${OWNER,,}/([^/]+)$ ]]; then
+                name="${BASH_REMATCH[2]%.git}"
+              elif [[ "$url" =~ ^\.\./([^/]+)$ ]]; then
+                name="${BASH_REMATCH[1]%.git}"
+              fi
+              if [ -n "$name" ]; then
+                if [ "$(gh api "repos/$OWNER/$name" --jq .visibility 2>/dev/null || true)" != public ]; then
+                  repos+=("$name")
+                fi
+              fi
+            done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
+          fi
+          echo "repositories=$(IFS=,; echo "${repos[*]}")" >> "$GITHUB_OUTPUT"
+
+      - if: steps.repos.outputs.repositories != ''
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.submodule-client-id }}
+          private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
+          repositories: ${{ steps.repos.outputs.repositories }}
+          permission-contents: read
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          determinate: false
+
+      # `--no-sync`: the standards' managed files move with odoo-nix repo rollout, not here, and
+      # project-update pushes only the gitlinks, pyproject.toml and uv.lock. `--no-migrate`:
+      # there is no database to migrate in CI.
+      - id: update
+        name: odoo project update
+        env:
+          ODOO_NIX_CI: "1"
+          TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          ENABLED: ${{ steps.app-token.outputs.token != '' }}
+        run: |
+          set -euo pipefail
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # The submodules' fetches authenticate through a header given to this step's
+          # git commands only (nothing is written to .git/config).
+          GIT_CONFIG_COUNT=1
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+          echo "::add-mask::$GIT_CONFIG_VALUE_0"
+          git submodule sync --recursive
+          if ! git submodule update --init --recursive; then
+            if [ "$ENABLED" != true ]; then
+              echo "::error::a submodule could not be fetched with GITHUB_TOKEN, which reads this repository and public ones only: for a private submodule, pass ci.submodule-app (an App with Contents read only, never the CI App, installed on that submodule's repository)"
+            fi
+            exit 1
+          fi
+          GH_TOKEN="$TOKEN" nix develop --no-pure-eval -c odoo project update --no-sync --no-migrate
+          git add -A
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git diff --cached --binary HEAD > "$RUNNER_TEMP/project-update.patch"
+            git --no-pager diff --cached --stat HEAD
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.update.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: project-update-patch
+          path: ${{ runner.temp }}/project-update.patch
+
+  project-update:
+    needs: project-update-plan
+    if: needs.project-update-plan.outputs.changed == 'true'
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    # It runs nothing of the project's: it checks the plan's patch and pushes it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # push standards/project-update-<run> without the App
+      pull-requests: write # open its PR, close the one it replaces, enable auto-merge
+      actions: write # without the App, dispatch ci.yml and pr-policy.yml on it
+    steps:
+      # The integration branch, checked out here, never taken from the plan: the plan's patch
+      # applies to the commit the plan ran on, which must still be the branch's head.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.integration-branch }}
+          persist-credentials: false
+
+      - name: The plan ran on this commit
+        env:
+          BASE: ${{ needs.project-update-plan.outputs.base }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [ "$BASE" != "$head" ]; then
+            echo "::error::project-update-plan ran on ${BASE@Q}, and the integration branch is at $head: the next run updates it"
+            exit 1
+          fi
+
+      # This job holds the CI App's key, so nothing it installs is resolved at run time:
+      # odoo-nix-tools from Avunu/odoo-nix alone, at the full revision the integration branch's
+      # flake.lock pins, every dependency from that revision's py/odoo_nix_tools/uv.lock by hash
+      # and as a wheel, standards-core from Avunu/python-devops-nix at the revision that lock
+      # names, with a pinned uv and no uv cache (standards-install's `hardened`). Before the
+      # App's token is minted.
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+          hardened: "true"
+          source: Avunu/odoo-nix
+          project: py/odoo_nix_tools
+          git-sources: Avunu/python-devops-nix
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: project-update-patch
+          path: ${{ runner.temp }}/project-update
+
+      # The plan ran the submodules' code, so its patch is data to check, before any token
+      # exists. Staged in the index only (the submodules are never checked out here), then
+      # held to what `odoo project update --no-sync` writes in a project: a gitlink the base's
+      # .gitmodules registers moved to another commit, and pyproject.toml (inside odoo-nix's
+      # managed blocks) and uv.lock (PyPI, paths in the repository, or the base lock's own
+      # sources), each a regular 100644 file. .gitmodules, flake.lock, .github/, any other
+      # path, a rename, copy, deletion, mode change or symlink is refused (`odoo-nix
+      # verify-patch project-update`, odoo_nix_tools.lockpatch).
+      - name: Check and stage the project-update patch (nothing else runs)
+        env:
+          PATCH: ${{ runner.temp }}/project-update/project-update.patch
+        run: |
+          set -euo pipefail
+          if grep -qE '^((rename|copy) (from|to)|(dis)?similarity index|(old|new) mode|deleted file mode) ' "$PATCH" \
+            || grep -E '^new file mode ' "$PATCH" | grep -vE ' mode 100644$' > /dev/null \
+            || grep -E '^index [0-9a-f]+\.\.[0-9a-f]+ ' "$PATCH" | grep -vE ' (100644|160000)$' > /dev/null; then
+            echo "::error::the patch renames, copies or deletes a file, changes a mode, or has a mode other than 100644 or 160000"
+            exit 1
+          fi
+          git apply --cached "$PATCH"
+          odoo-nix verify-patch project-update --base HEAD
+          git --no-pager diff --cached --stat HEAD
+
+      # verify-patch bounds a gitlink to a submodule .gitmodules registers; this bounds where
+      # it moves: to the tip of the branch .gitmodules pairs it with, as `git ls-remote` of the
+      # URL it names reads it here, which is all `odoo project update` does. Not a fork's
+      # pull-request commit (GitHub serves those by SHA from the base repository) or an older
+      # one. A private submodule's tip is read with ci.submodule-app (Contents read, on the
+      # repositories GITHUB_TOKEN cannot read), never with the CI App; this job runs nothing
+      # of the project's, so that key reaches no code here.
+      - id: sub
+        name: Whether the caller passes a submodule App
+        env:
+          ENABLED: ${{ inputs.submodule-client-id != '' && secrets.SUBMODULE_PRIVATE_KEY != '' }}
+        run: echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+
+      # Contents read on the owner's repositories the submodules name that GITHUB_TOKEN cannot
+      # read (the private and internal ones), no other: the App is installed on those, and a
+      # token asked for a repository it is not installed on is refused (HTTP 422). None of
+      # them: no token, and the tips are read with GITHUB_TOKEN.
+      - if: steps.sub.outputs.enabled == 'true'
+        id: repos
+        name: The owner's private repositories the submodules name
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          repos=()
+          if [ -f .gitmodules ]; then
+            while read -r _ url; do
+              name=""
+              if [[ "${url,,}" =~ ^(https://|ssh://git@|git@)github\.com[:/]${OWNER,,}/([^/]+)$ ]]; then
+                name="${BASH_REMATCH[2]%.git}"
+              elif [[ "$url" =~ ^\.\./([^/]+)$ ]]; then
+                name="${BASH_REMATCH[1]%.git}"
+              fi
+              if [ -n "$name" ]; then
+                if [ "$(gh api "repos/$OWNER/$name" --jq .visibility 2>/dev/null || true)" != public ]; then
+                  repos+=("$name")
+                fi
+              fi
+            done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
+          fi
+          echo "repositories=$(IFS=,; echo "${repos[*]}")" >> "$GITHUB_OUTPUT"
+
+      - if: steps.repos.outputs.repositories != ''
+        id: sub-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.submodule-client-id }}
+          private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
+          repositories: ${{ steps.repos.outputs.repositories }}
+          permission-contents: read
+
+      - name: Each moved submodule is its branch's tip
+        env:
+          TOKEN: ${{ steps.sub-token.outputs.token || github.token }}
+        run: |
+          set -euo pipefail
+          GIT_CONFIG_COUNT=1
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+          echo "::add-mask::$GIT_CONFIG_VALUE_0"
+          odoo-nix verify-patch project-update --base HEAD --tips --superproject-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
 
       - id: app
         name: Whether the caller passes the CI App
@@ -467,110 +959,65 @@ jobs:
           ENABLED: ${{ inputs.client-id != '' && secrets.APP_PRIVATE_KEY != '' }}
         run: echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
 
-      # Contents write on this repository, and read on the owner's repositories its
-      # submodules name (the private ones), no other.
-      - if: steps.app.outputs.enabled == 'true'
-        id: repos
-        name: The owner's repositories the submodules name
-        env:
-          OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.event.repository.name }}
-        run: |
-          set -euo pipefail
-          repos="$REPO"
-          if [ -f .gitmodules ]; then
-            while read -r _ url; do
-              if [[ "${url,,}" =~ ^(https://|git@)github\.com[:/]${OWNER,,}/([^/]+)$ ]]; then
-                repos="$repos,${BASH_REMATCH[2]%.git}"
-              fi
-            done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
-          fi
-          echo "repositories=$repos" >> "$GITHUB_OUTPUT"
-
       - if: steps.app.outputs.enabled == 'true'
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ inputs.client-id }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          repositories: ${{ steps.repos.outputs.repositories }}
+          repositories: ${{ github.event.repository.name }}
           permission-contents: write
           permission-pull-requests: write
 
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        if: runner.environment == 'github-hosted'
-        with:
-          determinate: false
-
-      - id: update
-        name: odoo project update
-        env:
-          ODOO_NIX_CI: "1"
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-        run: |
-          set -euo pipefail
-          # The submodules' fetches authenticate through a header given to this step's
-          # git commands only (nothing is written to .git/config).
-          GIT_CONFIG_COUNT=1
-          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
-          echo "::add-mask::$GIT_CONFIG_VALUE_0"
-          git submodule sync --recursive
-          git submodule update --init --recursive
-          nix develop --no-pure-eval -c odoo project update
-          git add -A
-          if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - if: steps.update.outputs.changed == 'true'
-        id: pr
-        name: Commit, push standards/project-update and open its PR
+      # A branch of this run's own, created by a push without force; the PR it opens replaces
+      # the earlier project-update PRs, which are closed with their branches.
+      - id: pr
+        name: Commit, push standards/project-update-<run> and open its PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           INTEGRATION: ${{ inputs.integration-branch }}
+          RUN: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          branch=standards/project-update
+          branch="standards/project-update-$RUN"
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -q -m "chore(deps): update submodules"
-          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$branch"
-          url="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json url --jq '.[0].url // ""')"
-          if [ -z "$url" ]; then
-            url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base "$INTEGRATION" --head "$branch" \
-              --title "chore(deps): update submodules" \
-              --body "Each submodule moved to the tip of its .gitmodules branch, then relocked and the standards synced (\`odoo project update\`).")"
-          fi
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$branch"
+          url="$(gh pr create --repo "$GITHUB_REPOSITORY" --base "$INTEGRATION" --head "$branch" \
+            --title "chore(deps): update submodules" \
+            --body "Each submodule moved to the tip of its .gitmodules branch, then relocked (\`odoo project update --no-sync\`).")"
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --base "$INTEGRATION" --json number,headRefName,isCrossRepository \
+            --jq '.[] | select((.isCrossRepository | not) and (.headRefName | test("^standards/project-update(-[0-9]+-[0-9]+)?$"))) | "\(.number) \(.headRefName)"' |
+            while read -r number head; do
+              if [ "$head" != "$branch" ]; then
+                gh pr close "$number" --repo "$GITHUB_REPOSITORY" --delete-branch --comment "Replaced by $url."
+              fi
+            done
+          {
+            echo "url=$url"
+            echo "branch=$branch"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
 
       # A GITHUB_TOKEN push raises no event; a workflow_dispatch from it does start a run,
       # whose check runs land on the PR's head commit.
-      - if: steps.update.outputs.changed == 'true' && steps.app.outputs.enabled != 'true'
+      - if: steps.app.outputs.enabled != 'true'
         name: CI on the PR's head (a GITHUB_TOKEN push raises no event)
         env:
           GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
         run: |
           set -euo pipefail
-          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref standards/project-update
-          gh workflow run pr-policy.yml --repo "$GITHUB_REPOSITORY" --ref standards/project-update
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          gh workflow run pr-policy.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
 
-      - if: steps.update.outputs.changed == 'true' && inputs.auto-merge
-        uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
-        with:
-          cli: odoo-nix
-          engine-input: odoo-nix
-          env-prefix: ODOO_NIX
-          install-spec: >-
-            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
-
-      - if: steps.update.outputs.changed == 'true' && inputs.auto-merge
+      # Only the commit this job pushed (--head-sha).
+      - if: inputs.auto-merge
         name: Auto-merge, where required checks protect the integration branch
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           PR_URL: ${{ steps.pr.outputs.url }}
           INTEGRATION: ${{ inputs.integration-branch }}
           METHOD: ${{ inputs.merge-method }}
-        run: odoo-nix ci enable-automerge --pr-url "$PR_URL" --integration "$INTEGRATION" --merge-method "$METHOD"
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
+        run: odoo-nix ci enable-automerge --pr-url "$PR_URL" --integration "$INTEGRATION" --merge-method "$METHOD" --head-sha "$HEAD_SHA"

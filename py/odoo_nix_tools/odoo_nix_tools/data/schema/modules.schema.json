@@ -439,6 +439,29 @@
                 "pattern": "^([A-Za-z_][A-Za-z0-9_]*)?$"
               }
             }
+          },
+          "submodule-app": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "app-id",
+              "private-key"
+            ],
+            "default": {
+              "app-id": "",
+              "private-key": ""
+            },
+            "description": "A GitHub App with Contents read and no other permission, installed on the private submodules' repositories: the test gate and project-update-plan, which run the repository's code, fetch them with it, never with github-app. The Actions variable and secret names, never values. \"\" means none: GITHUB_TOKEN, which reads public submodules only.",
+            "properties": {
+              "app-id": {
+                "type": "string",
+                "pattern": "^([A-Za-z_][A-Za-z0-9_]*)?$"
+              },
+              "private-key": {
+                "type": "string",
+                "pattern": "^([A-Za-z_][A-Za-z0-9_]*)?$"
+              }
+            }
           }
         }
       },

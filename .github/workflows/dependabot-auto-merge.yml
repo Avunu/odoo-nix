@@ -1,12 +1,24 @@
 name: Dependabot auto-merge
 
 # Dependabot pull requests, through python-devops-nix's reusable workflows (its
-# docs/conventions.md, CI) with their default policy: every one auto-merges, whatever
-# its ecosystem or update type, github-actions bumps and the OCB pins included. GitHub
-# merges once the branch is mergeable and every *required* status check passes, so
-# auto-merge is only as safe as the checks marked required on `main` (check.yml's
-# `flake` and pr-policy); a pull request whose checks fail stays open. Dependabot's
-# github-actions entry moves the pins below.
+# docs/conventions.md, CI). The nix and pre-commit ones auto-merge, whatever their update
+# type, the OCB pins included. GitHub merges once the branch is mergeable and every
+# *required* status check passes, so auto-merge is only as safe as the checks marked
+# required on `main` (check.yml's `flake` and pr-policy); a pull request whose checks fail
+# stays open.
+#
+# Two ecosystems are reviewed by a person instead (exclude-ecosystems), because what they
+# move runs where the org App's key can be read:
+#   • github_actions: every action pinned in .github/workflows runs here or, through the
+#     reusable workflows (odoo-release, odoo-release-please, odoo-deps), in a product's job
+#     that holds the key (checkout, download-artifact, create-github-app-token,
+#     release-please-action, and through python-devops-nix's actions setup-uv and
+#     fetch-metadata). The reusable workflow's `diff` job also holds any pull request whose
+#     diff touches a workflow or an action file.
+#   • uv: py/odoo_nix_tools/uv.lock is what standards-install's `hardened` mode installs,
+#     by hash, in every product job that holds the key.
+# review-dependencies names the actions those jobs run today, so `diff` holds a bump of one
+# even if Dependabot files it under another ecosystem.
 #
 # The OCB pins (the `ocb` group, dependabot/nix/ocb-*) were once reviewed by a person: a
 # bump can legitimately go red and need `nix run .#relock-fixtures` (.github/dependabot.yml),
@@ -44,7 +56,12 @@ jobs:
     permissions:
       contents: write # gh pr merge --auto
       pull-requests: write # gh pr merge --auto
-    uses: Avunu/python-devops-nix/.github/workflows/dependabot-auto-merge.yml@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
+    uses: Avunu/python-devops-nix/.github/workflows/dependabot-auto-merge.yml@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+    with:
+      exclude-ecosystems: github_actions uv
+      review-dependencies: >-
+        actions/create-github-app-token actions/checkout actions/download-artifact
+        astral-sh/setup-uv dependabot/fetch-metadata googleapis/release-please-action
     # A Dependabot run sees only Dependabot secrets: the App's ID may be one too.
     secrets:
       APP_ID: ${{ vars.AVUNU_CI_APP_ID || secrets.AVUNU_CI_APP_ID }}
@@ -56,7 +73,7 @@ jobs:
       contents: write # update-branch without the App
       pull-requests: write # update-branch
       actions: write # without the App, dispatch the required checks on the new head
-    uses: Avunu/python-devops-nix/.github/workflows/dependabot-update-branches.yml@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
+    uses: Avunu/python-devops-nix/.github/workflows/dependabot-update-branches.yml@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
     with:
       dispatch: check.yml pr-policy.yml
     secrets:

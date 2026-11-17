@@ -13,12 +13,24 @@ name: odoo-release-please
 # 3. sync: on the release PR's branch, `odoo-nix release sync` writes release-please's
 #    versions into the addons' __manifest__.py, which release-please cannot do itself;
 # 4. package: for every release the run made, `odoo-nix release package` in the dev shell
-#    builds the addon's zip (with its front end built, `releases.build`) and its wheel,
-#    and attaches both to the release.
+#    builds the addon's zip (with its front end built, `releases.build`) and its wheel, with
+#    no token, and hands them over as an artifact;
+# 5. upload: checks that the artifact holds only plain .zip and .whl files and attaches them
+#    to the release.
 #
 # Every write uses the CI App's token: a GITHUB_TOKEN PR starts no CI, and the App's
 # pushes and PR do. `repackage: <tag>` (workflow_dispatch) builds one release's files
 # again, from its tag.
+#
+# The runner. Every job runs on GitHub-hosted ubuntu-latest, whatever `runs-on` says (it is
+# ignored). The jobs that hold the CI App's private key (release-please, sync, upload) run only
+# odoo-nix's own tooling (installed hash-locked, from Avunu/odoo-nix only, before the token is
+# minted, with no uv cache), release-please and gh. repackage, whose plan upload trusts, and
+# package, whose files upload attaches with the App's token, run there too, so no shared
+# self-hosted runner, where an earlier job of any repository can leave state behind, makes
+# what is published. package runs the addon's build (its npm dependencies included) with no
+# secret and no cache it could seed for a later job: upload attaches only the files of its own
+# leg's tag, and of the repackage tag alone on a dispatch.
 
 on:
   workflow_call:
@@ -33,7 +45,9 @@ on:
         default: ""
       runs-on:
         description: >-
-          The runner, as JSON: a label or a list of labels (`["self-hosted", "nixos"]`).
+          Ignored, kept for the callers that pass it: every job runs on ubuntu-latest. The
+          jobs that hold the CI App's key (release-please, sync, upload), repackage, whose
+          plan upload trusts, and package, whose files upload attaches.
         type: string
         default: '["ubuntu-latest"]'
       client-id:
@@ -54,7 +68,9 @@ jobs:
   release-please:
     name: release-please
     if: inputs.repackage == ''
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read # the checkout; every write uses the App's token
@@ -62,26 +78,50 @@ jobs:
       packages: ${{ steps.plan.outputs.packages }}
       pr-branch: ${{ steps.plan.outputs.pr-branch }}
     steps:
-      # A self-hosted runner reuses $RUNNER_TEMP and the workspace, and an interrupted job leaves
-      # read-only files there (copies out of the Nix store) that the runner's cleanup and checkout
-      # cannot remove: clear $RUNNER_TEMP, keeping the runner's _* files, and make the workspace
-      # writable for checkout to clean. The working directory is $RUNNER_TEMP, which always exists.
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
-
       - name: The release flow needs the CI App
         env:
           ENABLED: ${{ inputs.client-id != '' && secrets.APP_PRIVATE_KEY != '' }}
         run: |
           if [ "$ENABLED" != true ]; then
             echo "::error::the series release opens its PR, tags and publishes with the CI App's token: set ci.github-app (\`odoo-nix repo doctor\` lists what the flow needs)"
+            exit 1
+          fi
+
+      # The series head, not github.sha: a run started by an older merge would otherwise
+      # seed or release a stale tree.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.series-branch }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      # This job holds the CI App's key, so nothing it installs is resolved at run time:
+      # odoo-nix-tools from Avunu/odoo-nix alone, at the full revision the series branch's
+      # flake.lock pins, every dependency from that revision's py/odoo_nix_tools/uv.lock by hash
+      # and as a wheel, standards-core from Avunu/python-devops-nix at the revision that lock
+      # names, with a pinned uv and no uv cache (standards-install's `hardened`). Before the
+      # App's token is minted.
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+          hardened: "true"
+          source: Avunu/odoo-nix
+          project: py/odoo_nix_tools
+          git-sources: Avunu/python-devops-nix
+
+      - name: The series branch is the checkout's series
+        env:
+          SERIES_BRANCH: ${{ inputs.series-branch }}
+        run: |
+          set -euo pipefail
+          series="$(odoo-nix config series)"
+          if [ "$series" != "$SERIES_BRANCH" ]; then
+            echo "::error::series-branch is $SERIES_BRANCH, but the checkout's series is $series: run odoo-init --sync"
             exit 1
           fi
 
@@ -95,34 +135,6 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
           permission-workflows: write
-
-      # The series head, not github.sha: a run started by an older merge would otherwise
-      # seed or release a stale tree.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.series-branch }}
-          fetch-depth: 0
-          fetch-tags: true
-          persist-credentials: false
-
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
-        with:
-          cli: odoo-nix
-          engine-input: odoo-nix
-          env-prefix: ODOO_NIX
-          install-spec: >-
-            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
-
-      - name: The series branch is the checkout's series
-        env:
-          SERIES_BRANCH: ${{ inputs.series-branch }}
-        run: |
-          set -euo pipefail
-          series="$(odoo-nix config series)"
-          if [ "$series" != "$SERIES_BRANCH" ]; then
-            echo "::error::series-branch is $SERIES_BRANCH, but the checkout's series is $series: run odoo-init --sync"
-            exit 1
-          fi
 
       # 1. A first release for each addon that has none on this series.
       - id: seed
@@ -175,20 +187,35 @@ jobs:
     name: sync
     needs: release-please
     if: needs.release-please.outputs.pr-branch != ''
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read # the checkout; the push uses the App's token
     steps:
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.pr-branch }}
+          persist-credentials: false
+
+      # This job holds the CI App's key, so nothing it installs is resolved at run time:
+      # odoo-nix-tools from Avunu/odoo-nix alone, at the full revision the release PR branch's
+      # flake.lock pins, every dependency from that revision's py/odoo_nix_tools/uv.lock by hash
+      # and as a wheel, standards-core from Avunu/python-devops-nix at the revision that lock
+      # names, with a pinned uv and no uv cache (standards-install's `hardened`). Before the
+      # App's token is minted.
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+        with:
+          cli: odoo-nix
+          engine-input: odoo-nix
+          env-prefix: ODOO_NIX
+          install-spec: >-
+            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
+          hardened: "true"
+          source: Avunu/odoo-nix
+          project: py/odoo_nix_tools
+          git-sources: Avunu/python-devops-nix
 
       - id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -197,19 +224,6 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           permission-contents: write
           permission-workflows: write
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.release-please.outputs.pr-branch }}
-          persist-credentials: false
-
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@623a91761baed55e66967d56559dd086b2df9f59 # python-devops-nix v1.5.0
-        with:
-          cli: odoo-nix
-          engine-input: odoo-nix
-          env-prefix: ODOO_NIX
-          install-spec: >-
-            odoo-nix-tools @ git+https://github.com/{owner}/{repo}@{rev}#subdirectory=py/odoo_nix_tools
 
       # The commit is the App's bot's; the push authenticates through a header given to
       # this step's git commands only (nothing is written to .git/config).
@@ -235,11 +249,12 @@ jobs:
           echo "::add-mask::$GIT_CONFIG_VALUE_0"
           git push origin "HEAD:refs/heads/$BRANCH"
 
-  # A dispatch's repackage tag, as a one-entry plan.
+  # A dispatch's repackage tag, as a one-entry plan. upload attaches files with the App's token
+  # by this plan, so it runs on GitHub-hosted ubuntu-latest, never a shared self-hosted runner.
   repackage:
     name: repackage
     if: inputs.repackage != ''
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
     outputs:
@@ -267,24 +282,22 @@ jobs:
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
       && (needs.release-please.outputs.packages || needs.repackage.outputs.packages || '[]') != '[]'
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # GitHub-hosted, whatever runs-on says: upload attaches what this job builds with the App's
+    # token, so no shared self-hosted runner, where an earlier job of any repository can leave
+    # state behind, builds it. An addon repository's dev shell fits a hosted runner (the test
+    # gate builds the same one there by default).
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      contents: read # the checkout; the upload uses the App's token
+      contents: read # the checkout; this job runs the addon's build and holds no secret
     strategy:
       fail-fast: false
       matrix:
         package: ${{ fromJSON(needs.release-please.outputs.packages || needs.repackage.outputs.packages) }}
     steps:
-      - if: runner.environment != 'github-hosted'
-        name: Clear what an earlier job left in the runner's temp dir and workspace
-        working-directory: ${{ runner.temp }}
-        run: |
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' ! -type l -exec chmod -R u+w {} +
-          find "$RUNNER_TEMP" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 ! -type l -exec chmod -R u+w {} +
-          fi
+      # The dev shell's closure (OCB, Node, the tools) needs more than a hosted runner has free.
+      - name: Free disk space on the GitHub-hosted runner
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -292,15 +305,11 @@ jobs:
           persist-credentials: false
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        if: runner.environment == 'github-hosted'
         with:
           determinate: false
 
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
-        if: runner.environment == 'github-hosted'
-        with:
-          diagnostic-endpoint: ""
-          use-flakehub: false
+      # No magic-nix-cache, nor any other cache: this job runs the addon's build and its npm
+      # dependencies, and whatever it saved would be restored by later runs on the branch.
 
       # The dev shell links tools/.venv (whool, pyproject-build) and has node for a
       # front-end build.
@@ -310,6 +319,79 @@ jobs:
           ADDON: ${{ matrix.package.path }}
           OUT: ${{ runner.temp }}/dist
         run: nix develop --no-pure-eval -c odoo-nix release package "$ADDON" --out "$OUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.package.tag }}
+          path: ${{ runner.temp }}/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  # 5. Each release's zip and wheel, attached with the App's token. Nothing the addon brings
+  # runs here: package built the files with no secret, and this job only checks and uploads them.
+  upload:
+    name: upload (${{ matrix.package.tag }})
+    needs: [release-please, repackage, package]
+    if: >-
+      always()
+      && !contains(needs.*.result, 'cancelled')
+      && needs.release-please.result != 'failure'
+      && needs.repackage.result != 'failure'
+      && needs.package.result != 'skipped'
+      && (needs.release-please.outputs.packages || needs.repackage.outputs.packages || '[]') != '[]'
+    # Holds the CI App's key: always a fresh GitHub-hosted runner, whatever runs-on says, never
+    # a shared self-hosted one, where an earlier job of any repository can leave state behind.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {} # the upload uses the App's token
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.release-please.outputs.packages || needs.repackage.outputs.packages) }}
+    steps:
+      # A dispatch repackages one tag: upload nothing else, whatever plan the matrix got.
+      - if: inputs.repackage != ''
+        name: Only the repackage tag
+        env:
+          TAG: ${{ matrix.package.tag }}
+          REPACKAGE: ${{ inputs.repackage }}
+        run: |
+          if [ "$TAG" != "$REPACKAGE" ]; then
+            echo "::error::upload got $TAG, and this dispatch repackages $REPACKAGE"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ matrix.package.tag }}
+          path: ${{ runner.temp }}/dist
+
+      # The artifact comes from a job that ran the addon's build: take plain .zip and .whl files
+      # at its top level, with names gh reads as file names only (no `#label`, no leading `-`).
+      - name: Only the release's zip and wheel
+        env:
+          TAG: ${{ matrix.package.tag }}
+          OUT: ${{ runner.temp }}/dist
+        run: |
+          set -euo pipefail
+          shopt -s nullglob dotglob
+          count=0
+          for f in "$OUT"/*; do
+            name="${f##*/}"
+            if [ -L "$f" ] || [ ! -f "$f" ]; then
+              echo "::error::$TAG: $name is not a plain file"
+              exit 1
+            fi
+            if ! [[ "$name" =~ ^[A-Za-z0-9_][A-Za-z0-9._+-]*\.(zip|whl)$ ]]; then
+              echo "::error::$TAG: $name is not a release zip or wheel"
+              exit 1
+            fi
+            count=$((count + 1))
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "::error::odoo-nix release package wrote nothing for $TAG"
+            exit 1
+          fi
 
       - id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -328,9 +410,5 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           files=("$OUT"/*.zip "$OUT"/*.whl)
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "::error::odoo-nix release package wrote nothing for $TAG"
-            exit 1
-          fi
           gh release upload "$TAG" "${files[@]}" --repo "$REPO" --clobber
           printf '::notice::%s: %s\n' "$TAG" "$(basename -a "${files[@]}" | paste -sd ' ')"

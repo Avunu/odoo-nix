@@ -3,11 +3,19 @@ name: odoo-test
 # The `test` gate of a repository on odoo-nix's standards (py/odoo_nix_tools/DESIGN.md
 # §6.1.2, §6.4), reusable: the caller's job is named `ci`, so the check reads `ci / test`.
 #
-# The tests need the code, so the checkout has the submodules, fetched with the CI App's
-# token when the caller passes one (ci.github-app: an App installed on every private
-# submodule's repository), else with GITHUB_TOKEN (public submodules only). Then
+# The tests need the code, so the checkout has the submodules, fetched with a read-only App's
+# token when the caller passes one and a submodule's repository is one of the owner's that
+# GITHUB_TOKEN cannot read (ci.submodule-app: an App with Contents read and nothing else,
+# installed on every such repository), else with GITHUB_TOKEN (this repository's and public
+# submodules only). Then
 # `ODOO_NIX_CI=1 nix develop --no-pure-eval -c odoo-nix gate test` runs the addons' tests
 # on a fresh database of a throwaway PostgreSQL cluster, with coverage and checklog-odoo.
+#
+# This job runs the pull request's code, its dependencies' and the tests, so any step in it
+# can read every secret it is given. It is never given the CI App's key (ci.github-app:
+# contents, pull requests and workflows write): the caller cannot pass APP_PRIVATE_KEY, and
+# a SUBMODULE_PRIVATE_KEY whose App can do more than read contents is refused before
+# anything runs, whether or not a submodule needs its token.
 
 on:
   workflow_call:
@@ -26,13 +34,19 @@ on:
         description: ci.test-timeout-minutes
         type: number
         default: 60
-      client-id:
-        description: "ci.github-app: the CI App's client ID (an Actions variable); empty for none"
+      submodule-client-id:
+        description: >-
+          ci.submodule-app: the client ID (an Actions variable) of a GitHub App with Contents
+          read and no other permission, installed on the private submodules' repositories;
+          empty for none. Never the CI App (ci.github-app): this job runs the pull request's
+          code, and an App that can write is refused.
         type: string
         default: ""
     secrets:
-      APP_PRIVATE_KEY:
-        description: "ci.github-app: the CI App's private key (PEM)"
+      SUBMODULE_PRIVATE_KEY:
+        description: >-
+          ci.submodule-app: that App's private key (PEM). A Dependabot run sees only
+          Dependabot secrets: store it there too.
         required: false
 
 permissions: {}
@@ -72,38 +86,84 @@ jobs:
         with:
           persist-credentials: false
 
+      # The key is in this job, which runs the pull request's code: a key with no client ID
+      # stops it.
       - id: app
-        name: Whether the caller passes the CI App
+        name: Whether the caller passes a submodule App
         env:
-          ENABLED: ${{ inputs.client-id != '' && secrets.APP_PRIVATE_KEY != '' }}
-        run: echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+          ENABLED: ${{ secrets.SUBMODULE_PRIVATE_KEY != '' }}
+          CLIENT_ID: ${{ inputs.submodule-client-id }}
+        run: |
+          if [ "$ENABLED" = true ] && [ -z "$CLIENT_ID" ]; then
+            echo "::error::SUBMODULE_PRIVATE_KEY is passed with no submodule-client-id: this job runs the pull request's code, so the key's App is checked first, and that takes its client ID (ci.submodule-app names both)"
+            exit 1
+          fi
+          echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
 
-      # The token reads this repository and the owner's repositories its submodules name
-      # (a private one: odoo-studio for a client project), no other.
+      # Whatever the names, the key may be another App's (the CI App's, its values copied under
+      # new names): the App it signs for is checked before anything of the pull request's
+      # runs, whether or not a submodule needs a token. A token of its installation on the
+      # owner (Metadata read only) names the App, and an App that can do more than read
+      # contents stops the job. The job holds the key, so the token gives it nothing more.
       - if: steps.app.outputs.enabled == 'true'
-        id: repos
-        name: The owner's repositories the submodules name
+        id: app-check
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.submodule-client-id }}
+          private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app] Metadata read, to name the App
+          permission-metadata: read
+
+      - if: steps.app.outputs.enabled == 'true'
+        name: Refuse a submodule App that can write
         env:
-          OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.event.repository.name }}
+          GH_TOKEN: ${{ steps.app-check.outputs.token }}
+          SLUG: ${{ steps.app-check.outputs.app-slug }}
         run: |
           set -euo pipefail
-          repos="$REPO"
+          granted="$(gh api "apps/$SLUG" --jq '.permissions | to_entries[] | select((.key != "contents" and .key != "metadata") or .value != "read") | "\(.key): \(.value)"')"
+          if [ -n "$granted" ]; then
+            echo "::error::ci.submodule-app's key is $SLUG's, which can do more than read contents ($(paste -sd, <<<"$granted")): this job runs the pull request's code, so it takes an App with Contents read only, never the CI App"
+            exit 1
+          fi
+          echo "ci.submodule-app is $SLUG: Contents read only"
+
+      # Contents read on the owner's repositories the submodules name that GITHUB_TOKEN cannot
+      # read (the private and internal ones), no other: the App is installed on those, and a
+      # token asked for a repository it is not installed on is refused (HTTP 422). None of
+      # them: no token, and the submodules are fetched with GITHUB_TOKEN.
+      - if: steps.app.outputs.enabled == 'true'
+        id: repos
+        name: The owner's private repositories the submodules name
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          repos=()
           if [ -f .gitmodules ]; then
             while read -r _ url; do
-              if [[ "${url,,}" =~ ^(https://|git@)github\.com[:/]${OWNER,,}/([^/]+)$ ]]; then
-                repos="$repos,${BASH_REMATCH[2]%.git}"
+              name=""
+              if [[ "${url,,}" =~ ^(https://|ssh://git@|git@)github\.com[:/]${OWNER,,}/([^/]+)$ ]]; then
+                name="${BASH_REMATCH[2]%.git}"
+              elif [[ "$url" =~ ^\.\./([^/]+)$ ]]; then
+                name="${BASH_REMATCH[1]%.git}"
+              fi
+              if [ -n "$name" ]; then
+                if [ "$(gh api "repos/$OWNER/$name" --jq .visibility 2>/dev/null || true)" != public ]; then
+                  repos+=("$name")
+                fi
               fi
             done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.url$')
           fi
-          echo "repositories=$repos" >> "$GITHUB_OUTPUT"
+          echo "repositories=$(IFS=,; echo "${repos[*]}")" >> "$GITHUB_OUTPUT"
 
-      - if: steps.app.outputs.enabled == 'true'
+      - if: steps.repos.outputs.repositories != ''
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          client-id: ${{ inputs.client-id }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          client-id: ${{ inputs.submodule-client-id }}
+          private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
           repositories: ${{ steps.repos.outputs.repositories }}
           permission-contents: read
 
@@ -112,6 +172,7 @@ jobs:
       - name: The submodules
         env:
           TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          ENABLED: ${{ steps.app-token.outputs.token != '' }}
         run: |
           set -euo pipefail
           GIT_CONFIG_COUNT=1
@@ -126,7 +187,12 @@ jobs:
           if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then
             depth=(--depth 1)
           fi
-          git submodule update --init --recursive --force "${depth[@]}"
+          if ! git submodule update --init --recursive --force "${depth[@]}"; then
+            if [ "$ENABLED" != true ]; then
+              echo "::error::a submodule could not be fetched with GITHUB_TOKEN, which reads this repository and public ones only: for a private submodule, pass ci.submodule-app (an App with Contents read only, never the CI App, installed on that submodule's repository)"
+            fi
+            exit 1
+          fi
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         if: runner.environment == 'github-hosted'

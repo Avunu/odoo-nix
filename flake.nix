@@ -316,6 +316,7 @@
       #                                                       python-devops-nix's conformance checks (all systems)
       #   option-paths, config-blocks                         the same over the modules' options (Linux only)
       #   workflows                                           actionlint and zizmor on .github and the synced standards fixtures' (all systems)
+      #   app-key-jobs                                        the reusable workflows' jobs that can hold the CI App's key or run the code, statically, and their patch, `verify-patch` and `moved` checks run (all systems)
       #   standards-shell-eval-*                              the standards' dev-shell additions, opted in and not (Linux only)
       #   standards-unit, standards-version                   odoo-nix-tools' suites on python3 and python311; one version (all systems)
       #   standards-conformance                               odoo-nix-tools against the core's contract (all systems)
@@ -745,6 +746,37 @@
                   zizmor --offline --config .github/zizmor.yml .github/workflows
                 )
                 ${standardsFixtures.workflowsScript}
+              '';
+
+          # The reusable workflows' jobs that can hold the CI App's key
+          # (tests/app_key_jobs.py): on ubuntu-latest, odoo-nix-tools installed
+          # hash-locked before the token, no cache, none running the repository's
+          # code; the jobs that do run it take only the read-only submodule App, and
+          # refuse one that can write; relock-push's and project-update's patch checks
+          # (`odoo-nix verify-patch` included) run on accepted and refused patches,
+          # automerge's relock state on its cases, and the `moved` jq program against
+          # standards-core's relock.input_node; package and repackage hosted, upload
+          # held to the repackage tag; Dependabot's github-actions and uv bumps held.
+          app-key-jobs =
+            let
+              core = pkgs.python3.withPackages (_: [ (base.standards.package { inherit pkgs; }) ]);
+            in
+            scriptCheck pkgs "app-key-jobs"
+              {
+                tools = with pkgs; [
+                  bash
+                  git
+                  jq
+                  gnugrep
+                  coreutils
+                ];
+              }
+              ''
+                export HOME="$TMPDIR" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+                export PYTHONDONTWRITEBYTECODE=1
+                ${core}/bin/python -I ${./tests/app_key_jobs.py} ${./.github} \
+                  ${./py/odoo_nix_tools/odoo_nix_tools/data/templates/github/workflows} \
+                  ${./py/odoo_nix_tools}
               '';
 
           # The scaffolder, offline (odoo-nix-sources and uv stood in, git

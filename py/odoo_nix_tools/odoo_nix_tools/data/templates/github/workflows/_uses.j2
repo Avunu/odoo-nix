@@ -19,10 +19,28 @@
       client-id: {{ "${{ vars." ~ app["app-id"] ~ " }}" }}
 {% endif %}
 {% endmacro %}
-{% macro app_secrets() %}
-{% set app = cfg.ci["github-app"] %}
-{% if app["private-key"] %}
-    secrets:
-      APP_PRIVATE_KEY: {{ "${{ secrets." ~ app["private-key"] ~ " }}" }}
+{# The read-only App the jobs that run the repository's code fetch private submodules with
+   (ci.submodule-app), never the CI App. #}
+{% macro submodule_with() %}
+{% set app = cfg.ci.get("submodule-app") or {} %}
+{% if app.get("app-id") %}
+      submodule-client-id: {{ "${{ vars." ~ app["app-id"] ~ " }}" }}
 {% endif %}
 {% endmacro %}
+{# The `secrets:` block: the CI App's key with `main`, the submodule App's with `submodule`. #}
+{% macro secret_block(main=true, submodule=false) %}
+{% set app = cfg.ci["github-app"] %}
+{% set sub = cfg.ci.get("submodule-app") or {} %}
+{% set with_main = main and app["private-key"] %}
+{% set with_sub = submodule and sub.get("private-key") %}
+{% if with_main or with_sub %}
+    secrets:
+{% if with_main %}
+      APP_PRIVATE_KEY: {{ "${{ secrets." ~ app["private-key"] ~ " }}" }}
+{% endif %}
+{% if with_sub %}
+      SUBMODULE_PRIVATE_KEY: {{ "${{ secrets." ~ sub["private-key"] ~ " }}" }}
+{% endif %}
+{% endif %}
+{% endmacro %}
+{% macro app_secrets() %}{{ secret_block(main=true) }}{% endmacro %}

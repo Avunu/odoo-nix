@@ -10,9 +10,10 @@ version: 2
 # patched within the week never reaches a pull request. Security updates are not
 # held back.
 #
-# Keeps this repo's dependencies up to date. PRs, action bumps and the OCB pins included,
-# auto-merge once the required checks go green and are kept up to date with main — see
-# .github/workflows/dependabot-auto-merge.yml.
+# Keeps this repo's dependencies up to date. The nix and pre-commit PRs, the OCB pins
+# included, auto-merge once the required checks go green; every one is kept up to date with
+# main. The github-actions and uv PRs are reviewed by a person: what they move runs in the
+# products' jobs that hold the org App's key — see .github/workflows/dependabot-auto-merge.yml.
 #
 # Deliberately NOT configured: templates/project/pyproject.toml. It is a scaffolding
 # template, not a resolvable project — its @PLACEHOLDER@ tokens (requires-python,
@@ -87,6 +88,8 @@ updates:
 
   # GitHub Actions used by the workflows in .github/workflows. python-devops-nix's
   # actions and reusable workflows move with its other pins (`nix run .#bump-base`).
+  # Reviewed by a person, never auto-merged (dependabot-auto-merge.yml, exclude-ecosystems):
+  # these actions run in the products' jobs that hold the org App's key.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -101,10 +104,12 @@ updates:
       github-actions:
         patterns: ["*"]
 
-  # odoo-nix-tools' dev lock (py/odoo_nix_tools/uv.lock), which its suites run from
-  # without Nix (`uv run python -m unittest discover -s tests`). Development only:
-  # the package build and `uv tool install` never read it. standards-core moves with
-  # every other python-devops-nix pin (`nix run .#bump-base`), never on its own.
+  # odoo-nix-tools' lock (py/odoo_nix_tools/uv.lock), which its suites run from without
+  # Nix (`uv run python -m unittest discover -s tests`), and which python-devops-nix's
+  # standards-install `hardened` installs, by hash, in every product job that holds the org
+  # App's key. So its PR is reviewed by a person, never auto-merged
+  # (dependabot-auto-merge.yml, exclude-ecosystems). standards-core moves with every other
+  # python-devops-nix pin (`nix run .#bump-base`), never on its own.
   - package-ecosystem: uv
     directory: /py/odoo_nix_tools
     schedule:
