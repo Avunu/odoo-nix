@@ -235,6 +235,7 @@
           targetPythonEnv = pkgs.python3;
         };
       journaldGraft = pkgs: import ./lib/journald.nix { inherit pkgs base; };
+      devwatchGraft = pkgs: import ./lib/devwatch.nix { inherit pkgs base; };
       shellTools = pkgs: import ./lib/shell-tools.nix { inherit pkgs base; };
 
       # odoo-nix-tools (py/odoo_nix_tools, its DESIGN.md), the standards tools,
@@ -302,6 +303,7 @@
       # checks.<system> (names: python-devops-nix docs/conventions.md, Tests):
       #   addons-*, odoo-ini-*, odoo-ini-render               pure library tests (all systems)
       #   journald-formatter                                  the CLI's journald output (all systems)
+      #   devwatch                                            the autoreload watcher's filter, ODOO_NIX_WATCH_EXCLUDE[_IF_COVERED] (all systems)
       #   devguard-core, devguard, devguard-baked             the dev guard rails: base core, odoo-nix's side (all systems)
       #   sources                                             shell entry's submodule checkout (all systems)
       #   bootstrap, bootstrap-lock-*                         the fresh-clone checkout before `use flake` (all systems)
@@ -423,6 +425,15 @@
           journald-formatter = scriptCheck pkgs "journald-formatter" { } (
             lib.concatMapStrings (py: ''
               ${pkgs.${py}.interpreter} -I ${./tests/test_journald.py} ${journaldGraft pkgs} ${cliPackage pkgs}
+            '') devguardInterpreters
+          );
+
+          # odoo_devwatch (lib/devwatch.nix): the autoreload watcher's filter,
+          # against a stand-in odoo.service.server, on every interpreter a preset
+          # names, since it loads into Odoo's own. Plain Python: no Odoo needed.
+          devwatch = scriptCheck pkgs "devwatch" { } (
+            lib.concatMapStrings (py: ''
+              ${pkgs.${py}.interpreter} -I ${./tests/test_devwatch.py} ${devwatchGraft pkgs}
             '') devguardInterpreters
           );
 

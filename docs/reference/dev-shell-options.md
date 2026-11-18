@@ -103,6 +103,8 @@ The derived ports are read by the rest of the module; pin one with `lib.mkForce`
 | `mailpit.port` | port | `ports.smtp` | The SMTP port. |
 | `mailpit.httpPort` | port | `ports.mailUi` | The web UI's port. |
 | `watch.python` | bool | `true` | Make Odoo's `--dev=reload` watcher work by providing `watchdog`. See [Live reload](../development/editors.md#live-reload). |
+| `watch.exclude` | list of strings | `[ ]` | Addon roots the reload watcher does not watch, whatever they hold. Shell-style patterns against each root's absolute path, none containing `:`. See [Live reload](../development/editors.md#live-reload). |
+| `watch.excludeIfCovered` | list of strings | `["*/build/__editable__/*"]` | Addon roots the reload watcher leaves out only where their code stays watched through another root. A root whose code nothing else covers stays watched, with a warning. See [Live reload](../development/editors.md#live-reload). |
 | `watch.node` | bool | `true` | Run the `watch` script of every addon that has one, as the `node-watch` process. See [Addon frontends](../development/frontend.md#in-the-shell). |
 
 ## Guard rails: `devguard`
