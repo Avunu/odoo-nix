@@ -58,6 +58,10 @@
   # here, the production one included (inert unless stderr is the journal).
   # null = none.
   journald ? null,
+  # lib/devwatch.nix: the autoreload watcher's filter (ODOO_NIX_WATCH_EXCLUDE
+  # and ODOO_NIX_WATCH_EXCLUDE_IF_COVERED), grafted into the DEV and TEST
+  # virtualenvs only, never odooPythonEnv. Inert with neither set. null = none.
+  devwatch ? null,
   # inputs.python-devops-nix.lib.python: the shared package fixes
   # (overrides), the stale-lock audit (lockAudit) and withGrafts.
   pythonLib,
@@ -385,11 +389,16 @@ let
     };
   };
   productionGrafts = lib.optional (journald != null) journald ++ [ socketGraft ];
+  # The dev and test environments add the devguard and the watcher filter
+  # (devwatch, lib/devwatch.nix) to the grafts every environment gets.
   withDevguard =
     env:
     pythonLib.withGrafts {
       inherit python env;
-      grafts = productionGrafts ++ lib.optional (devguard != null) devguard;
+      grafts =
+        productionGrafts
+        ++ lib.optional (devguard != null) devguard
+        ++ lib.optional (devwatch != null) devwatch;
     };
 
   # Production: real wheels for odoo + all modules — self-contained (no
