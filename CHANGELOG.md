@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/Avunu/odoo-nix/compare/v3.0.0...v3.1.0) (2026-11-18)
+
+
+### Features
+
+* **devenv:** keep editable build roots off the autoreload watcher ([#193](https://github.com/Avunu/odoo-nix/issues/193)) ([59175b6](https://github.com/Avunu/odoo-nix/commit/59175b6f7364ed329bce5de5678f8b25020e7079))
+
 ## [3.0.0](https://github.com/Avunu/odoo-nix/compare/v2.9.0...v3.0.0) (2026-11-18)
 
 
