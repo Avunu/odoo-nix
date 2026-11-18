@@ -22,6 +22,7 @@ What it covers:
 - **XML, QWeb and assets** need no restart: `--dev=xml` re-reads views, templates and JS and SCSS bundles from disk. Reload the browser.
 - **Odoo's framework code** (`odoo/odoo/*.py`, such as `models.py` or `http.py`) is not an addons root and is not watched. Restart `devenv up` for those.
 - **`settings.options.workers` must be 0**, the default. The watcher only runs on the threaded server, and the shell warns if you set workers or a `devMode` without `reload` while `watch.python` is on.
+- **Each watched root costs threads.** With the watchdog backend, Odoo's watcher starts two per root, and their address space counts toward Odoo's virtual-memory soft limit (2 GiB by default). An editable addon install leaves a `build/__editable__` root per addon, so a project with many of them can see `Server memory limit (…) reached` on every boot. `watch.excludeIfCovered` (default `["*/build/__editable__/*"]`, exported as `ODOO_NIX_WATCH_EXCLUDE_IF_COVERED`) leaves those roots out where their code stays watched through another root. A root whose code nothing else covers stays watched, with a warning in the server log. `watch.exclude` (`ODOO_NIX_WATCH_EXCLUDE`) leaves out the roots you name, unconditionally, for code you do not edit. Every excluded root stays on the import path, so its addons still import.
 
 ### Inotify queue overflow
 
@@ -33,7 +34,7 @@ WARNING ? watchdog.observers.inotify: Inotify queue overflowed; reconciling recu
 
 This is the kernel's per-instance event queue (`fs.inotify.max_queued_events`, 16384 by default) filling before the watcher reads it, not the watch-count limit (`max_user_watches`). `watchdog` recovers by rescanning, so nothing breaks; at worst one reload is spurious or missed.
 
-Odoo watches every `addons_path` root recursively, `node_modules` and `__pycache__` included, and has no way to exclude them. Two ways to cut the noise:
+Odoo watches every `addons_path` root recursively, `node_modules` and `__pycache__` included. `watch.exclude` leaves out whole roots, but not the directories inside one, and Odoo has no way to exclude those. Two ways to cut the noise:
 
 - **Raise the queue limit.** On NixOS: `boot.kernel.sysctl."fs.inotify.max_queued_events" = 524288;`. Elsewhere: `sudo sysctl fs.inotify.max_queued_events=524288`, persisted in `/etc/sysctl.d/`. The dev server prints a one-line hint at start-up while the limit is under 65536.
 - **Watch less.** `devMode = "xml,qweb"` (or `watch.python = false`) drops the watcher; Python edits then need a restart of `devenv up`.

@@ -42,6 +42,8 @@ lib/
   devguard.nix               # builds it with a project's settings baked in
   journald/odoo_journald/    # journald-native log lines for Odoo
   journald.nix               # grafts it into every environment
+  devwatch/odoo_devwatch/    # the autoreload watcher's filter (ODOO_NIX_WATCH_EXCLUDE[_IF_COVERED]); dev environments only
+  devwatch.nix               # grafts it into the dev and test environments
   odoo-ls.nix, odoo-ls-Cargo.lock  # odoo-ls, with a vendored lock (upstream commits none)
   overrides.nix              # lib.overrides
   build-deps.nix             # odoo-nix-build-deps
@@ -81,6 +83,7 @@ nix build -L .#checks.x86_64-linux.<NAME>        # one check
 | `devguard-core`, `devguard`, `devguard-baked` | The guard rails, the shared core and odoo-nix's side, without Odoo or a network. |
 | `backups`, `backup-layout` | The backup fetch layer and odoo-nix's naming. |
 | `journald-formatter` | The `odoo_journald` graft. |
+| `devwatch` | The `odoo_devwatch` graft: the autoreload watcher's filter, against a stand-in `odoo.service.server`, on every preset's interpreter. |
 | `scaffold`, `odoo-init-unit` | `odoo-init` offline: every flag and exit code, and its pieces. |
 | `odoo-module-cli`, `odoo-module-unit` | `odoo module add`, `add-bundle` and `remove` offline, and their pieces. |
 | `relock`, `relock-stale-lock` | A project's `nix run .#relock` offline over a stale lock, and that it evaluates where the dev shell does not. |

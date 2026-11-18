@@ -467,6 +467,60 @@ in
             '';
           };
 
+          exclude = mkOption {
+            type = types.listOf (
+              types.addCheck types.str (p: !lib.hasInfix ":" p)
+              // {
+                description = "a shell pattern without ':' (the watcher splits on it)";
+              }
+            );
+            default = [ ];
+            example = [ "*/vendor/*" ];
+            description = ''
+              Addon roots the reload watcher does not watch, whatever they hold.
+              Each entry is a shell-style pattern (`fnmatch`: `*` also matches
+              `/`) matched against the absolute path of a root in Odoo's
+              `odoo.addons.__path__`. With the watchdog backend, each root the
+              watcher is given costs it two threads, and those threads count toward
+              Odoo's virtual-memory soft limit, so a dev server can restart itself
+              on every boot once it has enough of them.
+
+              Use this for code you do not edit. A Python edit under a matched root
+              no longer restarts the server, unless another watched root covers
+              that code. See `watch.excludeIfCovered` for the safe default.
+
+              Applies whenever Odoo starts its reload watcher, under `--dev=reload`,
+              with either of its backends: the inotify package when it is importable,
+              otherwise watchdog (`watch.python` supplies that fallback). Exported as
+              `ODOO_NIX_WATCH_EXCLUDE`, which odoo_devwatch (lib/devwatch) reads.
+            '';
+          };
+
+          excludeIfCovered = mkOption {
+            type = types.listOf (
+              types.addCheck types.str (p: !lib.hasInfix ":" p)
+              // {
+                description = "a shell pattern without ':' (the watcher splits on it)";
+              }
+            );
+            default = [ "*/build/__editable__/*" ];
+            example = [ "*/build/__editable__/*" ];
+            description = ''
+              Addon roots the reload watcher leaves out only where their code stays
+              watched through another root. Same pattern syntax as `watch.exclude`.
+
+              An editable addon install leaves a `build/__editable__` root per addon.
+              Its links point into a module an addons path root already covers, so
+              the default leaves those roots out and the watcher still sees the
+              code. A root whose code no other watched root covers stays watched,
+              with a warning in the server log: this option cannot silently stop
+              reloading. A link that resolves to nothing has no code and does not
+              count against the exclusion.
+
+              Exported as `ODOO_NIX_WATCH_EXCLUDE_IF_COVERED`.
+            '';
+          };
+
           node = mkOption {
             type = types.bool;
             default = true;
@@ -1071,6 +1125,12 @@ in
           # stderr is the journal (python-devops-nix docs/conventions.md, Journald
           # enablement).
           journald = import ../lib/journald.nix {
+            inherit pkgs;
+            base = inputs.python-devops-nix.lib;
+          };
+          # The dev and test environments only: the autoreload watcher's filter,
+          # inert with neither ODOO_NIX_WATCH_EXCLUDE variable set (lib/devwatch.nix).
+          devwatch = import ../lib/devwatch.nix {
             inherit pkgs;
             base = inputs.python-devops-nix.lib;
           };
@@ -1939,6 +1999,12 @@ in
                 # $ODOO_DEVGUARD_ENABLED (per command) this is a property of the
                 # project, and its mere presence says "this is a dev shell".
                 ODOO_NIX_DEVGUARD = if cfg.devguard.enable then "1" else "0";
+
+                # The autoreload watcher's exclusions, read by the odoo_devwatch
+                # graft (lib/devwatch): the first unconditionally, the second only
+                # where its code stays watched elsewhere. Both empty: no filter.
+                ODOO_NIX_WATCH_EXCLUDE = lib.concatStringsSep ":" cfg.watch.exclude;
+                ODOO_NIX_WATCH_EXCLUDE_IF_COVERED = lib.concatStringsSep ":" cfg.watch.excludeIfCovered;
 
                 UV_PROJECT_ENVIRONMENT = config.env.DEVENV_STATE + "/uv-env";
               }

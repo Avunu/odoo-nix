@@ -56,6 +56,12 @@ let
     inherit pkgs;
     base = inputs.python-devops-nix.lib;
   };
+  # The autoreload watcher's filter: the dev and test environments only. Passed
+  # here so the production assertions below can show it is left out.
+  devwatch = import ../lib/devwatch.nix {
+    inherit pkgs;
+    base = inputs.python-devops-nix.lib;
+  };
 
   pythonEnvs = import ../lib/python.nix {
     inherit
@@ -66,6 +72,7 @@ let
       projectName
       devguard
       journald
+      devwatch
       ;
     pythonLib = inputs.python-devops-nix.lib.python;
     coreSource = ocb;
@@ -500,6 +507,9 @@ in
       fi
       test ! -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/odoo_devguard
       test ! -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/zzz-odoo-devguard.pth
+      # The watcher filter is dev only, like the guard rails.
+      test ! -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/odoo_devwatch
+      test ! -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/zzz-odoo-devwatch.pth
       test -e ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/odoo_journald/_journald.py
       grep -qxF 'import odoo_journald; odoo_journald.install()' \
         ${pythonEnvs.odooPythonEnv}/${python.sitePackages}/zzz-odoo-journald.pth
