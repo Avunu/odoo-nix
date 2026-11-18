@@ -30,7 +30,7 @@ schema = 1
 name = "avunu"
 description = "Avunu's Odoo standards."
 extends = "recommended@2.3"
-requires-odoo-nix = ">=2.3,<3"
+requires-odoo-nix = ">=3.0,<4"
 
 [org]
 publisher = "Avunu LLC"
