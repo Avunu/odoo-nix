@@ -69,6 +69,14 @@ With `coreSource`, `odoo/` must be a symlink the shell maintains, and a real dir
 
 Look for `AutoReload watcher running with watchdog` at start-up. `Code autoreload feature is disabled` means Odoo found no watcher: keep `watch.python` on. The watcher also needs `settings.options.workers = 0` and a `devMode` containing `all` or `reload`; the shell warns about either. Changes to `odoo/odoo/*.py` are never watched. See [Live reload](../development/editors.md#live-reload).
 
+### `Server memory limit (…) reached.` and the server restarts on every boot
+
+The line comes within milliseconds of `Registry loaded`, then `Initiating server reload`, and the same process starts again and repeats it. Odoo's soft limit counts virtual address space, and the threads of the autoreload watcher reserve enough of it to cross 2 GiB at start-up. With the watchdog backend the watcher starts two threads per watched root. Count the roots with `grep -c 'Watching addons folder' odoo.log`, reading only the first start-up: many of them ending in `build/__editable__/odoo/addons` is the cause. `watch.excludeIfCovered` leaves those roots out by default, wherever their code is watched elsewhere.
+
+If the restart continues, look for `matches ODOO_NIX_WATCH_EXCLUDE_IF_COVERED, but its code is not watched through any other root` in the log. That root stays watched, and it keeps its threads. Make sure some watched root contains the code it links to, for example by adding the repository that holds it to `addons_path`. For code you do not edit, list the root in `watch.exclude` instead, which drops it whatever it holds, and logs a warning if its code is then watched nowhere.
+
+A `build/__editable__` directory whose links point at a checkout that has moved does nothing useful. In the project this was found in, deleting those directories took them off the watch list. A later editable rebuild recreates them, and the default exclusion still applies. Setting `settings.options.limit_memory_soft` and `limit_memory_hard` both to `0` also stops the restart, at the cost of Odoo's memory guards: the hard limit is an address-space cap, and past it thread creation fails.
+
 ### Mail does not arrive, or sending fails
 
 With the mail guard on, every mail goes to Mailpit at the address the banner prints. If the shell warned `the mail guard is on but mailpit.enable is false`, nothing listens on that port: turn `mailpit.enable` back on.
