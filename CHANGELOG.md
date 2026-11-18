@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.0.0](https://github.com/Avunu/odoo-nix/compare/v2.9.0...v3.0.0) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** run the jobs that hold the CI App's key on GitHub-hosted runners ([#184](https://github.com/Avunu/odoo-nix/issues/184)) ([a6fe9ae](https://github.com/Avunu/odoo-nix/commit/a6fe9aed7cd4a4b669f24b3032f01f06f9d32508))
+* **deps:** bump https://github.com/astral-sh/ruff-pre-commit ([#187](https://github.com/Avunu/odoo-nix/issues/187)) ([b6e3b8a](https://github.com/Avunu/odoo-nix/commit/b6e3b8a615458126e1bb820797e63c261e79b750))
+* **deps:** bump the ocb group with 3 updates ([#189](https://github.com/Avunu/odoo-nix/issues/189)) ([e1d894e](https://github.com/Avunu/odoo-nix/commit/e1d894ec79bd5bb4ccff1f0a73d94157a39f438d))
+
 ## [2.9.0](https://github.com/Avunu/odoo-nix/compare/v2.8.1...v2.9.0) (2026-11-17)
 
 
