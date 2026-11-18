@@ -3,7 +3,7 @@ schema = 1
 name = "example-org"
 description = "Example Org's Odoo standards (odoo-nix's test profile)."
 extends = "recommended@2.3"
-requires-odoo-nix = ">=2.2,<3"
+requires-odoo-nix = ">=2.2,<4"
 
 [org]
 publisher = "Example Org"

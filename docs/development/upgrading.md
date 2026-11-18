@@ -1,6 +1,6 @@
 ---
 title: Upgrading odoo-nix
-description: How odoo-nix is released and versioned, which branch or tag a project should follow, how to move a project to a newer odoo-nix, and how to move a 1.x project to 2.0.
+description: How odoo-nix is released and versioned, which branch or tag a project should follow, how to move a project to a newer odoo-nix, and how to move a 1.x project to 2.0 and a 2.x project to 3.0.
 order: 10
 tags: [upgrade, versioning, release]
 updated: 2026-11-17
@@ -10,7 +10,7 @@ updated: 2026-11-17
 
 odoo-nix is released with [release-please](https://github.com/googleapis/release-please). Each `fix:` or `feat:` commit merged to `main` lands in a release pull request, and merging that tags `vX.Y.Z` and updates `CHANGELOG.md`. A `fix:` makes a patch release, Dependabot's `fix(deps)` bumps of the flake inputs included, and a `feat:` a minor one. A major release is only ever deliberate.
 
-Within a major release nothing a project sets is taken away. A renamed option, command-line flag or environment variable keeps its old name as an alias, with a warning, through every release of that major, and the aliases go in the next major release. A change that alters a running deployment without anyone asking for it ships opt-in, and becomes the default in the next major release. A major release is cut by a `Release-As: <N>.0.0` footer (the pr-policy check refuses `!` and `BREAKING CHANGE`), and this page says what to change: [1.x to 2.0](#1x-to-20).
+Within a major release nothing a project sets is taken away. A renamed option, command-line flag or environment variable keeps its old name as an alias, with a warning, through every release of that major, and the aliases go in the next major release. A change that alters a running deployment without anyone asking for it ships opt-in, and becomes the default in the next major release. A major release is cut by a `Release-As: <N>.0.0` footer (the pr-policy check refuses `!` and `BREAKING CHANGE`), and this page says what to change: [2.x to 3.0](#2x-to-30), [1.x to 2.0](#1x-to-20).
 
 ## Which odoo-nix to follow
 
@@ -37,6 +37,16 @@ Two files are the project's own, and an upgrade never rewrites them:
 
 - `.envrc`. A project scaffolded before `bootstrap` existed has a one-line `.envrc` and fails to evaluate on a fresh clone; replace it with [the current one](README.md#a-fresh-clone).
 - The managed blocks of `pyproject.toml` are regenerated only by `odoo module …` and `odoo project update`. To refresh the template's other files, run the scaffolder in [repair mode](../scaffolding/migrate.md#repair); it only adds what is missing.
+
+## 2.x to 3.0
+
+odoo-nix 3.0.0 changes the reusable CI workflows only: no dev shell, `services.odoo-nix` option, command or environment variable changes. The jobs that hold the CI App's key moved to GitHub-hosted runners and no longer run the repository's code (see [The CI App](../standards/ci.md#the-ci-app)). A standards checkout picks the new callers up from `odoo-init --sync`; three things are outside the files it writes:
+
+1. **The org profile's range.** `requires-odoo-nix` must admit 3 before a checkout that uses the profile updates its lock, or every odoo-nix command there is exit 3. Widen the upper bound in a release of the profile (Avunu's: `">=2.8,<4"`).
+2. **Private submodules.** `odoo-test.yml` no longer takes `APP_PRIVATE_KEY`. A repository whose submodules include private ones sets `ci.submodule-app` to an App with Contents read and no other permission (see [Modules](../standards/modules.md)); without it, `GITHUB_TOKEN` fetches public submodules only, and a private one fails, naming `ci.submodule-app`.
+3. **GitHub-hosted runners.** `odoo-release.yml` and `odoo-deps.yml` ignore `ci.runs-on`, and the key-holding jobs of `odoo-release-please.yml` run on `ubuntu-latest` whatever it says. The repository's owner must allow GitHub-hosted runners (and, for a private repository, have Actions minutes for them).
+
+Then update the lock as in [Upgrade a project](#upgrade-a-project): `nix flake update odoo-nix`, `nix run --no-pure-eval .#odoo-init -- --sync`, and a pull request.
 
 ## 1.x to 2.0
 
