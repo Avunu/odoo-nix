@@ -420,11 +420,11 @@
     "ocb-18": {
       "flake": false,
       "locked": {
-        "lastModified": 1794871841,
-        "narHash": "sha256-xbtoRsjzakpPfG1uc8AuDonmT7A/TD8nw6ZswFRfg/I=",
+        "lastModified": 1795044639,
+        "narHash": "sha256-AZl2TnCG/7++OgS4taP0f9pY4f6J7SMApk2p/yZQ650=",
         "owner": "OCA",
         "repo": "OCB",
-        "rev": "dc62d62c66b2f85c8716b7e4a591361dd5ddb084",
+        "rev": "66d68a69620ef75d24d0f64791c5452253ea5b53",
         "type": "github"
       },
       "original": {
@@ -437,11 +437,11 @@
     "ocb-19": {
       "flake": false,
       "locked": {
-        "lastModified": 1794871832,
-        "narHash": "sha256-sla1r1cs0k41hh1nIp+ox1Djr3V9Q2gH3LLklhWeMqw=",
+        "lastModified": 1795044631,
+        "narHash": "sha256-wKgcSyLkD535xUQtGKY92ge4wcaBWCik/HQSSKElNPs=",
         "owner": "OCA",
         "repo": "OCB",
-        "rev": "65f2b3e21ea5e072a5573068798bc630cb20ef70",
+        "rev": "a4985a24c58cc823a7b67603a41604ce2307f5df",
         "type": "github"
       },
       "original": {
@@ -454,11 +454,11 @@
     "ocb-20": {
       "flake": false,
       "locked": {
-        "lastModified": 1794871820,
-        "narHash": "sha256-hN88pNOI77wC6GpKyDDIcpV9LUUPef5r0WJpt3E9wx4=",
+        "lastModified": 1795044621,
+        "narHash": "sha256-z/zfzCPVUP8KRhAnchbMk1oFGe94AG+7BX0FxXG5Ujg=",
         "owner": "OCA",
         "repo": "OCB",
-        "rev": "9bfa58229c740ca8b64cccd82d2cc72a441fdbe5",
+        "rev": "f62875479e6da513b173ed2030e4b8d87e5fcfae",
         "type": "github"
       },
       "original": {
