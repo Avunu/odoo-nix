@@ -91,6 +91,8 @@ A repository on odoo-nix's [standards](../standards/README.md) can turn on the `
 | `prettier.requireConfig`, `prettier.prettierPath` | `true`, `"./node_modules/prettier"` | the prettier `package-lock.json` locks, with the rendered `prettier.config.cjs` |
 | `files.watcherExclude`, `search.exclude` | `.odoo-nix`, `tools/.venv`, `node_modules` | beside the seed's `.devenv` and `.direnv` |
 
+Odoo LS is the authoritative checker for Odoo addon diagnostics. When the `ide` module is on, its managed settings turn Pylance and ty off. No type checker runs in CI yet, so nobody should read the editor setting as a gate. A clean editor does not mean the code passed a type check.
+
 `.vscode/extensions.json` gains `charliermarsh.ruff`, `esbenp.prettier-vscode` and `dbaeumer.vscode-eslint`, and they leave `unwantedRecommendations`.
 
 The dev shell seeds only a missing file, and `odoo-init --standards` usually runs sync before the shell is ever entered. So when sync creates `.vscode/settings.json` or `.vscode/extensions.json`, it writes the seed's keys and the `Odoo.odoo` recommendation into it as well. From then on those are your keys, as if the shell had seeded them: sync does not check them, and turning `ide` off does not remove them. A file that already exists, seeded or your own, gets only the module's keys. `Odoo.serverConfigPath` is deleted wherever it is set (see above); `Odoo.selectedProfile` and every `python-envs.*` setting are never touched, and a `python-envs.*` setting gets a notice, since it overrides the interpreter. The module needs `python-lint` and `js-xml` on, which put ruff in `tools/.venv` and prettier in `node_modules`; the dev shell links both into the checkout. prettier itself skips `.vscode/`, so the files keep the layout you gave them.
