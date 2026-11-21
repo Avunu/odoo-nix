@@ -1,7 +1,7 @@
 # One entry per ecosystem and branch of dependabot.target-branches; every commit is
-# chore(deps), so no update cuts a release. The locked tools (tools/uv.lock,
-# package-lock.json) follow odoo-nix's series data and are no Dependabot entry; a project
-# moves its submodules with the scheduled `odoo project update` (deps.yml).
+# fix(deps), so a merged bump cuts a patch release where the project releases. The locked
+# tools (tools/uv.lock, package-lock.json) follow odoo-nix's series data and are no Dependabot
+# entry; a project moves its submodules with the scheduled `odoo project update` (deps.yml).
 {% set d = cfg.dependabot %}
 version: 2
 updates:
@@ -14,7 +14,7 @@ updates:
     cooldown:
       default-days: {{ d["cooldown-days"] }}
     commit-message:
-      prefix: chore(deps)
+      prefix: fix(deps)
     labels: [dependencies]
     # The caller pins move with the engine (`odoo-init --sync`).
     ignore:
@@ -34,7 +34,7 @@ updates:
       default-days: {{ d["cooldown-days"] }}
       exclude: ["ocb"]
     commit-message:
-      prefix: chore(deps)
+      prefix: fix(deps)
     labels: [dependencies]
     # Moved by `odoo-nix repo rollout` or `odoo-init --sync`.
     ignore:
