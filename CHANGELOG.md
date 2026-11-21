@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.1.1](https://github.com/Avunu/odoo-nix/compare/v3.1.0...v3.1.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **deps:** bump Avunu/site-docs/.github/workflows/check-docs.yml ([#188](https://github.com/Avunu/odoo-nix/issues/188)) ([b4841a9](https://github.com/Avunu/odoo-nix/commit/b4841a96c527084d79643a688f369627ecd1b0b8))
+* **deps:** bump the ocb group with 3 updates ([#196](https://github.com/Avunu/odoo-nix/issues/196)) ([dd74c9f](https://github.com/Avunu/odoo-nix/commit/dd74c9fdaabc75f99cd678957999786abcd86249))
+
 ## [3.1.0](https://github.com/Avunu/odoo-nix/compare/v3.0.0...v3.1.0) (2026-11-18)
 
 
