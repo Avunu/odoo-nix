@@ -27,7 +27,7 @@ All of these are under `perSystem.odoo-nix`. Secrets are declared at the top lev
 | `nodeOverrides` | attrs of attrs | `{ }` | Attributes merged into an addon's node_modules derivation, by path: for a package that needs the install script the offline install skips. |
 | `pythonOverrides` | overlay | `_: _: { }` | A uv2nix package-set overlay, applied last. |
 | `pythonLibraries` | attrs of lists of packages | `{ }` | Native libraries for a Python package's build, by package name, e.g. `{ python-snappy = [ pkgs.snappy ]; }`. See [C extensions](../development/locks.md#c-extensions-that-need-a-library). |
-| `testBrowser` | null or package | `pkgs.chromium` | The browser Odoo's browser tours drive. `null` relies on one on `PATH`; without any, `odoo test` refuses to run. |
+| `testBrowser` | null or package | `pkgs.chromium` (`google-chrome` on darwin) | The browser Odoo's browser tours drive. `null` relies on one on `PATH`; without any, `odoo test` refuses to run. |
 
 ## Layout
 

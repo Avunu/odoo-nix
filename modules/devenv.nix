@@ -736,9 +736,21 @@ in
 
         testBrowser = mkOption {
           type = types.nullOr types.package;
-          default = pkgs.chromium;
+          # nixpkgs has no chromium for darwin, so there the default is
+          # google-chrome, which is unfree: evaluated from pkgs.path (the nixpkgs
+          # `pkgs` came from) with an allowUnfreePredicate for that one name, the
+          # only unfree package this module allows.
+          default =
+            if pkgs.stdenv.hostPlatform.isDarwin then
+              (import pkgs.path {
+                inherit (pkgs.stdenv.hostPlatform) system;
+                config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "google-chrome" ];
+              }).google-chrome
+            else
+              pkgs.chromium;
           description = ''
-            Browser used by Odoo's HttpCase browser tours.
+            Browser used by Odoo's HttpCase browser tours. The default is
+            Chromium on Linux and google-chrome on darwin.
 
             Odoo drives a headless Chrome over the devtools protocol and looks
             for `google-chrome`, `chromium`, `chromium-browser` or
@@ -746,7 +758,7 @@ in
             rather than failing, so an undeclared system browser turns tours
             into tests that quietly do not run.
 
-            Declared here for the same reason wkhtmltopdf is: a binary Odoo
+            Declared here for the same reason pdfkiln is: a binary Odoo
             shells out to at runtime. Set to `null` to rely on a system browser
             (or to drop the closure on projects that run no tours).
           '';
@@ -1002,6 +1014,10 @@ in
         # stale-lock audit.
         pythonLib = inputs.python-devops-nix.lib.python;
         inherit (pythonLib) threadCaps;
+
+        # The PDF renderer: python-devops-nix's pdfkiln, which provides the
+        # wkhtmltopdf command. It renders with Chromium (nixpkgs' chromium here).
+        pdfkiln = inputs.python-devops-nix.packages.${pkgs.stdenv.hostPlatform.system}.pdfkiln;
 
         # The guard rails, with this project's settings baked in. Only the dev and
         # test environments get it (lib/python.nix), never the production one.
@@ -1949,7 +1965,7 @@ in
                   cfg.nodejs
                   nodeLib.command
                   rtlcss
-                  wkhtmltopdf
+                  pdfkiln
 
                   # DB client + native libs
                   postgresql_16

@@ -255,10 +255,12 @@
 
       # services.odoo-nix, with python-devops-nix's library as the module
       # argument `odooNixBase` (modules/nixos.nix takes the thread caps from
-      # it). The checks import this, not ./modules/nixos.nix alone.
+      # it) and its packages, by system, as `odooNixPackages` (pdfkiln, the PDF
+      # renderer). The checks import this, not ./modules/nixos.nix alone.
       nixosModule = {
         imports = [ ./modules/nixos.nix ];
         _module.args.odooNixBase = base;
+        _module.args.odooNixPackages = inputs.python-devops-nix.packages;
       };
     in
     {
