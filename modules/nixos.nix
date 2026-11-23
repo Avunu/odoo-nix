@@ -30,14 +30,16 @@
 # (nginx.xSendfile, odoo-nix#51); backups and snapshots get their modes where
 # they are written.
 #
-# python-devops-nix's library arrives as the module argument `odooNixBase`:
-# flake.nixosModules.default sets it, so import that, not this file alone.
+# python-devops-nix's library arrives as the module argument `odooNixBase`, and
+# its packages, by system, as `odooNixPackages`: flake.nixosModules.default
+# sets them, so import that, not this file alone.
 {
   config,
   options,
   lib,
   pkgs,
   odooNixBase,
+  odooNixPackages,
   ...
 }:
 
@@ -83,30 +85,36 @@ let
   ++ lib.optional (cfg.logging.file != null) (builtins.dirOf cfg.logging.file);
 
   # The sandbox for odoo.service and odoo-migrate, which run the same Odoo
-  # code. Odoo shells out to wkhtmltopdf for PDF reports (QtWebKit's JIT) and
-  # to rtlcss, a Node program (V8's JIT), when it compiles a right-to-left
-  # asset bundle, so both need W+X memory. odoo-migrate gets the same: a
-  # module's install or migration hook may render a report, and a refused
-  # JIT there would fail the deploy and keep Odoo down.
+  # code. Odoo shells out to wkhtmltopdf for PDF reports, which is pdfkiln, a
+  # drop-in that renders with Chromium: the chromium profile (V8's JIT, and the
+  # namespaces and syscalls Chromium's own sandbox needs). And to rtlcss, a
+  # Node program (V8's JIT), when it compiles a right-to-left asset bundle: the
+  # jit profile. odoo-migrate gets the same: a module's install or migration
+  # hook may render a report, and a refused JIT there would fail the deploy
+  # and keep Odoo down. The filter also allows @mount, which Chromium's sandbox
+  # needs for chroot(2) (lib/pdf-hardening.nix; tests/pdf-hardened.nix).
   #
   # Only with hardening.enable (the default since 2.0.0): with it off, the
   # units get no sandboxing keys at all.
   harden = args: lib.optionalAttrs cfg.hardening.enable (odooNixBase.nixos.hardening args);
+  pdfHardening = import ../lib/pdf-hardening.nix { inherit lib; };
   odooHardening = harden {
     readWritePaths = odooWritePaths;
     profiles = [
-      "wkhtmltopdf"
+      "chromium"
       "jit"
     ];
+    overrides = pdfHardening;
   };
   # odoo.service also creates its sockets. ProtectSystem=strict keeps /run
   # read-only, so their directories are listed beside the state.
   webHardening = harden {
     readWritePaths = odooWritePaths ++ odooSocketDirs;
     profiles = [
-      "wkhtmltopdf"
+      "chromium"
       "jit"
     ];
+    overrides = pdfHardening;
   };
 
   # nginx serves the public side over a unix socket (nginx.socketPath), and can
@@ -253,9 +261,13 @@ let
 
   runtimeConf = "${cfg.stateDir}/odoo.conf";
 
+  # The PDF renderer: python-devops-nix's pdfkiln, which provides the
+  # wkhtmltopdf command. It renders with Chromium (nixpkgs' chromium here).
+  pdfkiln = odooNixPackages.${pkgs.stdenv.hostPlatform.system}.pdfkiln;
+
   # Native runtime tools Odoo shells out to (PDF, RTL CSS, psql for restores).
   runtimePath = [
-    pkgs.wkhtmltopdf
+    pdfkiln
     pkgs.rtlcss
     pkgs.postgresql
     pkgs.git
@@ -415,8 +427,9 @@ in
         with only the state directory writable, ProtectHome, PrivateTmp,
         PrivateDevices, no capabilities, a syscall filter, and the rest of the
         baseline (python-devops-nix docs/conventions.md, Unit hardening). odoo
-        and odoo-migrate may map W+X memory (wkhtmltopdf, rtlcss). Every key is a mkDefault, so a host can
-        relax one per unit.
+        and odoo-migrate run its chromium profile (PDF reports, rendered by
+        pdfkiln) and jit profile (rtlcss), so they may map W+X memory. Every key
+        is a mkDefault, so a host can relax one per unit.
 
         On by default since 2.0.0 (off through 1.x). Watch the first start
         after upgrading (`journalctl -u odoo-init -u odoo-migrate -u odoo`),

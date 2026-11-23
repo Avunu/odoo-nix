@@ -315,7 +315,10 @@ in
   # python-devops-nix's sandboxing baseline on every unit odoo-nix defines,
   # with no UMask anywhere (odoo-nix#51: nginx reads the filestore through
   # the group), the state directory writable, and W+X memory only where Odoo
-  # runs (wkhtmltopdf, rtlcss).
+  # runs (Chromium for PDF reports, rtlcss). odoo and odoo-migrate run the
+  # chromium profile: namespaces unrestricted for Chromium's sandbox, the
+  # syscall filter without ~@privileged but with @mount (lib/pdf-hardening.nix),
+  # and AF_NETLINK. odoo-init keeps the baseline.
   service-hardening = {
     expected = {
       baseline = lib.genAttrs odooUnits (_: {
@@ -324,13 +327,35 @@ in
         ProtectHome = true;
         PrivateTmp = true;
         CapabilityBoundingSet = "";
-        SystemCallFilter = [
-          "@system-service"
-          "~@privileged"
-        ];
         umask = false;
         writable = true;
       });
+      chromium = {
+        odoo = {
+          RestrictNamespaces = false;
+          SystemCallFilter = [
+            "@system-service"
+            "@mount"
+          ];
+          netlink = true;
+        };
+        odoo-migrate = {
+          RestrictNamespaces = false;
+          SystemCallFilter = [
+            "@system-service"
+            "@mount"
+          ];
+          netlink = true;
+        };
+        odoo-init = {
+          RestrictNamespaces = true;
+          SystemCallFilter = [
+            "@system-service"
+            "~@privileged"
+          ];
+          netlink = false;
+        };
+      };
       jit = {
         odoo = false;
         odoo-migrate = false;
@@ -352,10 +377,19 @@ in
             ProtectHome
             PrivateTmp
             CapabilityBoundingSet
-            SystemCallFilter
             ;
           umask = c ? UMask;
           writable = lib.elem "/var/lib/odoo" c.ReadWritePaths;
+        }
+      );
+      chromium = lib.genAttrs odooUnits (
+        u:
+        let
+          c = sc pinned u;
+        in
+        {
+          inherit (c) RestrictNamespaces SystemCallFilter;
+          netlink = lib.elem "AF_NETLINK" c.RestrictAddressFamilies;
         }
       );
       jit = lib.genAttrs odooUnits (u: (sc pinned u).MemoryDenyWriteExecute);
