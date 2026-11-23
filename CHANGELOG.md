@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.2.0](https://github.com/Avunu/odoo-nix/compare/v3.1.0...v3.2.0) (2026-11-23)
+
+
+### Features
+
+* **nixos:** render PDFs with pdfkiln, a wkhtmltopdf drop-in on Chromium ([#202](https://github.com/Avunu/odoo-nix/issues/202)) ([979037a](https://github.com/Avunu/odoo-nix/commit/979037a73c3a8ba9036749569b63d980b931423a))
+
+
+### Bug Fixes
+
+* **deps:** bump Avunu/site-docs/.github/workflows/check-docs.yml ([#188](https://github.com/Avunu/odoo-nix/issues/188)) ([b4841a9](https://github.com/Avunu/odoo-nix/commit/b4841a96c527084d79643a688f369627ecd1b0b8))
+* **deps:** bump the ocb group with 3 updates ([#196](https://github.com/Avunu/odoo-nix/issues/196)) ([dd74c9f](https://github.com/Avunu/odoo-nix/commit/dd74c9fdaabc75f99cd678957999786abcd86249))
+* **deps:** generated Dependabot entries use the fix(deps) prefix ([#200](https://github.com/Avunu/odoo-nix/issues/200)) ([b55487d](https://github.com/Avunu/odoo-nix/commit/b55487d5e156eef8e1b0fc599659e3e58de428a0))
+* **devenv:** don't link into the core checkout when the link farm is rebuilt twice ([#203](https://github.com/Avunu/odoo-nix/issues/203)) ([db06489](https://github.com/Avunu/odoo-nix/commit/db064896ca84f60264379a332924d740e7f9f45b))
+
 ## [3.1.0](https://github.com/Avunu/odoo-nix/compare/v3.0.0...v3.1.0) (2026-11-18)
 
 
