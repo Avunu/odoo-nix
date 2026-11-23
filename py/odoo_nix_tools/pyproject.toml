@@ -18,7 +18,7 @@ license = { text = "MIT" }
 dependencies = [
     # The engine. Its sha equals flake.lock's python-devops-nix rev and every
     # Avunu/python-devops-nix/...@sha in .github/** (checks.standards-core-pins).
-    "standards-core @ git+https://github.com/Avunu/python-devops-nix@e76d5d850b35e4d0abc58fae6617713764f3683a#subdirectory=standards",
+    "standards-core @ git+https://github.com/Avunu/python-devops-nix@19c28d07fc29d5d9495893eea65251ebad0baba1#subdirectory=standards",
 ]
 
 [project.scripts]

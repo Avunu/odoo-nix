@@ -255,10 +255,12 @@
 
       # services.odoo-nix, with python-devops-nix's library as the module
       # argument `odooNixBase` (modules/nixos.nix takes the thread caps from
-      # it). The checks import this, not ./modules/nixos.nix alone.
+      # it) and its packages, by system, as `odooNixPackages` (pdfkiln, the PDF
+      # renderer). The checks import this, not ./modules/nixos.nix alone.
       nixosModule = {
         imports = [ ./modules/nixos.nix ];
         _module.args.odooNixBase = base;
+        _module.args.odooNixPackages = inputs.python-devops-nix.packages;
       };
     in
     {
@@ -348,7 +350,7 @@
       #   built-odoo-<major>, built-odoo-no-odoo-bin-<major>, odoo-init-<major>,
       #   odoo-test-<major>, cli-*-<major>                    run Odoo (Linux only)
       #   odoo-test-ci-18                                     `odoo test --all --fresh-db --coverage --log`, checklog-odoo (Linux only)
-      #   service-<major>, nginx                              NixOS VM tests (Linux only)
+      #   service-<major>, nginx, pdf-hardened                NixOS VM tests (Linux only)
       checks = forAllSystems (
         pkgs:
         let
@@ -1219,6 +1221,14 @@
             import ./tests/nginx.nix {
               inherit pkgs;
               odooModule = nixosModule;
+            }
+          );
+          # The sandbox of the units that render PDFs (tests/pdf-hardened.nix): a
+          # hardened unit with their profiles renders a PDF with pdfkiln.
+          pdf-hardened = (checksFor pkgs).nixosTest "pdf-hardened" (
+            import ./tests/pdf-hardened.nix {
+              inherit pkgs base;
+              pdfkiln = inputs.python-devops-nix.packages.${pkgs.stdenv.hostPlatform.system}.pdfkiln;
             }
           );
         }

@@ -95,7 +95,7 @@ The PostgreSQL cluster predates `postgres.noCow`. Stop `devenv up` and run the `
 
 ### `odoo test` refuses: `Browser tours cannot run here`
 
-Odoo would skip every browser tour and report it as a pass. Add `websocket-client` to `[dependency-groups].dev` and re-lock, and keep `testBrowser` set (Chromium by default). `ODOO_NIX_TEST_ALLOW_SKIP=1` runs anyway.
+Odoo would skip every browser tour and report it as a pass. Add `websocket-client` to `[dependency-groups].dev` and re-lock, and keep `testBrowser` set (Chromium on Linux, google-chrome on darwin, by default). `ODOO_NIX_TEST_ALLOW_SKIP=1` runs anyway.
 
 ### A browser tour times out on `Emulation.setDeviceMetricsOverride`
 

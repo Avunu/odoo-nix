@@ -10,6 +10,7 @@ name: check
 #   odoo-init-<18|19|20>         `-i base` against an in-sandbox PostgreSQL
 #   odoo-test-<18|19|20>         the fixture addon's Odoo tests (incl. the devguard mail guard)
 #   nginx                        the NixOS module's nginx/socket contract (stub Odoo, KVM)
+#   pdf-hardened                 a unit with the PDF units' sandbox renders a PDF with pdfkiln (KVM)
 #   service-<18|19|20>           the NixOS module bringing up the real Odoo (KVM)
 #
 # A failed `flake` uploads the failed derivations and the end of their logs, and `report`
@@ -103,7 +104,7 @@ jobs:
         run: nix build .#default -L 2>&1 | tee -a "$RUNNER_TEMP/nix.log"
 
       - if: failure()
-        uses: Avunu/python-devops-nix/.github/actions/nix-failures@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+        uses: Avunu/python-devops-nix/.github/actions/nix-failures@19c28d07fc29d5d9495893eea65251ebad0baba1 # python-devops-nix v1.8.0
         with:
           log: ${{ runner.temp }}/nix.log
           title: flake
@@ -163,6 +164,6 @@ jobs:
     permissions:
       pull-requests: write # the comment
     steps:
-      - uses: Avunu/python-devops-nix/.github/actions/check-report@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+      - uses: Avunu/python-devops-nix/.github/actions/check-report@19c28d07fc29d5d9495893eea65251ebad0baba1 # python-devops-nix v1.8.0
         with:
           needs: ${{ toJSON(needs) }}

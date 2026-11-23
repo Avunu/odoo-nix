@@ -92,7 +92,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@19c28d07fc29d5d9495893eea65251ebad0baba1 # python-devops-nix v1.8.0
         with:
           cli: odoo-nix
           engine-input: odoo-nix
@@ -110,7 +110,7 @@ jobs:
           fi
 
       # The audit token reads the fleet; this job's token writes the scorecard issues.
-      - uses: Avunu/python-devops-nix/.github/actions/standards-fleet-audit@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+      - uses: Avunu/python-devops-nix/.github/actions/standards-fleet-audit@19c28d07fc29d5d9495893eea65251ebad0baba1 # python-devops-nix v1.8.0
         with:
           cli: odoo-nix
           env-prefix: ODOO_NIX

@@ -71,6 +71,10 @@
         [[ $status == "HTTP/1."?" 200 "* ]] || { echo "odoo-healthcheck: $status" >&2; exit 1; }
       '';
 
+      # The PDF renderer: python-devops-nix's pdfkiln, which provides the
+      # wkhtmltopdf command. It renders with Chromium (nixpkgs' chromium here).
+      pdfkiln = inputs.python-devops-nix.packages.${pkgs.stdenv.hostPlatform.system}.pdfkiln;
+
       runtimeDeps = with pkgs; [
         bashInteractive
         coreutils
@@ -79,7 +83,7 @@
         findutils
         cacert
         jq
-        wkhtmltopdf
+        pdfkiln
         rtlcss
         postgresql # psql client
         # fonts for PDF rendering
