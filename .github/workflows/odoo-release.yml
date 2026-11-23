@@ -90,7 +90,7 @@ jobs:
       # and as a wheel, standards-core from Avunu/python-devops-nix at the revision that lock
       # names, with a pinned uv and no uv cache (standards-install's `hardened`). Before the
       # App's token is minted.
-      - uses: Avunu/python-devops-nix/.github/actions/standards-install@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+      - uses: Avunu/python-devops-nix/.github/actions/standards-install@19c28d07fc29d5d9495893eea65251ebad0baba1 # python-devops-nix v1.8.0
         with:
           cli: odoo-nix
           engine-input: odoo-nix
@@ -137,7 +137,7 @@ jobs:
 
       # The push authenticates with the App's token through a header given to the
       # action's git commands only (nothing is written to .git/config).
-      - uses: Avunu/python-devops-nix/.github/actions/standards-release-ff@e76d5d850b35e4d0abc58fae6617713764f3683a # python-devops-nix e76d5d850b35e4d0abc58fae6617713764f3683a
+      - uses: Avunu/python-devops-nix/.github/actions/standards-release-ff@19c28d07fc29d5d9495893eea65251ebad0baba1 # python-devops-nix v1.8.0
         with:
           cli: odoo-nix
           release-branch: ${{ inputs.release-branch }}
