@@ -10,6 +10,7 @@ name: check
 #   odoo-init-<18|19|20>         `-i base` against an in-sandbox PostgreSQL
 #   odoo-test-<18|19|20>         the fixture addon's Odoo tests (incl. the devguard mail guard)
 #   nginx                        the NixOS module's nginx/socket contract (stub Odoo, KVM)
+#   pdf-hardened                 a unit with the PDF units' sandbox renders a PDF with pdfkiln (KVM)
 #   service-<18|19|20>           the NixOS module bringing up the real Odoo (KVM)
 #
 # A failed `flake` uploads the failed derivations and the end of their logs, and `report`

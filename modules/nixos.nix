@@ -91,17 +91,20 @@ let
   # Node program (V8's JIT), when it compiles a right-to-left asset bundle: the
   # jit profile. odoo-migrate gets the same: a module's install or migration
   # hook may render a report, and a refused JIT there would fail the deploy
-  # and keep Odoo down.
+  # and keep Odoo down. The filter also allows @mount, which Chromium's sandbox
+  # needs for chroot(2) (lib/pdf-hardening.nix; tests/pdf-hardened.nix).
   #
   # Only with hardening.enable (the default since 2.0.0): with it off, the
   # units get no sandboxing keys at all.
   harden = args: lib.optionalAttrs cfg.hardening.enable (odooNixBase.nixos.hardening args);
+  pdfHardening = import ../lib/pdf-hardening.nix { inherit lib; };
   odooHardening = harden {
     readWritePaths = odooWritePaths;
     profiles = [
       "chromium"
       "jit"
     ];
+    overrides = pdfHardening;
   };
   # odoo.service also creates its sockets. ProtectSystem=strict keeps /run
   # read-only, so their directories are listed beside the state.
@@ -111,6 +114,7 @@ let
       "chromium"
       "jit"
     ];
+    overrides = pdfHardening;
   };
 
   # nginx serves the public side over a unix socket (nginx.socketPath), and can

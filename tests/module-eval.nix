@@ -317,8 +317,8 @@ in
   # the group), the state directory writable, and W+X memory only where Odoo
   # runs (Chromium for PDF reports, rtlcss). odoo and odoo-migrate run the
   # chromium profile: namespaces unrestricted for Chromium's sandbox, the
-  # syscall filter without ~@privileged, and AF_NETLINK. odoo-init keeps the
-  # baseline.
+  # syscall filter without ~@privileged but with @mount (lib/pdf-hardening.nix),
+  # and AF_NETLINK. odoo-init keeps the baseline.
   service-hardening = {
     expected = {
       baseline = lib.genAttrs odooUnits (_: {
@@ -333,12 +333,18 @@ in
       chromium = {
         odoo = {
           RestrictNamespaces = false;
-          SystemCallFilter = [ "@system-service" ];
+          SystemCallFilter = [
+            "@system-service"
+            "@mount"
+          ];
           netlink = true;
         };
         odoo-migrate = {
           RestrictNamespaces = false;
-          SystemCallFilter = [ "@system-service" ];
+          SystemCallFilter = [
+            "@system-service"
+            "@mount"
+          ];
           netlink = true;
         };
         odoo-init = {

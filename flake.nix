@@ -350,7 +350,7 @@
       #   built-odoo-<major>, built-odoo-no-odoo-bin-<major>, odoo-init-<major>,
       #   odoo-test-<major>, cli-*-<major>                    run Odoo (Linux only)
       #   odoo-test-ci-18                                     `odoo test --all --fresh-db --coverage --log`, checklog-odoo (Linux only)
-      #   service-<major>, nginx                              NixOS VM tests (Linux only)
+      #   service-<major>, nginx, pdf-hardened                NixOS VM tests (Linux only)
       checks = forAllSystems (
         pkgs:
         let
@@ -1221,6 +1221,14 @@
             import ./tests/nginx.nix {
               inherit pkgs;
               odooModule = nixosModule;
+            }
+          );
+          # The sandbox of the units that render PDFs (tests/pdf-hardened.nix): a
+          # hardened unit with their profiles renders a PDF with pdfkiln.
+          pdf-hardened = (checksFor pkgs).nixosTest "pdf-hardened" (
+            import ./tests/pdf-hardened.nix {
+              inherit pkgs base;
+              pdfkiln = inputs.python-devops-nix.packages.${pkgs.stdenv.hostPlatform.system}.pdfkiln;
             }
           );
         }
