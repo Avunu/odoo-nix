@@ -1731,7 +1731,7 @@ in
               case "''${_e##*/}" in
                 addons | __pycache__) continue ;;
               esac
-              ln -s "$_e" "$_pp/odoo/''${_e##*/}"
+              ln -sfn "$_e" "$_pp/odoo/''${_e##*/}"
             done
             # One `ln` per batch rather than per module: each link is named
             # after its target's basename, which *is* the module name.
@@ -1739,7 +1739,7 @@ in
             # No __init__.py under addons/ — leaving it an implicit namespace
             # package is what lets a static analyser merge the roots, which is
             # the same thing pkgutil.extend_path does at runtime.
-            printf '%s\0' "''${_targets[@]}" | xargs -0 ln -s -t "$_pp/odoo/addons" --
+            printf '%s\0' "''${_targets[@]}" | xargs -0 ln -sf -t "$_pp/odoo/addons" --
             printf '%s' "$_want" > "$_pp/.stamp"
             echo "  language-server paths refreshed (''${#_targets[@]} modules)"
           fi
