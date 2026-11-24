@@ -1,3 +1,12 @@
+---
+title: Agents
+description: Make coding agents run the project's gates with ide.agents, for Claude Code and every other agent.
+nav_title: Agents
+order: 7
+tags: [standards, agents]
+updated: 2026-11-24
+---
+
 # Agents
 
 Coding agents push changes that CI sends back for things the pre-commit hooks would have caught. The hooks are installed per clone, by the dev shell's entry (`prek install`), and an agent working in a fresh clone, a worktree, or outside `direnv` never enters that shell. Nothing then runs on its commits, and nothing tells it to run the gates by hand.
