@@ -342,7 +342,7 @@ jobs:
 
       - if: steps.app.outputs.enabled == 'true'
         id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ inputs.client-id }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -511,7 +511,7 @@ jobs:
 
       - if: steps.app.outputs.enabled == 'true'
         id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ inputs.client-id }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -627,7 +627,7 @@ jobs:
       - if: steps.app.outputs.enabled == 'true'
         id: app-token-workflows
         continue-on-error: true
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ inputs.client-id }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -637,7 +637,7 @@ jobs:
 
       - if: steps.app.outputs.enabled == 'true' && steps.app-token-workflows.outcome != 'success'
         id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ inputs.client-id }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -706,7 +706,7 @@ jobs:
       # holds the key, so the token gives it nothing more.
       - if: steps.app.outputs.enabled == 'true'
         id: app-check
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ inputs.submodule-client-id }}
           private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
@@ -759,7 +759,7 @@ jobs:
 
       - if: steps.repos.outputs.repositories != ''
         id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ inputs.submodule-client-id }}
           private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
@@ -934,7 +934,7 @@ jobs:
 
       - if: steps.repos.outputs.repositories != ''
         id: sub-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ inputs.submodule-client-id }}
           private-key: ${{ secrets.SUBMODULE_PRIVATE_KEY }}
@@ -961,7 +961,7 @@ jobs:
 
       - if: steps.app.outputs.enabled == 'true'
         id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           client-id: ${{ inputs.client-id }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
