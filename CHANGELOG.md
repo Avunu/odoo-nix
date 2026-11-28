@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.2.1](https://github.com/Avunu/odoo-nix/compare/v3.2.0...v3.2.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* **deps:** bump https://github.com/astral-sh/ruff-pre-commit ([#208](https://github.com/Avunu/odoo-nix/issues/208)) ([b4435c5](https://github.com/Avunu/odoo-nix/commit/b4435c56c6bcdd60a4a00f0f54691962bc1e33c2))
+* **deps:** bump nixpkgs from `d5cc683` to `0490633` in the nix group ([#211](https://github.com/Avunu/odoo-nix/issues/211)) ([843f9f7](https://github.com/Avunu/odoo-nix/commit/843f9f7a84f687787d6ad0cd75d237830732cbab))
+* **deps:** bump the github-actions group with 2 updates ([#201](https://github.com/Avunu/odoo-nix/issues/201)) ([45f1919](https://github.com/Avunu/odoo-nix/commit/45f191951beca3fad59a4e440933264a3ab3bf3d))
+* **deps:** bump the nix group across 1 directory with 4 updates ([#195](https://github.com/Avunu/odoo-nix/issues/195)) ([58e4e59](https://github.com/Avunu/odoo-nix/commit/58e4e5989a53853d042924b392c35a7182132c44))
+* **deps:** bump the ocb group with 3 updates ([#210](https://github.com/Avunu/odoo-nix/issues/210)) ([7b38c14](https://github.com/Avunu/odoo-nix/commit/7b38c147d3ea7c8592227c522c97fec7e7e1174e))
+
 ## [3.2.0](https://github.com/Avunu/odoo-nix/compare/v3.1.0...v3.2.0) (2026-11-23)
 
 
